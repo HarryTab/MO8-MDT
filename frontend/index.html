@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MO8 MDT</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="crest">MO8</span>
+          <div>
+            <strong>Roads Policing</strong>
+            <span>Internal MDT</span>
+          </div>
+        </div>
+        <nav class="nav" id="nav" hidden>
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="officers">Officers</button>
+          <button class="nav-item" data-view="training">Training</button>
+          <button class="nav-item" data-view="discipline">Discipline</button>
+          <button class="nav-item" data-view="loa">LOA</button>
+          <button class="nav-item" data-view="documents">Documents</button>
+          <button class="nav-item" data-view="audit">Audit</button>
+        </nav>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1 id="pageTitle">Sign in</h1>
+            <p id="pageSubtitle">MO8 roleplay community administration</p>
+          </div>
+          <div class="identity" id="identity" hidden>
+            <span id="currentUser"></span>
+            <button class="ghost" id="logoutButton">Logout</button>
+          </div>
+        </header>
+
+        <section class="panel" id="loginView">
+          <form class="login-form" id="loginForm">
+            <label>
+              Roblox username
+              <input name="username" autocomplete="username" required>
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" autocomplete="current-password" required>
+            </label>
+            <button type="submit">Sign in</button>
+            <p class="form-status" id="loginStatus"></p>
+          </form>
+        </section>
+
+        <section id="appView" hidden>
+          <section class="stats-grid" id="dashboardView"></section>
+
+          <section class="data-view" id="officersView" hidden>
+            <div class="section-head">
+              <h2>Officers</h2>
+              <button id="newOfficerButton">Add officer</button>
+            </div>
+            <div class="table-wrap">
+              <table id="officersTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="trainingView" hidden>
+            <div class="section-head">
+              <h2>Training</h2>
+            </div>
+            <div class="table-wrap">
+              <table id="trainingTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="disciplineView" hidden>
+            <div class="section-head">
+              <h2>Discipline</h2>
+            </div>
+            <div class="table-wrap">
+              <table id="disciplineTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="loaView" hidden>
+            <div class="section-head">
+              <h2>Leave of Absence</h2>
+            </div>
+            <div class="table-wrap">
+              <table id="loaTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="documentsView" hidden>
+            <div class="section-head">
+              <h2>Documents</h2>
+              <button id="newDocumentButton">Add document</button>
+            </div>
+            <div class="table-wrap">
+              <table id="documentsTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="auditView" hidden>
+            <div class="section-head">
+              <h2>Audit Log</h2>
+            </div>
+            <div class="table-wrap">
+              <table id="auditTable"></table>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="editorDialog">
+      <form method="dialog" class="dialog-card" id="editorForm">
+        <div class="section-head">
+          <h2 id="editorTitle">Edit</h2>
+          <button class="ghost" value="cancel">Close</button>
+        </div>
+        <div class="form-grid" id="editorFields"></div>
+        <p class="form-status" id="editorStatus"></p>
+        <button value="submit">Save</button>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
