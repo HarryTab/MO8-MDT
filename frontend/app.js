@@ -7,6 +7,22 @@ const state = {
   activeView: 'dashboard',
 };
 
+const OFFICER_RANKS = [
+  'Police Constable',
+  'Sergeant',
+  'Inspector',
+  'Chief Inspector',
+  'Superintendent',
+  'Chief Superintendent',
+  'Commander',
+  'Deputy Assistant Commissioner',
+  'Assistant Commissioner',
+  'Deputy Commissioner',
+  'Commissioner',
+];
+
+const SYSTEM_ROLES = ['Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
+
 const elements = {
   loginForm: document.querySelector('#loginForm'),
   loginStatus: document.querySelector('#loginStatus'),
@@ -71,7 +87,7 @@ document.querySelector('#newOfficerButton').addEventListener('click', () => {
     field('RobloxUsername', 'Roblox username'),
     field('DiscordID', 'Discord ID'),
     field('Callsign', 'Callsign'),
-    field('Rank', 'Rank'),
+    selectField('Rank', 'Rank', OFFICER_RANKS),
     selectField('Status', 'Status', ['Active', 'LOA', 'Suspended', 'Archived']),
     field('JoinDate', 'Join date', 'date'),
     field('Notes', 'Notes', 'textarea', true),
@@ -85,7 +101,7 @@ document.querySelector('#newDocumentButton').addEventListener('click', () => {
     field('Title', 'Title'),
     selectField('Category', 'Category', ['Training', 'Policy', 'SOP', 'Form']),
     field('DriveURL', 'Drive URL'),
-    selectField('RequiredRole', 'Required role', ['Sergeant', 'Inspector', 'Chief Inspector', 'Command']),
+    selectField('RequiredRole', 'Required role', SYSTEM_ROLES),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived']),
   ], async (values) => {
     return api('saveDocument', values);
@@ -130,7 +146,10 @@ function showApp() {
   elements.appView.hidden = false;
   elements.nav.hidden = false;
   elements.identity.hidden = false;
-  elements.currentUser.textContent = `${state.user.RobloxUsername} - ${state.user.Role}`;
+  elements.currentUser.innerHTML = `
+    <strong>${escapeHtml(state.user.RobloxUsername)}</strong>
+    <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
+  `;
 }
 
 async function showView(view) {
@@ -222,7 +241,12 @@ async function showViewOnly(view) {
 }
 
 function stat(label, value) {
-  return `<article class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></article>`;
+  return `
+    <article class="stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
 }
 
 function renderTable(selector, rows, columns) {
@@ -247,6 +271,15 @@ function formatCell(value) {
   const text = value === undefined || value === null ? '' : String(value);
   if (text.startsWith('https://')) {
     return `<a href="${escapeHtml(text)}" target="_blank" rel="noopener">Open</a>`;
+  }
+  if (['Active', 'Published', 'Passed', 'Approved'].includes(text)) {
+    return `<span class="pill success">${escapeHtml(text)}</span>`;
+  }
+  if (['LOA', 'Pending', 'In Progress', 'Draft'].includes(text)) {
+    return `<span class="pill warning">${escapeHtml(text)}</span>`;
+  }
+  if (['Suspended', 'Archived', 'Failed', 'Denied', 'Active Discipline'].includes(text)) {
+    return `<span class="pill danger">${escapeHtml(text)}</span>`;
   }
   return escapeHtml(text);
 }

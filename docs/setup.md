@@ -44,6 +44,15 @@ Then run `createInitialAdmin`.
 
 After logging in for the first time, replace the temporary password by creating a proper password change feature or manually re-running `setUserPassword_` from Apps Script.
 
+The initial admin is created with:
+
+```text
+Rank: Commissioner
+Role: Command
+```
+
+Rank is the community/policing rank shown on profiles. Role is the system permission group used by the MDT.
+
 ## 4. Deploy the Apps Script API
 
 In Apps Script:

@@ -45,6 +45,22 @@ Run `setupSpreadsheet()` in Apps Script to create these tabs automatically.
 | CreatedAt | ISO timestamp |
 | UpdatedAt | ISO timestamp |
 
+Recommended rank values:
+
+```text
+Police Constable
+Sergeant
+Inspector
+Chief Inspector
+Superintendent
+Chief Superintendent
+Commander
+Deputy Assistant Commissioner
+Assistant Commissioner
+Deputy Commissioner
+Commissioner
+```
+
 ## TrainingRecords
 
 | Column | Purpose |

@@ -1,6 +1,19 @@
 const CONFIG = {
   sessionHours: 12,
   roles: ['Sergeant', 'Inspector', 'Chief Inspector', 'Command'],
+  ranks: [
+    'Police Constable',
+    'Sergeant',
+    'Inspector',
+    'Chief Inspector',
+    'Superintendent',
+    'Chief Superintendent',
+    'Commander',
+    'Deputy Assistant Commissioner',
+    'Assistant Commissioner',
+    'Deputy Commissioner',
+    'Commissioner',
+  ],
   sheets: {
     users: 'Users',
     sessions: 'Sessions',
@@ -61,7 +74,7 @@ function createInitialAdmin() {
     UserID: id_('USR'),
     RobloxUsername: robloxUsername,
     DiscordID: discordId,
-    Rank: 'Command',
+    Rank: 'Commissioner',
     Role: 'Command',
     PasswordHash: hashPassword_(temporaryPassword, salt),
     Salt: salt,
