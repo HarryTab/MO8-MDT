@@ -23,9 +23,10 @@
           <button class="nav-item" data-view="discipline">Discipline</button>
           <button class="nav-item" data-view="loa">LOA</button>
           <button class="nav-item" data-view="documents">Documents</button>
+          <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
           <button class="nav-item" data-view="audit">Audit</button>
         </nav>
-        <div class="version">MDT v0.2</div>
+        <div class="version">MDT v0.3</div>
       </aside>
 
       <section class="workspace">
@@ -36,6 +37,7 @@
           </div>
           <div class="identity" id="identity" hidden>
             <span id="currentUser"></span>
+            <button class="ghost" id="passwordButton">Password</button>
             <button class="ghost" id="logoutButton">Logout</button>
           </div>
         </header>
@@ -61,17 +63,20 @@
           <section class="data-view" id="officersView" hidden>
             <div class="section-head">
               <h2>Officers</h2>
-              <button id="newOfficerButton">Add officer</button>
+              <button id="newOfficerButton" data-permission="ADD_OFFICERS">Add officer</button>
             </div>
             <div class="table-wrap">
               <table id="officersTable"></table>
             </div>
           </section>
 
+          <section class="data-view profile-view" id="officerProfileView" hidden></section>
+
           <section class="data-view" id="trainingView" hidden>
             <div class="section-head">
               <h2>Training</h2>
             </div>
+            <div id="trainingMatrix" class="matrix-block"></div>
             <div class="table-wrap">
               <table id="trainingTable"></table>
             </div>
@@ -98,10 +103,20 @@
           <section class="data-view" id="documentsView" hidden>
             <div class="section-head">
               <h2>Documents</h2>
-              <button id="newDocumentButton">Add document</button>
+              <button id="newDocumentButton" data-permission="MANAGE_DOCUMENTS">Add document</button>
             </div>
             <div class="table-wrap">
               <table id="documentsTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="usersView" hidden>
+            <div class="section-head">
+              <h2>Users</h2>
+              <button id="newUserButton" data-permission="MANAGE_USERS">Add user</button>
+            </div>
+            <div class="table-wrap">
+              <table id="usersTable"></table>
             </div>
           </section>
 

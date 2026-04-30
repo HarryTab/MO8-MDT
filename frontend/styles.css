@@ -64,6 +64,14 @@ button.ghost {
   box-shadow: none;
 }
 
+button.mini {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
 a {
   color: var(--blue);
   font-weight: 700;
@@ -185,6 +193,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 #currentUser {
@@ -337,6 +346,21 @@ tbody tr:hover {
   background: var(--surface-tint);
 }
 
+tr[data-open-officer] {
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.compact th,
+.compact td {
+  padding: 10px 11px;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -389,6 +413,108 @@ dialog::backdrop {
   grid-column: 1 / -1;
 }
 
+.profile-view {
+  display: grid;
+  gap: 18px;
+}
+
+.profile-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.profile-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.profile-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.detail-card,
+.profile-notes,
+.profile-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.detail-card {
+  display: grid;
+  gap: 8px;
+  padding: 15px;
+}
+
+.detail-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detail-card strong {
+  font-size: 15px;
+}
+
+.profile-notes {
+  padding: 16px;
+}
+
+.profile-notes h3,
+.profile-panel h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.profile-notes p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.profile-columns {
+  display: grid;
+  gap: 14px;
+}
+
+.matrix-block {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.matrix-block h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.profile-panel {
+  padding: 16px;
+  min-width: 0;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+}
+
 [hidden] {
   display: none !important;
 }
@@ -433,7 +559,13 @@ dialog::backdrop {
   }
 
   .stats-grid,
-  .form-grid {
+  .form-grid,
+  .profile-grid,
+  .profile-head {
     grid-template-columns: 1fr;
+  }
+
+  .profile-actions {
+    justify-content: flex-start;
   }
 }

@@ -40,9 +40,9 @@ const HEADERS = {
 };
 
 const DEFAULT_PERMISSIONS = {
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'VIEW_DOCUMENTS', 'CREATE_LOA_REVIEW_NOTE'],
-  Inspector: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS'],
-  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  Inspector: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
 
@@ -115,15 +115,21 @@ function handleRequest_(e) {
       me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role) }),
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listRows_(CONFIG.sheets.officers)),
+      getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
       listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listRows_(CONFIG.sheets.training)),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       listDiscipline: () => requirePermission_(auth, 'VIEW_DISCIPLINE', () => listRows_(CONFIG.sheets.discipline)),
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
-      listLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => listRows_(CONFIG.sheets.loa)),
+      listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
+      createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
       reviewLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => reviewLoa_(auth, payload)),
       listDocuments: () => requirePermission_(auth, 'VIEW_DOCUMENTS', () => listRows_(CONFIG.sheets.documents)),
       saveDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => saveDocument_(auth, payload)),
+      listUsers: () => requirePermission_(auth, 'MANAGE_USERS', () => listUsers_()),
+      saveUser: () => requirePermission_(auth, 'MANAGE_USERS', () => saveUser_(auth, payload)),
+      resetUserPassword: () => requirePermission_(auth, 'RESET_PASSWORDS', () => resetUserPassword_(auth, payload)),
+      changePassword: () => requirePermission_(auth, 'CHANGE_OWN_PASSWORD', () => changePassword_(auth, payload)),
       auditLog: () => requirePermission_(auth, 'VIEW_AUDIT_LOG', () => listRows_(CONFIG.sheets.audit)),
     };
 
@@ -207,6 +213,17 @@ function dashboard_() {
   });
 }
 
+function getOfficerProfile_(payload) {
+  if (!payload.OfficerID) return fail_('OfficerID is required.');
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === payload.OfficerID);
+  if (!officer) return fail_('Officer not found.');
+
+  const training = getTable_(CONFIG.sheets.training).rows.filter((row) => row.OfficerID === payload.OfficerID);
+  const discipline = getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID);
+  const loa = getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID);
+  return ok_({ officer, training, discipline, loa });
+}
+
 function saveOfficer_(auth, payload) {
   const now = now_();
   const officer = {
@@ -285,6 +302,24 @@ function reviewLoa_(auth, payload) {
   return ok_({ RequestID: payload.RequestID });
 }
 
+function createLoa_(auth, payload) {
+  const request = {
+    RequestID: id_('LOA'),
+    OfficerID: payload.OfficerID || '',
+    StartDate: payload.StartDate || '',
+    EndDate: payload.EndDate || '',
+    Reason: payload.Reason || '',
+    Status: payload.Status || 'Pending',
+    ReviewedBy: '',
+    ReviewedAt: '',
+    CreatedAt: now_(),
+  };
+  if (!request.OfficerID) return fail_('OfficerID is required.');
+  appendObject_(CONFIG.sheets.loa, request);
+  audit_(auth.user.UserID, 'CREATE_LOA', 'LOARequest', request.RequestID, request);
+  return ok_({ RequestID: request.RequestID });
+}
+
 function saveDocument_(auth, payload) {
   const document = {
     Title: payload.Title || '',
@@ -306,6 +341,73 @@ function saveDocument_(auth, payload) {
   appendObject_(CONFIG.sheets.documents, document);
   audit_(auth.user.UserID, 'CREATE_DOCUMENT', 'Document', document.DocumentID, document);
   return ok_({ DocumentID: document.DocumentID });
+}
+
+function listUsers_() {
+  const rows = getTable_(CONFIG.sheets.users).rows.map(publicUser_);
+  return ok_({ rows });
+}
+
+function saveUser_(auth, payload) {
+  const now = now_();
+  const user = {
+    RobloxUsername: payload.RobloxUsername || '',
+    DiscordID: payload.DiscordID || '',
+    Rank: payload.Rank || 'Sergeant',
+    Role: payload.Role || 'Sergeant',
+    Status: payload.Status || 'Active',
+  };
+
+  if (!user.RobloxUsername) return fail_('Roblox username is required.');
+
+  if (payload.UserID) {
+    updateRow_(CONFIG.sheets.users, 'UserID', payload.UserID, user);
+    audit_(auth.user.UserID, 'UPDATE_USER', 'User', payload.UserID, user);
+    return ok_({ UserID: payload.UserID });
+  }
+
+  const temporaryPassword = payload.TemporaryPassword || randomPassword_();
+  const salt = randomToken_();
+  user.UserID = id_('USR');
+  user.PasswordHash = hashPassword_(temporaryPassword, salt);
+  user.Salt = salt;
+  user.LastLogin = '';
+  user.CreatedAt = now;
+  user.CreatedBy = auth.user.UserID;
+  appendObject_(CONFIG.sheets.users, user);
+  audit_(auth.user.UserID, 'CREATE_USER', 'User', user.UserID, publicUser_(user));
+  return ok_({ UserID: user.UserID, temporaryPassword });
+}
+
+function resetUserPassword_(auth, payload) {
+  if (!payload.UserID) return fail_('UserID is required.');
+  const temporaryPassword = payload.TemporaryPassword || randomPassword_();
+  const salt = randomToken_();
+  updateRow_(CONFIG.sheets.users, 'UserID', payload.UserID, {
+    PasswordHash: hashPassword_(temporaryPassword, salt),
+    Salt: salt,
+  });
+  audit_(auth.user.UserID, 'RESET_PASSWORD', 'User', payload.UserID, {});
+  return ok_({ UserID: payload.UserID, temporaryPassword });
+}
+
+function changePassword_(auth, payload) {
+  const currentPassword = String(payload.CurrentPassword || '');
+  const newPassword = String(payload.NewPassword || '');
+  if (!currentPassword || !newPassword) return fail_('Current and new password are required.');
+  if (newPassword.length < 8) return fail_('New password must be at least 8 characters.');
+
+  const user = getTable_(CONFIG.sheets.users).rows.find((row) => row.UserID === auth.user.UserID);
+  if (!user) return fail_('User not found.');
+  if (hashPassword_(currentPassword, user.Salt) !== user.PasswordHash) return fail_('Current password is incorrect.');
+
+  const salt = randomToken_();
+  updateRow_(CONFIG.sheets.users, 'UserID', user.UserID, {
+    PasswordHash: hashPassword_(newPassword, salt),
+    Salt: salt,
+  });
+  audit_(auth.user.UserID, 'CHANGE_PASSWORD', 'User', user.UserID, {});
+  return ok_({ changed: true });
 }
 
 function requireSession_(token) {
@@ -335,6 +437,9 @@ function getUserPermissions_(role) {
   const permissions = table.rows
     .filter((row) => row.Role === role && String(row.Allowed).toUpperCase() === 'TRUE')
     .map((row) => row.Permission);
+  if (permissions.includes('APPROVE_LOA') && !permissions.includes('VIEW_LOA')) permissions.push('VIEW_LOA');
+  if (permissions.includes('CREATE_LOA_REVIEW_NOTE') && !permissions.includes('CREATE_LOA')) permissions.push('CREATE_LOA');
+  if (!permissions.includes('CHANGE_OWN_PASSWORD')) permissions.push('CHANGE_OWN_PASSWORD');
   return permissions;
 }
 
@@ -459,6 +564,10 @@ function now_() {
 
 function randomToken_() {
   return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+}
+
+function randomPassword_() {
+  return `MO8-${Utilities.getUuid().slice(0, 8)}!`;
 }
 
 function hashPassword_(password, salt) {
