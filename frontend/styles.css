@@ -148,6 +148,15 @@ a:hover {
   outline: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.version {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  right: 18px;
+  color: #8fa1bd;
+  font-size: 12px;
+}
+
 .workspace {
   min-width: 0;
   padding: 28px;
@@ -393,6 +402,11 @@ dialog::backdrop {
     position: static;
     height: auto;
     padding: 16px;
+  }
+
+  .version {
+    position: static;
+    margin-top: 14px;
   }
 
   .brand {
