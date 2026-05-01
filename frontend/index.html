@@ -18,7 +18,7 @@
         </div>
         <div class="system-meta">
           <span>SECURE SESSION</span>
-          <span>MDT v0.5</span>
+          <span>MDT v0.6</span>
         </div>
       </header>
 
@@ -27,13 +27,13 @@
           <div class="dock-label">Modules</div>
           <nav class="nav" id="nav" hidden>
             <button class="nav-item active" data-view="dashboard">Dashboard</button>
-            <button class="nav-item" data-view="officers">Officers</button>
-            <button class="nav-item" data-view="training">Training</button>
-            <button class="nav-item" data-view="discipline">Discipline</button>
-            <button class="nav-item" data-view="loa">LOA</button>
-            <button class="nav-item" data-view="documents">Documents</button>
+            <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
+            <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
+            <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
+            <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
+            <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
             <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
-            <button class="nav-item" data-view="audit">Audit</button>
+            <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
           </nav>
         </aside>
 

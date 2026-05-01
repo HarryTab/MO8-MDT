@@ -21,7 +21,7 @@
   --amber-soft: #fff1c9;
   --red: #ac3428;
   --red-soft: #fde3df;
-  --shadow: 0 24px 70px rgba(24, 39, 63, 0.16);
+  --shadow: 0 8px 24px rgba(24, 39, 63, 0.08);
   --radius: 12px;
 }
 
@@ -69,7 +69,7 @@ button {
   font-size: 13px;
   font-weight: 850;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(18, 103, 216, 0.20);
+  box-shadow: none;
 }
 
 button:hover {
@@ -124,7 +124,6 @@ a:hover {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(184, 197, 212, 0.78);
   border-radius: 14px;
-  box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
 }
 
@@ -190,7 +189,6 @@ a:hover {
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(184, 197, 212, 0.82);
   border-radius: 18px;
-  box-shadow: var(--shadow);
   overflow: hidden;
   backdrop-filter: blur(18px);
 }
@@ -239,7 +237,7 @@ a:hover {
   color: #fff;
   background: linear-gradient(180deg, #1980ff, #1267d8);
   border-color: var(--blue);
-  box-shadow: 0 12px 26px rgba(18, 103, 216, 0.24);
+  box-shadow: none;
 }
 
 .workspace {
@@ -633,9 +631,53 @@ dialog::backdrop {
 }
 
 .profile-notes h3,
-.profile-panel h3 {
+  .profile-panel h3 {
   margin: 0 0 10px;
   font-size: 15px;
+}
+
+.cert-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(184, 197, 212, 0.76);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.cert-panel h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.cert-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cert-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.training-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.70);
+  font-size: 13px;
+}
+
+.training-check input {
+  width: 16px;
+  height: 16px;
 }
 
 .profile-notes p {
@@ -725,7 +767,8 @@ dialog::backdrop {
   .stats-grid,
   .form-grid,
   .profile-grid,
-  .profile-head {
+  .profile-head,
+  .cert-grid {
     grid-template-columns: 1fr;
   }
 

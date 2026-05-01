@@ -1,6 +1,6 @@
 const CONFIG = {
   sessionHours: 12,
-  roles: ['Sergeant', 'Inspector', 'Chief Inspector', 'Command'],
+  roles: ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'],
   ranks: [
     'Police Constable',
     'Sergeant',
@@ -14,6 +14,7 @@ const CONFIG = {
     'Deputy Commissioner',
     'Commissioner',
   ],
+  trainingStandards: ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'],
   sheets: {
     users: 'Users',
     sessions: 'Sessions',
@@ -40,7 +41,8 @@ const HEADERS = {
 };
 
 const DEFAULT_PERMISSIONS = {
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  Constable: ['VIEW_DASHBOARD', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   Inspector: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
@@ -119,12 +121,13 @@ function handleRequest_(e) {
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
       listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listRows_(CONFIG.sheets.training)),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
+      setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
       listDiscipline: () => requirePermission_(auth, 'VIEW_DISCIPLINE', () => listRows_(CONFIG.sheets.discipline)),
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
       listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
       createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
       reviewLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => reviewLoa_(auth, payload)),
-      listDocuments: () => requirePermission_(auth, 'VIEW_DOCUMENTS', () => listRows_(CONFIG.sheets.documents)),
+      listDocuments: () => requirePermission_(auth, 'VIEW_DOCUMENTS', () => listDocuments_(auth)),
       saveDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => saveDocument_(auth, payload)),
       listUsers: () => requirePermission_(auth, 'MANAGE_USERS', () => listUsers_()),
       saveUser: () => requirePermission_(auth, 'MANAGE_USERS', () => saveUser_(auth, payload)),
@@ -239,6 +242,7 @@ function saveOfficer_(auth, payload) {
 
   if (payload.OfficerID) {
     updateRow_(CONFIG.sheets.officers, 'OfficerID', payload.OfficerID, officer);
+    syncUserForOfficer_(auth, Object.assign({ OfficerID: payload.OfficerID }, officer));
     audit_(auth.user.UserID, 'UPDATE_OFFICER', 'Officer', payload.OfficerID, officer);
     return ok_({ OfficerID: payload.OfficerID });
   }
@@ -246,8 +250,9 @@ function saveOfficer_(auth, payload) {
   officer.OfficerID = id_('OFF');
   officer.CreatedAt = now;
   appendObject_(CONFIG.sheets.officers, officer);
+  const userSync = syncUserForOfficer_(auth, officer);
   audit_(auth.user.UserID, 'CREATE_OFFICER', 'Officer', officer.OfficerID, officer);
-  return ok_({ OfficerID: officer.OfficerID });
+  return ok_({ OfficerID: officer.OfficerID, temporaryPassword: userSync.temporaryPassword || '' });
 }
 
 function saveTraining_(auth, payload) {
@@ -272,6 +277,38 @@ function saveTraining_(auth, payload) {
   appendObject_(CONFIG.sheets.training, record);
   audit_(auth.user.UserID, 'CREATE_TRAINING', 'Training', record.TrainingID, record);
   return ok_({ TrainingID: record.TrainingID });
+}
+
+function setOfficerTraining_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  const standard = payload.Standard || '';
+  const enabled = String(payload.Enabled).toLowerCase() === 'true' || payload.Enabled === true;
+  if (!officerId || !standard) return fail_('OfficerID and Standard are required.');
+  if (!CONFIG.trainingStandards.includes(standard)) return fail_('Unknown training standard.');
+
+  const table = getTable_(CONFIG.sheets.training);
+  const existing = table.rows.find((row) => row.OfficerID === officerId && row.Standard === standard);
+  const update = {
+    OfficerID: officerId,
+    Standard: standard,
+    Status: enabled ? 'Passed' : 'Not Started',
+    Assessor: auth.user.RobloxUsername,
+    DateCompleted: enabled ? today_() : '',
+    ExpiryDate: '',
+    Notes: enabled ? 'Assigned via certification checklist' : '',
+    UpdatedAt: now_(),
+  };
+
+  if (existing) {
+    updateRow_(CONFIG.sheets.training, 'TrainingID', existing.TrainingID, update);
+    audit_(auth.user.UserID, 'SET_TRAINING', 'Training', existing.TrainingID, update);
+    return ok_({ TrainingID: existing.TrainingID });
+  }
+
+  update.TrainingID = id_('TRN');
+  appendObject_(CONFIG.sheets.training, update);
+  audit_(auth.user.UserID, 'SET_TRAINING', 'Training', update.TrainingID, update);
+  return ok_({ TrainingID: update.TrainingID });
 }
 
 function addDiscipline_(auth, payload) {
@@ -325,7 +362,7 @@ function saveDocument_(auth, payload) {
     Title: payload.Title || '',
     Category: payload.Category || 'Training',
     DriveURL: payload.DriveURL || '',
-    RequiredRole: payload.RequiredRole || 'Sergeant',
+    RequiredRole: payload.RequiredRole || 'Police Constable',
     Status: payload.Status || 'Published',
     UpdatedBy: auth.user.UserID,
     UpdatedAt: now_(),
@@ -343,6 +380,13 @@ function saveDocument_(auth, payload) {
   return ok_({ DocumentID: document.DocumentID });
 }
 
+function listDocuments_(auth) {
+  const rows = getTable_(CONFIG.sheets.documents).rows
+    .filter((row) => row.Status === 'Published' || canManageDocuments_(auth))
+    .filter((row) => canAccessDocument_(auth.user, row.RequiredRole || 'Police Constable'));
+  return ok_({ rows });
+}
+
 function listUsers_() {
   const rows = getTable_(CONFIG.sheets.users).rows.map(publicUser_);
   return ok_({ rows });
@@ -353,8 +397,8 @@ function saveUser_(auth, payload) {
   const user = {
     RobloxUsername: payload.RobloxUsername || '',
     DiscordID: payload.DiscordID || '',
-    Rank: payload.Rank || 'Sergeant',
-    Role: payload.Role || 'Sergeant',
+    Rank: payload.Rank || 'Police Constable',
+    Role: payload.Role || roleForRank_(payload.Rank || 'Police Constable'),
     Status: payload.Status || 'Active',
   };
 
@@ -362,6 +406,7 @@ function saveUser_(auth, payload) {
 
   if (payload.UserID) {
     updateRow_(CONFIG.sheets.users, 'UserID', payload.UserID, user);
+    syncOfficerForUser_(auth, Object.assign({ UserID: payload.UserID }, user));
     audit_(auth.user.UserID, 'UPDATE_USER', 'User', payload.UserID, user);
     return ok_({ UserID: payload.UserID });
   }
@@ -375,6 +420,7 @@ function saveUser_(auth, payload) {
   user.CreatedAt = now;
   user.CreatedBy = auth.user.UserID;
   appendObject_(CONFIG.sheets.users, user);
+  syncOfficerForUser_(auth, user);
   audit_(auth.user.UserID, 'CREATE_USER', 'User', user.UserID, publicUser_(user));
   return ok_({ UserID: user.UserID, temporaryPassword });
 }
@@ -437,10 +483,98 @@ function getUserPermissions_(role) {
   const permissions = table.rows
     .filter((row) => row.Role === role && String(row.Allowed).toUpperCase() === 'TRUE')
     .map((row) => row.Permission);
+  if (role === 'Constable' && !permissions.includes('VIEW_DASHBOARD')) permissions.push('VIEW_DASHBOARD');
+  if (role === 'Constable' && !permissions.includes('VIEW_DOCUMENTS')) permissions.push('VIEW_DOCUMENTS');
+  if (role === 'Sergeant' && !permissions.includes('MANAGE_TRAINING')) permissions.push('MANAGE_TRAINING');
   if (permissions.includes('APPROVE_LOA') && !permissions.includes('VIEW_LOA')) permissions.push('VIEW_LOA');
   if (permissions.includes('CREATE_LOA_REVIEW_NOTE') && !permissions.includes('CREATE_LOA')) permissions.push('CREATE_LOA');
   if (!permissions.includes('CHANGE_OWN_PASSWORD')) permissions.push('CHANGE_OWN_PASSWORD');
   return permissions;
+}
+
+function syncUserForOfficer_(auth, officer) {
+  const username = String(officer.RobloxUsername || '').trim();
+  if (!username) return {};
+  const users = getTable_(CONFIG.sheets.users);
+  const existing = users.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
+  const role = roleForRank_(officer.Rank || 'Police Constable');
+  const update = {
+    RobloxUsername: username,
+    DiscordID: officer.DiscordID || '',
+    Rank: officer.Rank || 'Police Constable',
+    Role: role,
+    Status: officer.Status === 'Suspended' ? 'Suspended' : officer.Status === 'Archived' ? 'Archived' : 'Active',
+  };
+
+  if (existing) {
+    updateRow_(CONFIG.sheets.users, 'UserID', existing.UserID, update);
+    return { UserID: existing.UserID };
+  }
+
+  const temporaryPassword = randomPassword_();
+  const salt = randomToken_();
+  update.UserID = id_('USR');
+  update.PasswordHash = hashPassword_(temporaryPassword, salt);
+  update.Salt = salt;
+  update.LastLogin = '';
+  update.CreatedAt = now_();
+  update.CreatedBy = auth.user.UserID;
+  appendObject_(CONFIG.sheets.users, update);
+  audit_(auth.user.UserID, 'CREATE_LINKED_USER', 'User', update.UserID, publicUser_(update));
+  return { UserID: update.UserID, temporaryPassword };
+}
+
+function syncOfficerForUser_(auth, user) {
+  const username = String(user.RobloxUsername || '').trim();
+  if (!username) return {};
+  const officers = getTable_(CONFIG.sheets.officers);
+  const existing = officers.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
+  const update = {
+    RobloxUsername: username,
+    DiscordID: user.DiscordID || '',
+    Callsign: existing ? existing.Callsign : '',
+    Rank: user.Rank || 'Police Constable',
+    Status: user.Status === 'Suspended' ? 'Suspended' : user.Status === 'Archived' ? 'Archived' : 'Active',
+    JoinDate: existing ? existing.JoinDate : '',
+    Notes: existing ? existing.Notes : '',
+    UpdatedAt: now_(),
+  };
+
+  if (existing) {
+    updateRow_(CONFIG.sheets.officers, 'OfficerID', existing.OfficerID, update);
+    return { OfficerID: existing.OfficerID };
+  }
+
+  update.OfficerID = id_('OFF');
+  update.CreatedAt = now_();
+  appendObject_(CONFIG.sheets.officers, update);
+  audit_(auth.user.UserID, 'CREATE_LINKED_OFFICER', 'Officer', update.OfficerID, update);
+  return { OfficerID: update.OfficerID };
+}
+
+function roleForRank_(rank) {
+  if (rank === 'Police Constable') return 'Constable';
+  if (rank === 'Sergeant') return 'Sergeant';
+  if (rank === 'Inspector') return 'Inspector';
+  if (rank === 'Chief Inspector') return 'Chief Inspector';
+  return 'Command';
+}
+
+function canManageDocuments_(auth) {
+  const permissions = getUserPermissions_(auth.user.Role);
+  return permissions.includes('FULL_ACCESS') || permissions.includes('MANAGE_DOCUMENTS');
+}
+
+function canAccessDocument_(user, required) {
+  const rank = user.Rank || 'Police Constable';
+  const role = user.Role || roleForRank_(rank);
+  const rankIndex = CONFIG.ranks.indexOf(required);
+  if (rankIndex !== -1) return CONFIG.ranks.indexOf(rank) >= rankIndex;
+
+  const roleOrder = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
+  const roleIndex = roleOrder.indexOf(required);
+  if (roleIndex !== -1) return roleOrder.indexOf(role) >= roleIndex;
+  return true;
 }
 
 function seedPermissions_() {
@@ -560,6 +694,10 @@ function id_(prefix) {
 
 function now_() {
   return new Date().toISOString();
+}
+
+function today_() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function randomToken_() {

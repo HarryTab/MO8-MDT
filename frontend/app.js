@@ -14,7 +14,9 @@ const OFFICER_RANKS = [
   'Commissioner',
 ];
 
-const SYSTEM_ROLES = ['Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
+const SYSTEM_ROLES = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
+const ACCESS_LEVELS = [...OFFICER_RANKS, ...SYSTEM_ROLES];
+const TRAINING_STANDARDS = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'];
 const OFFICER_STATUSES = ['Active', 'LOA', 'Suspended', 'Archived'];
 const TRAINING_STATUSES = ['Not Started', 'In Progress', 'Passed', 'Failed'];
 const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
@@ -302,7 +304,6 @@ function renderOfficerProfile(data) {
       </div>
       <div class="profile-actions">
         <button data-edit-officer="${escapeHtml(officer.OfficerID)}" data-permission="EDIT_OFFICERS">Edit officer</button>
-        <button data-add-training="${escapeHtml(officer.OfficerID)}" data-permission="MANAGE_TRAINING">Add training</button>
         <button data-add-discipline="${escapeHtml(officer.OfficerID)}" data-permission="ADD_DISCIPLINE">Add discipline</button>
         <button data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA">Add LOA</button>
       </div>
@@ -315,13 +316,15 @@ function renderOfficerProfile(data) {
       ${detailCard('Updated', officer.UpdatedAt || 'Not set')}
     </section>
 
+    ${trainingChecklist(officer.OfficerID, data.training)}
+
     <section class="profile-notes">
       <h3>Notes</h3>
       <p>${escapeHtml(officer.Notes || 'No notes recorded.')}</p>
     </section>
 
     <section class="profile-columns">
-      ${profileTable('Training', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
+      ${profileTable('Training History', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
       ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'])}
       ${profileTable('LOA', data.loa, ['StartDate', 'EndDate', 'Reason', 'Status'])}
     </section>
@@ -379,7 +382,7 @@ function openDocumentEditor(document = {}) {
     field('Title', 'Title', 'text', false, document.Title),
     selectField('Category', 'Category', ['Training', 'Policy', 'SOP', 'Form'], document.Category),
     field('DriveURL', 'Drive URL', 'url', false, document.DriveURL),
-    selectField('RequiredRole', 'Required role', SYSTEM_ROLES, document.RequiredRole),
+    selectField('RequiredRole', 'Minimum rank or role', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived'], document.Status),
   ], async (values) => api('saveDocument', values));
 }
@@ -389,8 +392,8 @@ function openUserEditor(user = {}) {
     hiddenField('UserID', user.UserID),
     field('RobloxUsername', 'Roblox username', 'text', false, user.RobloxUsername),
     field('DiscordID', 'Discord ID', 'text', false, user.DiscordID),
-    selectField('Rank', 'Rank', OFFICER_RANKS, user.Rank || 'Sergeant'),
-    selectField('Role', 'System role', SYSTEM_ROLES, user.Role || 'Sergeant'),
+    selectField('Rank', 'Rank', OFFICER_RANKS, user.Rank || 'Police Constable'),
+    selectField('Role', 'System role', SYSTEM_ROLES, user.Role || 'Constable'),
     selectField('Status', 'Status', ['Active', 'Suspended', 'Archived'], user.Status || 'Active'),
     field('TemporaryPassword', 'Temporary password', 'text', false),
   ], async (values) => api('saveUser', values), {
@@ -419,8 +422,16 @@ async function handleDocumentClick(event) {
     return;
   }
 
-  const addTraining = event.target.closest('[data-add-training]');
-  if (addTraining) return openTrainingEditor(addTraining.dataset.addTraining);
+  const trainingToggle = event.target.closest('[data-training-toggle]');
+  if (trainingToggle) {
+    await api('setOfficerTraining', {
+      OfficerID: trainingToggle.dataset.officerId,
+      Standard: trainingToggle.dataset.standard,
+      Enabled: trainingToggle.checked,
+    });
+    await loadOfficerProfile(trainingToggle.dataset.officerId);
+    return;
+  }
 
   const addDiscipline = event.target.closest('[data-add-discipline]');
   if (addDiscipline) return openDisciplineEditor(addDiscipline.dataset.addDiscipline);
@@ -473,10 +484,34 @@ function profileTable(title, rows, columns) {
   `;
 }
 
+function trainingChecklist(officerId, trainingRows) {
+  const rows = TRAINING_STANDARDS.map((standard) => {
+    const record = trainingRows.find((item) => item.Standard === standard && item.Status === 'Passed');
+    const checked = record ? ' checked' : '';
+    const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
+    return `
+      <label class="training-check">
+        <input type="checkbox" data-training-toggle data-officer-id="${escapeHtml(officerId)}" data-standard="${escapeHtml(standard)}"${checked}${disabled}>
+        <span>${escapeHtml(standard)}</span>
+      </label>
+    `;
+  }).join('');
+
+  return `
+    <section class="cert-panel">
+      <div>
+        <h3>Training Certifications</h3>
+        <p>Sergeants and above can assign or remove certifications.</p>
+      </div>
+      <div class="cert-grid">${rows}</div>
+    </section>
+  `;
+}
+
 function renderTrainingMatrix(officers, trainingRows) {
   const container = document.querySelector('#trainingMatrix');
-  const standards = [...new Set(trainingRows.map((row) => row.Standard).filter(Boolean))].sort();
-  if (!standards.length || !officers.length) {
+  const standards = TRAINING_STANDARDS;
+  if (!officers.length) {
     container.innerHTML = `<p class="empty">Training matrix will appear once officers and standards have records.</p>`;
     return;
   }
