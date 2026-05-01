@@ -18,7 +18,7 @@
         </div>
         <div class="system-meta">
           <span>SECURE SESSION</span>
-          <span>MDT v0.9</span>
+          <span>MDT v1.0</span>
         </div>
       </header>
 
@@ -27,6 +27,7 @@
           <div class="dock-label">Modules</div>
           <nav class="nav" id="nav" hidden>
             <button class="nav-item active" data-view="dashboard">Dashboard</button>
+            <button class="nav-item" data-view="myProfile">My Profile</button>
             <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
             <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
             <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
@@ -46,6 +47,7 @@
             </div>
             <div class="identity" id="identity" hidden>
               <span id="currentUser"></span>
+              <button class="ghost" id="notificationsButton">Notifications</button>
               <button class="ghost" id="passwordButton">Password</button>
               <button class="ghost" id="logoutButton">Logout</button>
             </div>
@@ -79,10 +81,13 @@
               <h2>Officers</h2>
               <button id="newOfficerButton" data-permission="ADD_OFFICERS">Add officer</button>
             </div>
+            <input class="search-input" id="officerSearch" placeholder="Search officers by username, callsign, rank, or status">
             <div class="table-wrap">
               <table id="officersTable"></table>
             </div>
           </section>
+
+          <section class="data-view profile-view" id="myProfileView" hidden></section>
 
           <section class="data-view profile-view" id="officerProfileView" hidden></section>
 
@@ -90,6 +95,7 @@
             <div class="section-head">
               <h2>Training</h2>
             </div>
+            <input class="search-input" data-search-view="training" placeholder="Search training">
             <div id="trainingMatrix" class="matrix-block"></div>
             <div class="table-wrap">
               <table id="trainingTable"></table>
@@ -100,6 +106,7 @@
             <div class="section-head">
               <h2>Discipline</h2>
             </div>
+            <input class="search-input" data-search-view="discipline" placeholder="Search discipline records">
             <div class="table-wrap">
               <table id="disciplineTable"></table>
             </div>
@@ -109,6 +116,7 @@
             <div class="section-head">
               <h2>Leave of Absence</h2>
             </div>
+            <input class="search-input" data-search-view="loa" placeholder="Search LOA requests">
             <div class="table-wrap">
               <table id="loaTable"></table>
             </div>
@@ -118,6 +126,16 @@
             <div class="section-head">
               <h2>Documents</h2>
               <button id="newDocumentButton" data-permission="MANAGE_DOCUMENTS">Add document</button>
+            </div>
+            <div class="filter-row">
+              <input class="search-input" id="documentSearch" placeholder="Search documents">
+              <select id="documentCategoryFilter">
+                <option value="">All categories</option>
+                <option value="Training">Training</option>
+                <option value="Policy">Policy</option>
+                <option value="SOP">SOP</option>
+                <option value="Form">Form</option>
+              </select>
             </div>
             <div class="table-wrap">
               <table id="documentsTable"></table>
@@ -129,6 +147,7 @@
               <h2>Users</h2>
               <button id="newUserButton" data-permission="MANAGE_USERS">Add user</button>
             </div>
+            <input class="search-input" data-search-view="users" placeholder="Search users">
             <div class="table-wrap">
               <table id="usersTable"></table>
             </div>
@@ -138,6 +157,7 @@
             <div class="section-head">
               <h2>Audit Log</h2>
             </div>
+            <input class="search-input" data-search-view="audit" placeholder="Search audit log">
             <div class="table-wrap">
               <table id="auditTable"></table>
             </div>
@@ -157,6 +177,16 @@
         <p class="form-status" id="editorStatus"></p>
         <button value="submit">Save</button>
       </form>
+    </dialog>
+
+    <dialog id="infoDialog">
+      <div class="dialog-card">
+        <div class="section-head">
+          <h2 id="infoTitle">Information</h2>
+          <button class="ghost" id="infoCloseButton">Close</button>
+        </div>
+        <div id="infoContent"></div>
+      </div>
     </dialog>
 
     <script src="app.js"></script>

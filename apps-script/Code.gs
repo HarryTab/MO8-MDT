@@ -27,20 +27,22 @@ const CONFIG = {
     documents: 'Documents',
     permissions: 'Permissions',
     audit: 'AuditLog',
+    notifications: 'Notifications',
   },
 };
 
 const HEADERS = {
-  Users: ['UserID', 'RobloxUsername', 'DiscordID', 'Rank', 'Role', 'PasswordHash', 'Salt', 'Status', 'LastLogin', 'CreatedAt', 'CreatedBy'],
+  Users: ['UserID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Rank', 'Role', 'PasswordHash', 'Salt', 'Status', 'LastLogin', 'CreatedAt', 'CreatedBy'],
   Sessions: ['SessionID', 'UserID', 'TokenHash', 'CreatedAt', 'ExpiresAt', 'RevokedAt', 'UserAgent'],
-  Officers: ['OfficerID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'Notes', 'CreatedAt', 'UpdatedAt'],
+  Officers: ['OfficerID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'Notes', 'CreatedAt', 'UpdatedAt'],
   TrainingRecords: ['TrainingID', 'OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate', 'Notes', 'UpdatedAt'],
-  TrainingMatrix: ['OfficerID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'UpdatedAt', 'UpdatedBy'],
+  TrainingMatrix: ['OfficerID', 'MemberID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'ReviewDate', 'UpdatedAt', 'UpdatedBy'],
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
   Permissions: ['Role', 'Permission', 'Allowed'],
   AuditLog: ['AuditID', 'Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID', 'Details'],
+  Notifications: ['NotificationID', 'MemberID', 'Title', 'Message', 'CreatedAt', 'ReadAt', 'ActorUserID'],
 };
 
 const DEFAULT_PERMISSIONS = {
@@ -77,6 +79,7 @@ function createInitialAdmin() {
   const now = now_();
   appendObject_(CONFIG.sheets.users, {
     UserID: id_('USR'),
+    MemberID: id_('MBR'),
     RobloxUsername: robloxUsername,
     DiscordID: discordId,
     Rank: 'Commissioner',
@@ -119,6 +122,9 @@ function handleRequest_(e) {
       logout: () => logout_(auth, payload),
       me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role) }),
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
+      myProfile: () => getMyProfile_(auth),
+      listNotifications: () => listNotifications_(auth),
+      markNotificationsRead: () => markNotificationsRead_(auth),
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listRows_(CONFIG.sheets.officers)),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
@@ -126,6 +132,7 @@ function handleRequest_(e) {
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
       setDrivingStandard: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setDrivingStandard_(auth, payload)),
+      setTrainingReviewDate: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setTrainingReviewDate_(auth, payload)),
       listDiscipline: () => requirePermission_(auth, 'VIEW_DISCIPLINE', () => listRows_(CONFIG.sheets.discipline)),
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
       listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
@@ -207,16 +214,42 @@ function logout_(auth, payload) {
 
 function dashboard_() {
   const officers = getTable_(CONFIG.sheets.officers).rows;
-  const training = getTable_(CONFIG.sheets.training).rows;
+  const training = listTrainingCertifications_().rows || [];
   const discipline = getTable_(CONFIG.sheets.discipline).rows;
   const loa = getTable_(CONFIG.sheets.loa).rows;
+  const documents = getTable_(CONFIG.sheets.documents).rows;
+  const audit = getTable_(CONFIG.sheets.audit).rows.slice(-8).reverse();
+  const missingCoreTraining = officers.filter((officer) => {
+    const officerTraining = getTrainingForOfficer_(officer);
+    return officerTraining.some((row) => ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'].includes(row.Standard) && row.Status !== 'Passed');
+  }).length;
   return ok_({
     counts: {
       activeOfficers: officers.filter((officer) => officer.Status === 'Active').length,
       loaPending: loa.filter((request) => request.Status === 'Pending').length,
       trainingRecords: training.length,
       activeDiscipline: discipline.filter((action) => action.Status === 'Active').length,
+      missingCoreTraining,
+      documents: documents.filter((document) => document.Status === 'Published').length,
     },
+    recentAudit: audit,
+    recentDocuments: documents.slice(-5).reverse(),
+    pendingLoa: loa.filter((request) => request.Status === 'Pending').slice(-5).reverse(),
+  });
+}
+
+function getMyProfile_(auth) {
+  const officer = findOfficerForUser_(auth.user);
+  const documents = listDocuments_(auth).rows || [];
+  const notifications = listNotifications_(auth).rows || [];
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], loa: [], documents, notifications });
+  return ok_({
+    user: publicUser_(auth.user),
+    officer,
+    training: getTrainingForOfficer_(officer),
+    loa: getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID),
+    documents,
+    notifications,
   });
 }
 
@@ -234,6 +267,7 @@ function getOfficerProfile_(payload) {
 function saveOfficer_(auth, payload) {
   const now = now_();
   const officer = {
+    MemberID: payload.MemberID || '',
     RobloxUsername: payload.RobloxUsername || '',
     DiscordID: payload.DiscordID || '',
     Callsign: payload.Callsign || '',
@@ -245,18 +279,24 @@ function saveOfficer_(auth, payload) {
   };
 
   if (payload.OfficerID) {
+    const existingOfficer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === payload.OfficerID);
+    if (!existingOfficer) return fail_('Officer not found.');
+    officer.MemberID = officer.MemberID || existingOfficer.MemberID || memberIdForUsername_(officer.RobloxUsername) || id_('MBR');
     updateRow_(CONFIG.sheets.officers, 'OfficerID', payload.OfficerID, officer);
     ensureTrainingMatrixRow_(Object.assign({ OfficerID: payload.OfficerID }, officer));
-    syncUserForOfficer_(auth, Object.assign({ OfficerID: payload.OfficerID }, officer));
+    const userSync = syncUserForOfficer_(auth, Object.assign({ OfficerID: payload.OfficerID }, officer));
+    notifyMember_(officer.MemberID, 'Officer record updated', 'Your MO8 officer record was updated.', auth.user.UserID);
     audit_(auth.user.UserID, 'UPDATE_OFFICER', 'Officer', payload.OfficerID, officer);
     return ok_({ OfficerID: payload.OfficerID });
   }
 
+  officer.MemberID = officer.MemberID || memberIdForUsername_(officer.RobloxUsername) || id_('MBR');
   officer.OfficerID = id_('OFF');
   officer.CreatedAt = now;
   appendObject_(CONFIG.sheets.officers, officer);
   ensureTrainingMatrixRow_(officer);
   const userSync = syncUserForOfficer_(auth, officer);
+  notifyMember_(officer.MemberID, 'MO8 account created', 'Your MDT account and officer profile were created.', auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_OFFICER', 'Officer', officer.OfficerID, officer);
   return ok_({ OfficerID: officer.OfficerID, temporaryPassword: userSync.temporaryPassword || '' });
 }
@@ -296,6 +336,7 @@ function setOfficerTraining_(auth, payload) {
   if (!officer) return fail_('Officer not found.');
   const matrixRow = ensureTrainingMatrixRow_(officer);
   updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+    MemberID: officer.MemberID || '',
     RobloxUsername: officer.RobloxUsername || '',
     [standard]: enabled ? 'TRUE' : 'FALSE',
     UpdatedAt: now_(),
@@ -303,6 +344,7 @@ function setOfficerTraining_(auth, payload) {
   });
 
   const details = { OfficerID: officerId, Standard: standard, Enabled: enabled, MatrixRow: matrixRow._rowNumber };
+  notifyMember_(officer.MemberID, 'Training certification updated', `${standard} was ${enabled ? 'assigned' : 'removed'} on your profile.`, auth.user.UserID);
   audit_(auth.user.UserID, 'SET_TRAINING', 'TrainingMatrix', officerId, details);
   return ok_(details);
 }
@@ -317,6 +359,7 @@ function setDrivingStandard_(auth, payload) {
   if (!officer) return fail_('Officer not found.');
   ensureTrainingMatrixRow_(officer);
   updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+    MemberID: officer.MemberID || '',
     RobloxUsername: officer.RobloxUsername || '',
     DrivingStandard: selectedStandard,
     UpdatedAt: now_(),
@@ -324,7 +367,29 @@ function setDrivingStandard_(auth, payload) {
   });
 
   audit_(auth.user.UserID, 'SET_DRIVING_STANDARD', 'Officer', officerId, { selectedStandard });
+  notifyMember_(officer.MemberID, 'Driving standard updated', `Your driving standard is now ${selectedStandard || 'not set'}.`, auth.user.UserID);
   return ok_({ OfficerID: officerId, selectedStandard });
+}
+
+function setTrainingReviewDate_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  const reviewDate = payload.ReviewDate || '';
+  if (!officerId) return fail_('OfficerID is required.');
+
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  ensureTrainingMatrixRow_(officer);
+  updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+    MemberID: officer.MemberID || '',
+    RobloxUsername: officer.RobloxUsername || '',
+    ReviewDate: reviewDate,
+    UpdatedAt: now_(),
+    UpdatedBy: auth.user.RobloxUsername,
+  });
+
+  audit_(auth.user.UserID, 'SET_TRAINING_REVIEW_DATE', 'Officer', officerId, { reviewDate });
+  notifyMember_(officer.MemberID, 'Training review updated', `Your training review date is now ${reviewDate || 'not set'}.`, auth.user.UserID);
+  return ok_({ OfficerID: officerId, reviewDate });
 }
 
 function addDiscipline_(auth, payload) {
@@ -421,12 +486,14 @@ function trainingObject_(officer, standard, status, matrix) {
   return {
     TrainingID: `${officer.OfficerID}_${standard}`,
     OfficerID: officer.OfficerID,
+    MemberID: officer.MemberID || '',
     RobloxUsername: officer.RobloxUsername,
     Standard: standard,
     Status: status,
     Assessor: matrix.UpdatedBy || '',
     DateCompleted: status === 'Passed' ? String(matrix.UpdatedAt || '').slice(0, 10) : '',
     ExpiryDate: '',
+    ReviewDate: matrix.ReviewDate || '',
     Notes: 'Certification matrix',
     UpdatedAt: matrix.UpdatedAt || '',
   };
@@ -440,6 +507,7 @@ function ensureTrainingMatrixRow_(officer) {
   const legacy = getTable_(CONFIG.sheets.training).rows.filter((row) => String(row.OfficerID) === String(officer.OfficerID));
   const row = {
     OfficerID: officer.OfficerID,
+    MemberID: officer.MemberID || '',
     RobloxUsername: officer.RobloxUsername || '',
     Taser: legacyPassed_(legacy, 'Taser') ? 'TRUE' : 'FALSE',
     MOE: legacyPassed_(legacy, 'MOE') ? 'TRUE' : 'FALSE',
@@ -481,6 +549,7 @@ function listUsers_() {
 function saveUser_(auth, payload) {
   const now = now_();
   const user = {
+    MemberID: payload.MemberID || '',
     RobloxUsername: payload.RobloxUsername || '',
     DiscordID: payload.DiscordID || '',
     Rank: payload.Rank || 'Police Constable',
@@ -491,8 +560,12 @@ function saveUser_(auth, payload) {
   if (!user.RobloxUsername) return fail_('Roblox username is required.');
 
   if (payload.UserID) {
+    const existingUser = getTable_(CONFIG.sheets.users).rows.find((row) => row.UserID === payload.UserID);
+    if (!existingUser) return fail_('User not found.');
+    user.MemberID = user.MemberID || existingUser.MemberID || memberIdForUsername_(user.RobloxUsername) || id_('MBR');
     updateRow_(CONFIG.sheets.users, 'UserID', payload.UserID, user);
     syncOfficerForUser_(auth, Object.assign({ UserID: payload.UserID }, user));
+    notifyMember_(user.MemberID, 'Account updated', 'Your MDT account details were updated.', auth.user.UserID);
     audit_(auth.user.UserID, 'UPDATE_USER', 'User', payload.UserID, user);
     return ok_({ UserID: payload.UserID });
   }
@@ -500,6 +573,7 @@ function saveUser_(auth, payload) {
   const temporaryPassword = payload.TemporaryPassword || randomPassword_();
   const salt = randomToken_();
   user.UserID = id_('USR');
+  user.MemberID = user.MemberID || memberIdForUsername_(user.RobloxUsername) || id_('MBR');
   user.PasswordHash = hashPassword_(temporaryPassword, salt);
   user.Salt = salt;
   user.LastLogin = '';
@@ -507,6 +581,7 @@ function saveUser_(auth, payload) {
   user.CreatedBy = auth.user.UserID;
   appendObject_(CONFIG.sheets.users, user);
   syncOfficerForUser_(auth, user);
+  notifyMember_(user.MemberID, 'MDT account created', 'Your MDT user account was created.', auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_USER', 'User', user.UserID, publicUser_(user));
   return ok_({ UserID: user.UserID, temporaryPassword });
 }
@@ -519,6 +594,8 @@ function resetUserPassword_(auth, payload) {
     PasswordHash: hashPassword_(temporaryPassword, salt),
     Salt: salt,
   });
+  const user = getTable_(CONFIG.sheets.users).rows.find((row) => row.UserID === payload.UserID);
+  if (user) notifyMember_(user.MemberID, 'Password reset', 'Your MDT password was reset by command staff.', auth.user.UserID);
   audit_(auth.user.UserID, 'RESET_PASSWORD', 'User', payload.UserID, {});
   return ok_({ UserID: payload.UserID, temporaryPassword });
 }
@@ -553,6 +630,7 @@ function requireSession_(token) {
 
   const user = users.rows.find((row) => row.UserID === session.UserID);
   if (!user || user.Status !== 'Active') throw new Error('User is not active.');
+  ensureMemberIdentity_(user);
   return { session, user };
 }
 
@@ -582,9 +660,12 @@ function syncUserForOfficer_(auth, officer) {
   const username = String(officer.RobloxUsername || '').trim();
   if (!username) return {};
   const users = getTable_(CONFIG.sheets.users);
-  const existing = users.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
   const role = roleForRank_(officer.Rank || 'Police Constable');
+  const memberId = officer.MemberID || memberIdForUsername_(username) || id_('MBR');
+  const existing = users.rows.find((row) => row.MemberID && row.MemberID === memberId)
+    || users.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
   const update = {
+    MemberID: memberId,
     RobloxUsername: username,
     DiscordID: officer.DiscordID || '',
     Rank: officer.Rank || 'Police Constable',
@@ -614,8 +695,11 @@ function syncOfficerForUser_(auth, user) {
   const username = String(user.RobloxUsername || '').trim();
   if (!username) return {};
   const officers = getTable_(CONFIG.sheets.officers);
-  const existing = officers.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
+  const memberId = user.MemberID || memberIdForUsername_(username) || id_('MBR');
+  const existing = officers.rows.find((row) => row.MemberID && row.MemberID === memberId)
+    || officers.rows.find((row) => String(row.RobloxUsername).toLowerCase() === username.toLowerCase());
   const update = {
+    MemberID: memberId,
     RobloxUsername: username,
     DiscordID: user.DiscordID || '',
     Callsign: existing ? existing.Callsign : '',
@@ -792,12 +876,76 @@ function fail_(message) {
 function publicUser_(user) {
   return {
     UserID: user.UserID,
+    MemberID: user.MemberID,
     RobloxUsername: user.RobloxUsername,
     DiscordID: user.DiscordID,
     Rank: user.Rank,
     Role: user.Role,
     Status: user.Status,
   };
+}
+
+function findOfficerForUser_(user) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  return officers.find((officer) => officer.MemberID && officer.MemberID === user.MemberID)
+    || officers.find((officer) => String(officer.RobloxUsername).toLowerCase() === String(user.RobloxUsername).toLowerCase())
+    || null;
+}
+
+function memberIdForUsername_(username) {
+  const normalized = String(username || '').toLowerCase();
+  if (!normalized) return '';
+  const users = getTable_(CONFIG.sheets.users).rows;
+  const user = users.find((row) => String(row.RobloxUsername).toLowerCase() === normalized);
+  if (user && user.MemberID) return user.MemberID;
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const officer = officers.find((row) => String(row.RobloxUsername).toLowerCase() === normalized);
+  return officer && officer.MemberID ? officer.MemberID : '';
+}
+
+function ensureMemberIdentity_(user) {
+  if (!user || user.MemberID) return user;
+  const memberId = memberIdForUsername_(user.RobloxUsername) || id_('MBR');
+  user.MemberID = memberId;
+  updateRow_(CONFIG.sheets.users, 'UserID', user.UserID, { MemberID: memberId });
+
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const officer = officers.find((row) => String(row.RobloxUsername).toLowerCase() === String(user.RobloxUsername).toLowerCase());
+  if (officer && !officer.MemberID) {
+    updateRow_(CONFIG.sheets.officers, 'OfficerID', officer.OfficerID, { MemberID: memberId });
+  }
+  return user;
+}
+
+function notifyMember_(memberId, title, message, actorUserId) {
+  if (!memberId) return;
+  appendObject_(CONFIG.sheets.notifications, {
+    NotificationID: id_('NTF'),
+    MemberID: memberId,
+    Title: title,
+    Message: message,
+    CreatedAt: now_(),
+    ReadAt: '',
+    ActorUserID: actorUserId || '',
+  });
+}
+
+function listNotifications_(auth) {
+  const memberId = auth.user.MemberID || '';
+  const rows = getTable_(CONFIG.sheets.notifications).rows
+    .filter((row) => row.MemberID === memberId)
+    .slice(-20)
+    .reverse();
+  return ok_({ rows, unread: rows.filter((row) => !row.ReadAt).length });
+}
+
+function markNotificationsRead_(auth) {
+  const memberId = auth.user.MemberID || '';
+  const table = getTable_(CONFIG.sheets.notifications);
+  table.rows.filter((row) => row.MemberID === memberId && !row.ReadAt).forEach((row) => {
+    table.sheet.getRange(row._rowNumber, table.headers.indexOf('ReadAt') + 1).setValue(now_());
+  });
+  return ok_({ read: true });
 }
 
 function id_(prefix) {

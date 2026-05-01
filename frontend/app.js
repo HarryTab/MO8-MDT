@@ -31,6 +31,12 @@ const state = {
   permissions: [],
   activeView: 'dashboard',
   officers: [],
+  training: [],
+  discipline: [],
+  loa: [],
+  documents: [],
+  users: [],
+  audit: [],
   selectedOfficerId: '',
 };
 
@@ -44,6 +50,11 @@ const elements = {
   currentUser: document.querySelector('#currentUser'),
   logoutButton: document.querySelector('#logoutButton'),
   passwordButton: document.querySelector('#passwordButton'),
+  notificationsButton: document.querySelector('#notificationsButton'),
+  infoDialog: document.querySelector('#infoDialog'),
+  infoTitle: document.querySelector('#infoTitle'),
+  infoContent: document.querySelector('#infoContent'),
+  infoCloseButton: document.querySelector('#infoCloseButton'),
   pageTitle: document.querySelector('#pageTitle'),
   pageSubtitle: document.querySelector('#pageSubtitle'),
   dashboardView: document.querySelector('#dashboardView'),
@@ -96,6 +107,15 @@ elements.passwordButton.addEventListener('click', () => {
   ], async (values) => api('changePassword', values), {
     successMessage: 'Password changed.',
   });
+});
+elements.notificationsButton.addEventListener('click', openNotifications);
+elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
+
+document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
+document.querySelector('#documentSearch').addEventListener('input', () => renderDocumentTable());
+document.querySelector('#documentCategoryFilter').addEventListener('change', () => renderDocumentTable());
+document.querySelectorAll('[data-search-view]').forEach((input) => {
+  input.addEventListener('input', () => renderSearchableView(input.dataset.searchView));
 });
 
 document.querySelectorAll('.nav-item').forEach((button) => {
@@ -166,6 +186,7 @@ function applyPermissions() {
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
+    myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
     training: ['Training', 'Training standards and status'],
@@ -187,6 +208,7 @@ async function showView(view) {
 
   const loaders = {
     dashboard: loadDashboard,
+    myProfile: loadMyProfile,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
     training: loadTraining,
@@ -213,12 +235,53 @@ async function loadDashboard() {
   if (!response.ok) return renderError(elements.dashboardView, response.error);
 
   const counts = response.counts || {};
-  elements.dashboardView.innerHTML = [
+  elements.dashboardView.innerHTML = `
+    <div class="stat-row">
+      ${[
     stat('Active Officers', counts.activeOfficers || 0),
     stat('Pending LOA', counts.loaPending || 0),
-    stat('Training Records', counts.trainingRecords || 0),
-    stat('Active Discipline', counts.activeDiscipline || 0),
-  ].join('');
+    stat('Training Items', counts.trainingRecords || 0),
+    stat('Missing Core Training', counts.missingCoreTraining || 0),
+  ].join('')}
+    </div>
+    <section class="dashboard-grid">
+      ${dashboardPanel('Pending LOA', response.pendingLoa || [], ['OfficerID', 'StartDate', 'EndDate', 'Status'])}
+      ${dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt'])}
+      ${dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID'])}
+    </section>
+  `;
+}
+
+async function loadMyProfile() {
+  await showViewOnly('myProfile');
+  const response = await api('myProfile', {});
+  const container = document.querySelector('#myProfileView');
+  if (!response.ok) {
+    container.innerHTML = emptyState(response.error || 'Could not load profile.');
+    return;
+  }
+
+  const officer = response.officer;
+  const user = response.user;
+  const notifications = response.notifications || [];
+  container.innerHTML = `
+    <div class="profile-head">
+      <div>
+        <h2>${escapeHtml(user.RobloxUsername)}</h2>
+        <p>${escapeHtml(user.Rank || user.Role)} / ${escapeHtml(user.Role)}</p>
+      </div>
+    </div>
+    <section class="profile-grid">
+      ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
+      ${detailCard('Status', officer ? formatCell(officer.Status) : 'No record', true)}
+      ${detailCard('Discord ID', user.DiscordID || 'Not set')}
+      ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
+    </section>
+    ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
+    ${profileTable('My LOA', response.loa || [], ['StartDate', 'EndDate', 'Reason', 'Status'])}
+    ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
+    ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
+  `;
 }
 
 async function loadOfficers() {
@@ -226,7 +289,15 @@ async function loadOfficers() {
   const response = await api('listOfficers', {});
   if (!response.ok) return renderTable('#officersTable', [], ['Error'], response.error);
   state.officers = response.rows || [];
-  renderTable('#officersTable', state.officers, ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'JoinDate', 'UpdatedAt'], {
+  renderOfficerTable();
+}
+
+function renderOfficerTable() {
+  const query = document.querySelector('#officerSearch').value.toLowerCase();
+  const rows = state.officers.filter((officer) => {
+    return ['RobloxUsername', 'Callsign', 'Rank', 'Status'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
+  });
+  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
   });
 }
@@ -255,20 +326,27 @@ async function loadTraining() {
   ]);
   const trainingRows = trainingResponse.rows || [];
   const officerRows = officersResponse.rows || [];
+  state.training = trainingRows;
   renderTrainingMatrix(officerRows, trainingRows);
-  renderTable('#trainingTable', trainingRows, ['OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate']);
+  renderSearchableView('training');
 }
 
 async function loadDiscipline() {
   await showViewOnly('discipline');
   const response = await api('listDiscipline', {});
-  renderTable('#disciplineTable', response.rows || [], ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status']);
+  state.discipline = response.rows || [];
+  renderSearchableView('discipline');
 }
 
 async function loadLoa() {
   await showViewOnly('loa');
   const response = await api('listLoa', {});
-  renderTable('#loaTable', response.rows || [], ['OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy'], {
+  state.loa = response.rows || [];
+  renderSearchableView('loa');
+}
+
+function renderLoaTable(rows) {
+  renderTable('#loaTable', rows, ['OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy'], {
     actions: (row) => can('APPROVE_LOA') && row.Status === 'Pending'
       ? `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`
       : '',
@@ -278,13 +356,55 @@ async function loadLoa() {
 async function loadDocuments() {
   await showViewOnly('documents');
   const response = await api('listDocuments', {});
-  renderTable('#documentsTable', response.rows || [], ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL']);
+  state.documents = response.rows || [];
+  renderDocumentTable();
+}
+
+function renderDocumentTable() {
+  const query = document.querySelector('#documentSearch').value.toLowerCase();
+  const category = document.querySelector('#documentCategoryFilter').value;
+  const rows = state.documents.filter((document) => {
+    const matchesQuery = ['Title', 'Category', 'RequiredRole', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
+    const matchesCategory = !category || document.Category === category;
+    return matchesQuery && matchesCategory;
+  });
+  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL']);
+}
+
+function renderSearchableView(view) {
+  const input = document.querySelector(`[data-search-view="${view}"]`);
+  const query = input ? input.value.toLowerCase() : '';
+  const rows = (state[view] || []).filter((row) => {
+    if (!query) return true;
+    return Object.values(row).some((value) => String(value || '').toLowerCase().includes(query));
+  });
+
+  if (view === 'training') {
+    renderTable('#trainingTable', rows, ['OfficerID', 'RobloxUsername', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ReviewDate']);
+  }
+  if (view === 'discipline') {
+    renderTable('#disciplineTable', rows, ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status']);
+  }
+  if (view === 'loa') {
+    renderLoaTable(rows);
+  }
+  if (view === 'users') {
+    renderUsersTable(rows);
+  }
+  if (view === 'audit') {
+    renderTable('#auditTable', rows, ['Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID']);
+  }
 }
 
 async function loadUsers() {
   await showViewOnly('users');
   const response = await api('listUsers', {});
-  renderTable('#usersTable', response.rows || [], ['RobloxUsername', 'DiscordID', 'Rank', 'Role', 'Status'], {
+  state.users = response.rows || [];
+  renderSearchableView('users');
+}
+
+function renderUsersTable(rows) {
+  renderTable('#usersTable', rows, ['RobloxUsername', 'DiscordID', 'Rank', 'Role', 'Status'], {
     actions: (row) => `<button class="mini" data-reset-password="${escapeHtml(row.UserID)}">Reset password</button>`,
   });
 }
@@ -292,7 +412,8 @@ async function loadUsers() {
 async function loadAudit() {
   await showViewOnly('audit');
   const response = await api('auditLog', {});
-  renderTable('#auditTable', response.rows || [], ['Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID']);
+  state.audit = response.rows || [];
+  renderSearchableView('audit');
 }
 
 function renderOfficerProfile(data) {
@@ -434,7 +555,14 @@ async function handleDocumentClick(event) {
   const resetPassword = event.target.closest('[data-reset-password]');
   if (resetPassword) {
     const response = await api('resetUserPassword', { UserID: resetPassword.dataset.resetPassword });
-    alert(response.ok ? `Temporary password: ${response.temporaryPassword}` : response.error);
+    if (!response.ok) {
+      showInfo('Password reset failed', `<p>${escapeHtml(response.error || 'Could not reset the password.')}</p>`);
+      return;
+    }
+    showInfo('Temporary password', `
+      <p>The account password has been reset.</p>
+      <div class="temporary-password">${escapeHtml(response.temporaryPassword)}</div>
+    `);
     return;
   }
 
@@ -480,6 +608,22 @@ async function handleDocumentChange(event) {
     await loadOfficerProfile(drivingSelect.dataset.officerId);
     return;
   }
+
+  const reviewDate = event.target.closest('[data-training-review]');
+  if (reviewDate) {
+    reviewDate.disabled = true;
+    const response = await api('setTrainingReviewDate', {
+      OfficerID: reviewDate.dataset.officerId,
+      ReviewDate: reviewDate.value,
+    });
+    if (!response.ok) {
+      reviewDate.disabled = false;
+      showInfo('Review date failed', `<p>${escapeHtml(response.error || 'Training review date update failed.')}</p>`);
+      return;
+    }
+    await loadOfficerProfile(reviewDate.dataset.officerId);
+    return;
+  }
 }
 
 function stat(label, value) {
@@ -487,6 +631,28 @@ function stat(label, value) {
     <article class="stat">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
+
+function dashboardPanel(title, rows, columns) {
+  const body = rows.length
+    ? rows.map((row) => `
+      <article class="dashboard-row">
+        ${columns.map((column) => `
+          <span>
+            <small>${escapeHtml(column)}</small>
+            <strong>${formatCell(row[column]) || '&nbsp;'}</strong>
+          </span>
+        `).join('')}
+      </article>
+    `).join('')
+    : `<p class="empty">No records found.</p>`;
+
+  return `
+    <article class="dashboard-panel">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="dashboard-list">${body}</div>
     </article>
   `;
 }
@@ -534,6 +700,7 @@ function trainingChecklist(officerId, trainingRows) {
     return `<option value="${escapeHtml(standard)}"${selected}>${escapeHtml(label)}</option>`;
   }).join('');
   const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
+  const reviewDate = trainingRows.find((item) => item.ReviewDate)?.ReviewDate || trainingRows.find((item) => item.UpdatedAt)?.ReviewDate || '';
 
   return `
     <section class="cert-panel">
@@ -547,6 +714,10 @@ function trainingChecklist(officerId, trainingRows) {
         <select data-driving-select data-officer-id="${escapeHtml(officerId)}"${disabled}>
           ${drivingOptions}
         </select>
+      </label>
+      <label class="driving-select">
+        Training review date
+        <input type="date" data-training-review data-officer-id="${escapeHtml(officerId)}" value="${escapeHtml(reviewDate)}"${disabled}>
       </label>
     </section>
   `;
@@ -602,6 +773,38 @@ function renderError(container, message) {
   container.innerHTML = `<article class="stat"><strong>!</strong><span>${escapeHtml(message || 'Something went wrong.')}</span></article>`;
 }
 
+async function openNotifications() {
+  const response = await api('listNotifications', {});
+  if (!response.ok) {
+    showInfo('Notifications', `<p>${escapeHtml(response.error || 'Could not load notifications.')}</p>`);
+    return;
+  }
+
+  const rows = response.rows || [];
+  const content = rows.length
+    ? `<div class="notice-list">${rows.map((notice) => `
+      <article class="notice-item${notice.ReadAt ? '' : ' unread'}">
+        <div>
+          <strong>${escapeHtml(notice.Title || 'Notification')}</strong>
+          <p>${escapeHtml(notice.Message || '')}</p>
+        </div>
+        <span>${escapeHtml(notice.CreatedAt || '')}</span>
+      </article>
+    `).join('')}</div>`
+    : `<p class="empty">No notifications yet.</p>`;
+
+  showInfo('Notifications', content);
+  if ((response.unread || 0) > 0) {
+    await api('markNotificationsRead', {});
+  }
+}
+
+function showInfo(title, content) {
+  elements.infoTitle.textContent = title;
+  elements.infoContent.innerHTML = content;
+  elements.infoDialog.showModal();
+}
+
 function emptyState(message) {
   return `<section class="data-view"><p class="empty">${escapeHtml(message)}</p></section>`;
 }
@@ -646,7 +849,7 @@ function openEditor(title, fields, onSubmit, options = {}) {
 
     const generatedPassword = response.temporaryPassword ? ` Temporary password: ${response.temporaryPassword}` : '';
     if (options.successMessage || generatedPassword) {
-      alert(`${options.successMessage || 'Saved.'}${generatedPassword}`);
+      showInfo('Saved', `<p>${escapeHtml(options.successMessage || 'Saved.')}</p>${generatedPassword ? `<div class="temporary-password">${escapeHtml(generatedPassword.replace(' Temporary password: ', ''))}</div>` : ''}`);
     }
 
     elements.editorDialog.close();
