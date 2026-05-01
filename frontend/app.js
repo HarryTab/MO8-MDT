@@ -16,7 +16,9 @@ const OFFICER_RANKS = [
 
 const SYSTEM_ROLES = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
 const ACCESS_LEVELS = [...OFFICER_RANKS, ...SYSTEM_ROLES];
-const TRAINING_STANDARDS = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'];
+const SPECIALIST_TRAINING = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'];
+const DRIVING_STANDARDS = ['Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'];
+const TRAINING_STANDARDS = [...SPECIALIST_TRAINING, ...DRIVING_STANDARDS];
 const OFFICER_STATUSES = ['Active', 'LOA', 'Suspended', 'Archived'];
 const TRAINING_STATUSES = ['Not Started', 'In Progress', 'Passed', 'Failed'];
 const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
@@ -53,6 +55,7 @@ const elements = {
 };
 
 document.addEventListener('click', handleDocumentClick);
+document.addEventListener('change', handleDocumentChange);
 
 elements.loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -422,17 +425,6 @@ async function handleDocumentClick(event) {
     return;
   }
 
-  const trainingToggle = event.target.closest('[data-training-toggle]');
-  if (trainingToggle) {
-    await api('setOfficerTraining', {
-      OfficerID: trainingToggle.dataset.officerId,
-      Standard: trainingToggle.dataset.standard,
-      Enabled: trainingToggle.checked,
-    });
-    await loadOfficerProfile(trainingToggle.dataset.officerId);
-    return;
-  }
-
   const addDiscipline = event.target.closest('[data-add-discipline]');
   if (addDiscipline) return openDisciplineEditor(addDiscipline.dataset.addDiscipline);
 
@@ -450,6 +442,43 @@ async function handleDocumentClick(event) {
   if (reviewLoa) {
     await api('reviewLoa', { RequestID: reviewLoa.dataset.reviewLoa, Status: reviewLoa.dataset.status });
     await loadLoa();
+  }
+}
+
+async function handleDocumentChange(event) {
+  const trainingToggle = event.target.closest('[data-training-toggle]');
+  if (trainingToggle) {
+    const originalChecked = !trainingToggle.checked;
+    trainingToggle.disabled = true;
+    const response = await api('setOfficerTraining', {
+      OfficerID: trainingToggle.dataset.officerId,
+      Standard: trainingToggle.dataset.standard,
+      Enabled: trainingToggle.checked,
+    });
+    if (!response.ok) {
+      trainingToggle.checked = originalChecked;
+      trainingToggle.disabled = false;
+      alert(response.error || 'Training update failed.');
+      return;
+    }
+    await loadOfficerProfile(trainingToggle.dataset.officerId);
+    return;
+  }
+
+  const drivingSelect = event.target.closest('[data-driving-select]');
+  if (drivingSelect) {
+    drivingSelect.disabled = true;
+    const response = await api('setDrivingStandard', {
+      OfficerID: drivingSelect.dataset.officerId,
+      Standard: drivingSelect.value,
+    });
+    if (!response.ok) {
+      drivingSelect.disabled = false;
+      alert(response.error || 'Driving standard update failed.');
+      return;
+    }
+    await loadOfficerProfile(drivingSelect.dataset.officerId);
+    return;
   }
 }
 
@@ -485,8 +514,8 @@ function profileTable(title, rows, columns) {
 }
 
 function trainingChecklist(officerId, trainingRows) {
-  const rows = TRAINING_STANDARDS.map((standard) => {
-    const record = trainingRows.find((item) => item.Standard === standard && item.Status === 'Passed');
+  const rows = SPECIALIST_TRAINING.map((standard) => {
+    const record = trainingRows.find((item) => item.Standard === standard && String(item.Status) === 'Passed');
     const checked = record ? ' checked' : '';
     const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
     return `
@@ -496,14 +525,29 @@ function trainingChecklist(officerId, trainingRows) {
       </label>
     `;
   }).join('');
+  const drivingRecord = DRIVING_STANDARDS.find((standard) => {
+    return trainingRows.some((item) => item.Standard === standard && String(item.Status) === 'Passed');
+  }) || '';
+  const drivingOptions = [''].concat(DRIVING_STANDARDS).map((standard) => {
+    const label = standard || 'No driving standard';
+    const selected = standard === drivingRecord ? ' selected' : '';
+    return `<option value="${escapeHtml(standard)}"${selected}>${escapeHtml(label)}</option>`;
+  }).join('');
+  const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
 
   return `
     <section class="cert-panel">
       <div>
         <h3>Training Certifications</h3>
-        <p>Sergeants and above can assign or remove certifications.</p>
+        <p>Sergeants and above can assign specialist tickets and one driving standard.</p>
       </div>
       <div class="cert-grid">${rows}</div>
+      <label class="driving-select">
+        Driving standard
+        <select data-driving-select data-officer-id="${escapeHtml(officerId)}"${disabled}>
+          ${drivingOptions}
+        </select>
+      </label>
     </section>
   `;
 }

@@ -14,7 +14,8 @@ const CONFIG = {
     'Deputy Commissioner',
     'Commissioner',
   ],
-  trainingStandards: ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'],
+  specialistTraining: ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'],
+  drivingStandards: ['Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'],
   sheets: {
     users: 'Users',
     sessions: 'Sessions',
@@ -122,6 +123,7 @@ function handleRequest_(e) {
       listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listRows_(CONFIG.sheets.training)),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
+      setDrivingStandard: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setDrivingStandard_(auth, payload)),
       listDiscipline: () => requirePermission_(auth, 'VIEW_DISCIPLINE', () => listRows_(CONFIG.sheets.discipline)),
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
       listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
@@ -284,7 +286,7 @@ function setOfficerTraining_(auth, payload) {
   const standard = payload.Standard || '';
   const enabled = String(payload.Enabled).toLowerCase() === 'true' || payload.Enabled === true;
   if (!officerId || !standard) return fail_('OfficerID and Standard are required.');
-  if (!CONFIG.trainingStandards.includes(standard)) return fail_('Unknown training standard.');
+  if (!CONFIG.specialistTraining.includes(standard)) return fail_('Unknown training standard.');
 
   const table = getTable_(CONFIG.sheets.training);
   const existing = table.rows.find((row) => row.OfficerID === officerId && row.Standard === standard);
@@ -309,6 +311,42 @@ function setOfficerTraining_(auth, payload) {
   appendObject_(CONFIG.sheets.training, update);
   audit_(auth.user.UserID, 'SET_TRAINING', 'Training', update.TrainingID, update);
   return ok_({ TrainingID: update.TrainingID });
+}
+
+function setDrivingStandard_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  const selectedStandard = payload.Standard || '';
+  if (!officerId) return fail_('OfficerID is required.');
+  if (selectedStandard && !CONFIG.drivingStandards.includes(selectedStandard)) return fail_('Unknown driving standard.');
+
+  const table = getTable_(CONFIG.sheets.training);
+  const results = [];
+  CONFIG.drivingStandards.forEach((standard) => {
+    const enabled = standard === selectedStandard;
+    const existing = table.rows.find((row) => String(row.OfficerID) === String(officerId) && String(row.Standard) === standard);
+    const update = {
+      OfficerID: officerId,
+      Standard: standard,
+      Status: enabled ? 'Passed' : 'Not Started',
+      Assessor: auth.user.RobloxUsername,
+      DateCompleted: enabled ? today_() : '',
+      ExpiryDate: '',
+      Notes: enabled ? 'Assigned via driving standard dropdown' : '',
+      UpdatedAt: now_(),
+    };
+
+    if (existing) {
+      updateRow_(CONFIG.sheets.training, 'TrainingID', existing.TrainingID, update);
+      results.push(existing.TrainingID);
+    } else {
+      update.TrainingID = id_('TRN');
+      appendObject_(CONFIG.sheets.training, update);
+      results.push(update.TrainingID);
+    }
+  });
+
+  audit_(auth.user.UserID, 'SET_DRIVING_STANDARD', 'Officer', officerId, { selectedStandard });
+  return ok_({ TrainingIDs: results, selectedStandard });
 }
 
 function addDiscipline_(auth, payload) {
