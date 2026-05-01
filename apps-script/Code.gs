@@ -21,6 +21,7 @@ const CONFIG = {
     sessions: 'Sessions',
     officers: 'Officers',
     training: 'TrainingRecords',
+    trainingMatrix: 'TrainingMatrix',
     discipline: 'DisciplinaryActions',
     loa: 'LOARequests',
     documents: 'Documents',
@@ -34,6 +35,7 @@ const HEADERS = {
   Sessions: ['SessionID', 'UserID', 'TokenHash', 'CreatedAt', 'ExpiresAt', 'RevokedAt', 'UserAgent'],
   Officers: ['OfficerID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'Notes', 'CreatedAt', 'UpdatedAt'],
   TrainingRecords: ['TrainingID', 'OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate', 'Notes', 'UpdatedAt'],
+  TrainingMatrix: ['OfficerID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'UpdatedAt', 'UpdatedBy'],
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
@@ -120,7 +122,7 @@ function handleRequest_(e) {
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listRows_(CONFIG.sheets.officers)),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
-      listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listRows_(CONFIG.sheets.training)),
+      listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listTrainingCertifications_()),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
       setDrivingStandard: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setDrivingStandard_(auth, payload)),
@@ -223,7 +225,7 @@ function getOfficerProfile_(payload) {
   const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === payload.OfficerID);
   if (!officer) return fail_('Officer not found.');
 
-  const training = getTable_(CONFIG.sheets.training).rows.filter((row) => row.OfficerID === payload.OfficerID);
+  const training = getTrainingForOfficer_(officer);
   const discipline = getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID);
   const loa = getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID);
   return ok_({ officer, training, discipline, loa });
@@ -244,6 +246,7 @@ function saveOfficer_(auth, payload) {
 
   if (payload.OfficerID) {
     updateRow_(CONFIG.sheets.officers, 'OfficerID', payload.OfficerID, officer);
+    ensureTrainingMatrixRow_(Object.assign({ OfficerID: payload.OfficerID }, officer));
     syncUserForOfficer_(auth, Object.assign({ OfficerID: payload.OfficerID }, officer));
     audit_(auth.user.UserID, 'UPDATE_OFFICER', 'Officer', payload.OfficerID, officer);
     return ok_({ OfficerID: payload.OfficerID });
@@ -252,6 +255,7 @@ function saveOfficer_(auth, payload) {
   officer.OfficerID = id_('OFF');
   officer.CreatedAt = now;
   appendObject_(CONFIG.sheets.officers, officer);
+  ensureTrainingMatrixRow_(officer);
   const userSync = syncUserForOfficer_(auth, officer);
   audit_(auth.user.UserID, 'CREATE_OFFICER', 'Officer', officer.OfficerID, officer);
   return ok_({ OfficerID: officer.OfficerID, temporaryPassword: userSync.temporaryPassword || '' });
@@ -288,29 +292,19 @@ function setOfficerTraining_(auth, payload) {
   if (!officerId || !standard) return fail_('OfficerID and Standard are required.');
   if (!CONFIG.specialistTraining.includes(standard)) return fail_('Unknown training standard.');
 
-  const table = getTable_(CONFIG.sheets.training);
-  const existing = table.rows.find((row) => row.OfficerID === officerId && row.Standard === standard);
-  const update = {
-    OfficerID: officerId,
-    Standard: standard,
-    Status: enabled ? 'Passed' : 'Not Started',
-    Assessor: auth.user.RobloxUsername,
-    DateCompleted: enabled ? today_() : '',
-    ExpiryDate: '',
-    Notes: enabled ? 'Assigned via certification checklist' : '',
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  const matrixRow = ensureTrainingMatrixRow_(officer);
+  updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+    RobloxUsername: officer.RobloxUsername || '',
+    [standard]: enabled ? 'TRUE' : 'FALSE',
     UpdatedAt: now_(),
-  };
+    UpdatedBy: auth.user.RobloxUsername,
+  });
 
-  if (existing) {
-    updateRow_(CONFIG.sheets.training, 'TrainingID', existing.TrainingID, update);
-    audit_(auth.user.UserID, 'SET_TRAINING', 'Training', existing.TrainingID, update);
-    return ok_({ TrainingID: existing.TrainingID });
-  }
-
-  update.TrainingID = id_('TRN');
-  appendObject_(CONFIG.sheets.training, update);
-  audit_(auth.user.UserID, 'SET_TRAINING', 'Training', update.TrainingID, update);
-  return ok_({ TrainingID: update.TrainingID });
+  const details = { OfficerID: officerId, Standard: standard, Enabled: enabled, MatrixRow: matrixRow._rowNumber };
+  audit_(auth.user.UserID, 'SET_TRAINING', 'TrainingMatrix', officerId, details);
+  return ok_(details);
 }
 
 function setDrivingStandard_(auth, payload) {
@@ -319,34 +313,18 @@ function setDrivingStandard_(auth, payload) {
   if (!officerId) return fail_('OfficerID is required.');
   if (selectedStandard && !CONFIG.drivingStandards.includes(selectedStandard)) return fail_('Unknown driving standard.');
 
-  const table = getTable_(CONFIG.sheets.training);
-  const results = [];
-  CONFIG.drivingStandards.forEach((standard) => {
-    const enabled = standard === selectedStandard;
-    const existing = table.rows.find((row) => String(row.OfficerID) === String(officerId) && String(row.Standard) === standard);
-    const update = {
-      OfficerID: officerId,
-      Standard: standard,
-      Status: enabled ? 'Passed' : 'Not Started',
-      Assessor: auth.user.RobloxUsername,
-      DateCompleted: enabled ? today_() : '',
-      ExpiryDate: '',
-      Notes: enabled ? 'Assigned via driving standard dropdown' : '',
-      UpdatedAt: now_(),
-    };
-
-    if (existing) {
-      updateRow_(CONFIG.sheets.training, 'TrainingID', existing.TrainingID, update);
-      results.push(existing.TrainingID);
-    } else {
-      update.TrainingID = id_('TRN');
-      appendObject_(CONFIG.sheets.training, update);
-      results.push(update.TrainingID);
-    }
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  ensureTrainingMatrixRow_(officer);
+  updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+    RobloxUsername: officer.RobloxUsername || '',
+    DrivingStandard: selectedStandard,
+    UpdatedAt: now_(),
+    UpdatedBy: auth.user.RobloxUsername,
   });
 
   audit_(auth.user.UserID, 'SET_DRIVING_STANDARD', 'Officer', officerId, { selectedStandard });
-  return ok_({ TrainingIDs: results, selectedStandard });
+  return ok_({ OfficerID: officerId, selectedStandard });
 }
 
 function addDiscipline_(auth, payload) {
@@ -416,6 +394,76 @@ function saveDocument_(auth, payload) {
   appendObject_(CONFIG.sheets.documents, document);
   audit_(auth.user.UserID, 'CREATE_DOCUMENT', 'Document', document.DocumentID, document);
   return ok_({ DocumentID: document.DocumentID });
+}
+
+function listTrainingCertifications_() {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const rows = [];
+  officers.forEach((officer) => {
+    getTrainingForOfficer_(officer).forEach((training) => rows.push(training));
+  });
+  return ok_({ rows });
+}
+
+function getTrainingForOfficer_(officer) {
+  const matrix = ensureTrainingMatrixRow_(officer);
+  const rows = [];
+  CONFIG.specialistTraining.forEach((standard) => {
+    rows.push(trainingObject_(officer, standard, truthy_(matrix[standard]) ? 'Passed' : 'Not Started', matrix));
+  });
+  CONFIG.drivingStandards.forEach((standard) => {
+    rows.push(trainingObject_(officer, standard, matrix.DrivingStandard === standard ? 'Passed' : 'Not Started', matrix));
+  });
+  return rows;
+}
+
+function trainingObject_(officer, standard, status, matrix) {
+  return {
+    TrainingID: `${officer.OfficerID}_${standard}`,
+    OfficerID: officer.OfficerID,
+    RobloxUsername: officer.RobloxUsername,
+    Standard: standard,
+    Status: status,
+    Assessor: matrix.UpdatedBy || '',
+    DateCompleted: status === 'Passed' ? String(matrix.UpdatedAt || '').slice(0, 10) : '',
+    ExpiryDate: '',
+    Notes: 'Certification matrix',
+    UpdatedAt: matrix.UpdatedAt || '',
+  };
+}
+
+function ensureTrainingMatrixRow_(officer) {
+  const table = getTable_(CONFIG.sheets.trainingMatrix);
+  const existing = table.rows.find((row) => String(row.OfficerID) === String(officer.OfficerID));
+  if (existing) return existing;
+
+  const legacy = getTable_(CONFIG.sheets.training).rows.filter((row) => String(row.OfficerID) === String(officer.OfficerID));
+  const row = {
+    OfficerID: officer.OfficerID,
+    RobloxUsername: officer.RobloxUsername || '',
+    Taser: legacyPassed_(legacy, 'Taser') ? 'TRUE' : 'FALSE',
+    MOE: legacyPassed_(legacy, 'MOE') ? 'TRUE' : 'FALSE',
+    'Blue Ticket': legacyPassed_(legacy, 'Blue Ticket') ? 'TRUE' : 'FALSE',
+    Motorbike: legacyPassed_(legacy, 'Motorbike') ? 'TRUE' : 'FALSE',
+    DrivingStandard: legacyDriving_(legacy),
+    UpdatedAt: now_(),
+    UpdatedBy: 'system',
+  };
+  appendObject_(CONFIG.sheets.trainingMatrix, row);
+  return getTable_(CONFIG.sheets.trainingMatrix).rows.find((entry) => String(entry.OfficerID) === String(officer.OfficerID)) || row;
+}
+
+function legacyPassed_(rows, standard) {
+  return rows.some((row) => row.Standard === standard && row.Status === 'Passed');
+}
+
+function legacyDriving_(rows) {
+  const match = CONFIG.drivingStandards.slice().reverse().find((standard) => legacyPassed_(rows, standard));
+  return match || '';
+}
+
+function truthy_(value) {
+  return value === true || String(value).toUpperCase() === 'TRUE';
 }
 
 function listDocuments_(auth) {
@@ -580,12 +628,14 @@ function syncOfficerForUser_(auth, user) {
 
   if (existing) {
     updateRow_(CONFIG.sheets.officers, 'OfficerID', existing.OfficerID, update);
+    ensureTrainingMatrixRow_(Object.assign({ OfficerID: existing.OfficerID }, update));
     return { OfficerID: existing.OfficerID };
   }
 
   update.OfficerID = id_('OFF');
   update.CreatedAt = now_();
   appendObject_(CONFIG.sheets.officers, update);
+  ensureTrainingMatrixRow_(update);
   audit_(auth.user.UserID, 'CREATE_LINKED_OFFICER', 'Officer', update.OfficerID, update);
   return { OfficerID: update.OfficerID };
 }
@@ -633,7 +683,7 @@ function listRows_(sheetName) {
 }
 
 function getTable_(sheetName) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  const sheet = ensureSheet_(sheetName);
   if (!sheet) throw new Error(`Missing sheet: ${sheetName}`);
   const values = sheet.getDataRange().getValues();
   const headers = values.shift() || [];
@@ -647,6 +697,30 @@ function getTable_(sheetName) {
       return object;
     });
   return { sheet, headers, rows };
+}
+
+function ensureSheet_(sheetName) {
+  const ss = SpreadsheetApp.getActive();
+  let sheet = ss.getSheetByName(sheetName);
+  const headers = HEADERS[sheetName];
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    if (headers) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+    }
+    return sheet;
+  }
+
+  if (headers) {
+    const current = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : [];
+    const missing = headers.filter((header) => !current.includes(header));
+    if (missing.length) {
+      sheet.getRange(1, current.length + 1, 1, missing.length).setValues([missing]);
+      sheet.setFrozenRows(1);
+    }
+  }
+  return sheet;
 }
 
 function appendObject_(sheetName, object) {
