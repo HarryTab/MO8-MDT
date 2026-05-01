@@ -130,6 +130,7 @@ async function boot() {
 }
 
 function showLogin() {
+  document.body.classList.remove('is-authenticated');
   elements.pageTitle.textContent = 'Sign in';
   elements.pageSubtitle.textContent = 'MO8 roleplay community administration';
   elements.loginView.hidden = false;
@@ -139,6 +140,7 @@ function showLogin() {
 }
 
 function showApp() {
+  document.body.classList.add('is-authenticated');
   elements.loginView.hidden = true;
   elements.appView.hidden = false;
   elements.nav.hidden = false;

@@ -7,55 +7,69 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="shell">
-      <aside class="sidebar">
-        <div class="brand">
+    <main class="terminal-shell">
+      <header class="system-bar">
+        <div class="system-brand">
           <span class="crest">MO8</span>
           <div>
-            <strong>Roads Policing</strong>
-            <span>Internal MDT</span>
+            <strong>MO8 RPU COMMAND OS</strong>
+            <span>Metropolitan Police roleplay operations terminal</span>
           </div>
         </div>
-        <nav class="nav" id="nav" hidden>
-          <button class="nav-item active" data-view="dashboard">Dashboard</button>
-          <button class="nav-item" data-view="officers">Officers</button>
-          <button class="nav-item" data-view="training">Training</button>
-          <button class="nav-item" data-view="discipline">Discipline</button>
-          <button class="nav-item" data-view="loa">LOA</button>
-          <button class="nav-item" data-view="documents">Documents</button>
-          <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
-          <button class="nav-item" data-view="audit">Audit</button>
-        </nav>
-        <div class="version">MDT v0.4</div>
-      </aside>
+        <div class="system-meta">
+          <span>SECURE SESSION</span>
+          <span>MDT v0.5</span>
+        </div>
+      </header>
 
-      <section class="workspace">
-        <header class="topbar">
-          <div>
-            <h1 id="pageTitle">Sign in</h1>
-            <p id="pageSubtitle">MO8 roleplay community administration</p>
-          </div>
-          <div class="identity" id="identity" hidden>
-            <span id="currentUser"></span>
-            <button class="ghost" id="passwordButton">Password</button>
-            <button class="ghost" id="logoutButton">Logout</button>
-          </div>
+      <section class="terminal-window">
+        <aside class="module-dock">
+          <div class="dock-label">Modules</div>
+          <nav class="nav" id="nav" hidden>
+            <button class="nav-item active" data-view="dashboard">Dashboard</button>
+            <button class="nav-item" data-view="officers">Officers</button>
+            <button class="nav-item" data-view="training">Training</button>
+            <button class="nav-item" data-view="discipline">Discipline</button>
+            <button class="nav-item" data-view="loa">LOA</button>
+            <button class="nav-item" data-view="documents">Documents</button>
+            <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
+            <button class="nav-item" data-view="audit">Audit</button>
+          </nav>
+        </aside>
+
+        <section class="workspace">
+          <header class="topbar">
+            <div>
+              <span class="eyebrow">Internal terminal</span>
+              <h1 id="pageTitle">Sign in</h1>
+              <p id="pageSubtitle">MO8 roleplay community administration</p>
+            </div>
+            <div class="identity" id="identity" hidden>
+              <span id="currentUser"></span>
+              <button class="ghost" id="passwordButton">Password</button>
+              <button class="ghost" id="logoutButton">Logout</button>
+            </div>
         </header>
 
-        <section class="panel" id="loginView">
-          <form class="login-form" id="loginForm">
-            <label>
-              Roblox username
-              <input name="username" autocomplete="username" required>
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" autocomplete="current-password" required>
-            </label>
-            <button type="submit">Sign in</button>
-            <p class="form-status" id="loginStatus"></p>
-          </form>
-        </section>
+          <section class="login-console" id="loginView">
+            <div class="console-copy">
+              <span class="access-chip">Restricted access</span>
+              <h2>Roads Policing command terminal</h2>
+              <p>Authenticate with your Roblox staff account to access officer records, training status, LOA workflows, documents, and command logs.</p>
+            </div>
+            <form class="login-form" id="loginForm">
+              <label>
+                Roblox username
+                <input name="username" autocomplete="username" required>
+              </label>
+              <label>
+                Password
+                <input name="password" type="password" autocomplete="current-password" required>
+              </label>
+              <button type="submit">Authenticate</button>
+              <p class="form-status" id="loginStatus"></p>
+            </form>
+          </section>
 
         <section id="appView" hidden>
           <section class="stats-grid" id="dashboardView"></section>
@@ -128,6 +142,7 @@
               <table id="auditTable"></table>
             </div>
           </section>
+        </section>
         </section>
       </section>
     </main>
