@@ -652,6 +652,19 @@ dialog::backdrop {
   padding: 18px;
 }
 
+dialog .section-head .ghost {
+  color: #123259;
+  background: #eef5ff;
+  border-color: #8fb7eb;
+  font-weight: 950;
+}
+
+dialog .section-head .ghost:hover {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
