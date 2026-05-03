@@ -134,6 +134,7 @@ function handleRequest_(e) {
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listRows_(CONFIG.sheets.officers)),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
+      deleteOfficer: () => requirePermission_(auth, 'ARCHIVE_OFFICERS', () => deleteOfficer_(auth, payload)),
       listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listTrainingCertifications_()),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
@@ -141,13 +142,19 @@ function handleRequest_(e) {
       setTrainingReviewDate: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setTrainingReviewDate_(auth, payload)),
       listDiscipline: () => requirePermission_(auth, 'VIEW_DISCIPLINE', () => listRows_(CONFIG.sheets.discipline)),
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
+      saveDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => saveDiscipline_(auth, payload)),
+      deleteDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => deleteDiscipline_(auth, payload)),
       listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
       createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
+      saveLoa: () => requirePermission_(auth, 'CREATE_LOA', () => saveLoa_(auth, payload)),
       reviewLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => reviewLoa_(auth, payload)),
+      deleteLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => deleteLoa_(auth, payload)),
       listDocuments: () => requirePermission_(auth, 'VIEW_DOCUMENTS', () => listDocuments_(auth)),
       saveDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => saveDocument_(auth, payload)),
+      deleteDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => deleteDocument_(auth, payload)),
       listUsers: () => requirePermission_(auth, 'MANAGE_USERS', () => listUsers_()),
       saveUser: () => requirePermission_(auth, 'MANAGE_USERS', () => saveUser_(auth, payload)),
+      deleteUser: () => requirePermission_(auth, 'MANAGE_USERS', () => deleteUser_(auth, payload)),
       resetUserPassword: () => requirePermission_(auth, 'RESET_PASSWORDS', () => resetUserPassword_(auth, payload)),
       changePassword: () => requirePermission_(auth, 'CHANGE_OWN_PASSWORD', () => changePassword_(auth, payload)),
       auditLog: () => requirePermission_(auth, 'VIEW_AUDIT_LOG', () => listRows_(CONFIG.sheets.audit)),
@@ -177,15 +184,22 @@ function isWriteAction_(action) {
     'logout',
     'markNotificationsRead',
     'saveOfficer',
+    'deleteOfficer',
     'saveTraining',
     'setOfficerTraining',
     'setDrivingStandard',
     'setTrainingReviewDate',
     'addDiscipline',
+    'saveDiscipline',
+    'deleteDiscipline',
     'createLoa',
+    'saveLoa',
     'reviewLoa',
+    'deleteLoa',
     'saveDocument',
+    'deleteDocument',
     'saveUser',
+    'deleteUser',
     'resetUserPassword',
     'changePassword',
   ].includes(action);
@@ -330,6 +344,24 @@ function saveOfficer_(auth, payload) {
   return ok_({ OfficerID: officer.OfficerID, temporaryPassword: userSync.temporaryPassword || '' });
 }
 
+function deleteOfficer_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  if (!officerId) return fail_('OfficerID is required.');
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  const linkedUsers = getLinkedUsersForOfficer_(officer);
+
+  deleteRows_(CONFIG.sheets.officers, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.users, (row) => linkedUsers.some((user) => user.UserID === row.UserID));
+  deleteRows_(CONFIG.sheets.trainingMatrix, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.training, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.discipline, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.loa, (row) => row.OfficerID === officerId);
+  notifyMember_(officer.MemberID, 'Officer record removed', 'Your MO8 officer record and linked MDT user were removed.', auth.user.UserID);
+  audit_(auth.user.UserID, 'DELETE_OFFICER', 'Officer', officerId, { officer, linkedUsers: linkedUsers.map(publicUser_) });
+  return ok_({ OfficerID: officerId, deletedUsers: linkedUsers.length });
+}
+
 function saveTraining_(auth, payload) {
   const record = {
     OfficerID: payload.OfficerID || '',
@@ -440,6 +472,36 @@ function addDiscipline_(auth, payload) {
   return ok_({ ActionID: action.ActionID });
 }
 
+function saveDiscipline_(auth, payload) {
+  if (!payload.ActionID) return fail_('ActionID is required.');
+  const existing = getTable_(CONFIG.sheets.discipline).rows.find((row) => row.ActionID === payload.ActionID);
+  if (!existing) return fail_('Disciplinary record not found.');
+  const action = {
+    OfficerID: payload.OfficerID || existing.OfficerID || '',
+    Type: payload.Type || existing.Type || 'Note',
+    Summary: payload.Summary || '',
+    Details: payload.Details || '',
+    IssuedBy: existing.IssuedBy || auth.user.UserID,
+    IssuedAt: existing.IssuedAt || now_(),
+    Status: payload.Status || 'Active',
+  };
+  updateRow_(CONFIG.sheets.discipline, 'ActionID', payload.ActionID, action);
+  notifyOfficer_(action.OfficerID, 'Disciplinary record updated', `${action.Type}: ${action.Summary || 'A disciplinary record on your profile was updated.'}`, auth.user.UserID);
+  audit_(auth.user.UserID, 'UPDATE_DISCIPLINE', 'Discipline', payload.ActionID, action);
+  return ok_({ ActionID: payload.ActionID });
+}
+
+function deleteDiscipline_(auth, payload) {
+  const actionId = payload.ActionID || '';
+  if (!actionId) return fail_('ActionID is required.');
+  const existing = getTable_(CONFIG.sheets.discipline).rows.find((row) => row.ActionID === actionId);
+  if (!existing) return fail_('Disciplinary record not found.');
+  deleteRows_(CONFIG.sheets.discipline, (row) => row.ActionID === actionId);
+  notifyOfficer_(existing.OfficerID, 'Disciplinary record removed', 'A disciplinary record was removed from your profile.', auth.user.UserID);
+  audit_(auth.user.UserID, 'DELETE_DISCIPLINE', 'Discipline', actionId, existing);
+  return ok_({ ActionID: actionId });
+}
+
 function reviewLoa_(auth, payload) {
   if (!payload.RequestID) return fail_('RequestID is required.');
   const existing = getTable_(CONFIG.sheets.loa).rows.find((row) => row.RequestID === payload.RequestID);
@@ -455,15 +517,16 @@ function reviewLoa_(auth, payload) {
 }
 
 function createLoa_(auth, payload) {
+  const canReview = hasPermission_(auth.user, 'APPROVE_LOA');
   const request = {
     RequestID: id_('LOA'),
     OfficerID: payload.OfficerID || '',
     StartDate: payload.StartDate || '',
     EndDate: payload.EndDate || '',
     Reason: payload.Reason || '',
-    Status: payload.Status || 'Pending',
-    ReviewedBy: '',
-    ReviewedAt: '',
+    Status: canReview ? payload.Status || 'Pending' : 'Pending',
+    ReviewedBy: canReview && payload.Status && payload.Status !== 'Pending' ? auth.user.UserID : '',
+    ReviewedAt: canReview && payload.Status && payload.Status !== 'Pending' ? now_() : '',
     CreatedAt: now_(),
   };
   if (!request.OfficerID) return fail_('OfficerID is required.');
@@ -471,6 +534,40 @@ function createLoa_(auth, payload) {
   notifyOfficer_(request.OfficerID, 'LOA request added', `An LOA request was added for ${request.StartDate || 'an upcoming date'} to ${request.EndDate || 'an upcoming date'}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_LOA', 'LOARequest', request.RequestID, request);
   return ok_({ RequestID: request.RequestID });
+}
+
+function saveLoa_(auth, payload) {
+  if (!payload.RequestID) return fail_('RequestID is required.');
+  const existing = getTable_(CONFIG.sheets.loa).rows.find((row) => row.RequestID === payload.RequestID);
+  if (!existing) return fail_('LOA request not found.');
+  const requestedStatus = payload.Status || existing.Status || 'Pending';
+  const statusChanged = requestedStatus !== existing.Status;
+  if (statusChanged && !hasPermission_(auth.user, 'APPROVE_LOA')) return fail_('You do not have permission to change LOA status.');
+  const request = {
+    OfficerID: payload.OfficerID || existing.OfficerID || '',
+    StartDate: payload.StartDate || '',
+    EndDate: payload.EndDate || '',
+    Reason: payload.Reason || '',
+    Status: requestedStatus,
+    ReviewedBy: statusChanged ? auth.user.UserID : existing.ReviewedBy,
+    ReviewedAt: statusChanged ? now_() : existing.ReviewedAt,
+    CreatedAt: existing.CreatedAt || now_(),
+  };
+  updateRow_(CONFIG.sheets.loa, 'RequestID', payload.RequestID, request);
+  notifyOfficer_(request.OfficerID, 'LOA request updated', `Your LOA request is now ${request.Status}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'UPDATE_LOA', 'LOARequest', payload.RequestID, request);
+  return ok_({ RequestID: payload.RequestID });
+}
+
+function deleteLoa_(auth, payload) {
+  const requestId = payload.RequestID || '';
+  if (!requestId) return fail_('RequestID is required.');
+  const existing = getTable_(CONFIG.sheets.loa).rows.find((row) => row.RequestID === requestId);
+  if (!existing) return fail_('LOA request not found.');
+  deleteRows_(CONFIG.sheets.loa, (row) => row.RequestID === requestId);
+  notifyOfficer_(existing.OfficerID, 'LOA request removed', 'An LOA request was removed from your profile.', auth.user.UserID);
+  audit_(auth.user.UserID, 'DELETE_LOA', 'LOARequest', requestId, existing);
+  return ok_({ RequestID: requestId });
 }
 
 function saveDocument_(auth, payload) {
@@ -494,6 +591,16 @@ function saveDocument_(auth, payload) {
   appendObject_(CONFIG.sheets.documents, document);
   audit_(auth.user.UserID, 'CREATE_DOCUMENT', 'Document', document.DocumentID, document);
   return ok_({ DocumentID: document.DocumentID });
+}
+
+function deleteDocument_(auth, payload) {
+  const documentId = payload.DocumentID || '';
+  if (!documentId) return fail_('DocumentID is required.');
+  const existing = getTable_(CONFIG.sheets.documents).rows.find((row) => row.DocumentID === documentId);
+  if (!existing) return fail_('Document not found.');
+  deleteRows_(CONFIG.sheets.documents, (row) => row.DocumentID === documentId);
+  audit_(auth.user.UserID, 'DELETE_DOCUMENT', 'Document', documentId, existing);
+  return ok_({ DocumentID: documentId });
 }
 
 function listTrainingCertifications_() {
@@ -621,6 +728,27 @@ function saveUser_(auth, payload) {
   return ok_({ UserID: user.UserID, temporaryPassword });
 }
 
+function deleteUser_(auth, payload) {
+  const userId = payload.UserID || '';
+  if (!userId) return fail_('UserID is required.');
+  if (userId === auth.user.UserID) return fail_('You cannot delete your own user account while signed in.');
+  const user = getTable_(CONFIG.sheets.users).rows.find((row) => row.UserID === userId);
+  if (!user) return fail_('User not found.');
+  const linkedOfficers = getLinkedOfficersForUser_(user);
+
+  deleteRows_(CONFIG.sheets.users, (row) => row.UserID === userId);
+  linkedOfficers.forEach((officer) => {
+    deleteRows_(CONFIG.sheets.officers, (row) => row.OfficerID === officer.OfficerID);
+    deleteRows_(CONFIG.sheets.trainingMatrix, (row) => row.OfficerID === officer.OfficerID);
+    deleteRows_(CONFIG.sheets.training, (row) => row.OfficerID === officer.OfficerID);
+    deleteRows_(CONFIG.sheets.discipline, (row) => row.OfficerID === officer.OfficerID);
+    deleteRows_(CONFIG.sheets.loa, (row) => row.OfficerID === officer.OfficerID);
+  });
+  notifyMember_(user.MemberID, 'MDT account removed', 'Your MDT user and linked officer profile were removed.', auth.user.UserID);
+  audit_(auth.user.UserID, 'DELETE_USER', 'User', userId, { user: publicUser_(user), linkedOfficers });
+  return ok_({ UserID: userId, deletedOfficers: linkedOfficers.length });
+}
+
 function resetUserPassword_(auth, payload) {
   if (!payload.UserID) return fail_('UserID is required.');
   const temporaryPassword = payload.TemporaryPassword || randomPassword_();
@@ -671,11 +799,15 @@ function requireSession_(token) {
 }
 
 function requirePermission_(auth, permission, fn) {
-  const permissions = getUserPermissions_(auth.user.Role);
-  if (!permissions.includes('FULL_ACCESS') && !permissions.includes(permission)) {
+  if (!hasPermission_(auth.user, permission)) {
     throw new Error('You do not have permission to perform this action.');
   }
   return fn();
+}
+
+function hasPermission_(user, permission) {
+  const permissions = getUserPermissions_(user.Role);
+  return permissions.includes('FULL_ACCESS') || permissions.includes(permission);
 }
 
 function getUserPermissions_(role) {
@@ -869,6 +1001,14 @@ function updateRow_(sheetName, key, value, updates) {
   delete TABLE_CACHE[sheetName];
 }
 
+function deleteRows_(sheetName, predicate) {
+  const table = getTable_(sheetName);
+  const rows = table.rows.filter(predicate).sort((a, b) => b._rowNumber - a._rowNumber);
+  rows.forEach((row) => table.sheet.deleteRow(row._rowNumber));
+  if (rows.length) delete TABLE_CACHE[sheetName];
+  return rows.length;
+}
+
 function audit_(actorUserId, action, targetType, targetId, details) {
   appendObject_(CONFIG.sheets.audit, {
     AuditID: id_('AUD'),
@@ -933,6 +1073,24 @@ function findOfficerForUser_(user) {
   return officers.find((officer) => officer.MemberID && officer.MemberID === user.MemberID)
     || officers.find((officer) => String(officer.RobloxUsername).toLowerCase() === String(user.RobloxUsername).toLowerCase())
     || null;
+}
+
+function getLinkedUsersForOfficer_(officer) {
+  const users = getTable_(CONFIG.sheets.users).rows;
+  const username = String(officer.RobloxUsername || '').toLowerCase();
+  return users.filter((user) => {
+    return (officer.MemberID && user.MemberID === officer.MemberID)
+      || String(user.RobloxUsername || '').toLowerCase() === username;
+  });
+}
+
+function getLinkedOfficersForUser_(user) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const username = String(user.RobloxUsername || '').toLowerCase();
+  return officers.filter((officer) => {
+    return (user.MemberID && officer.MemberID === user.MemberID)
+      || String(officer.RobloxUsername || '').toLowerCase() === username;
+  });
 }
 
 function memberIdForUsername_(username) {

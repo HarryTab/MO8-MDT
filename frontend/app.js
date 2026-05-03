@@ -357,9 +357,13 @@ async function loadLoa() {
 
 function renderLoaTable(rows) {
   renderTable('#loaTable', rows, ['OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy'], {
-    actions: (row) => can('APPROVE_LOA') && row.Status === 'Pending'
-      ? `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`
-      : '',
+    actions: (row) => [
+      can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
+      can('APPROVE_LOA') && row.Status === 'Pending'
+        ? `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`
+        : '',
+      can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
+    ].join(''),
   });
 }
 
@@ -378,7 +382,11 @@ function renderDocumentTable() {
     const matchesCategory = !category || document.Category === category;
     return matchesQuery && matchesCategory;
   });
-  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL']);
+  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL'], {
+    actions: (row) => can('MANAGE_DOCUMENTS')
+      ? `<button class="mini" data-edit-document="${escapeHtml(row.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(row.DocumentID)}">Delete</button>`
+      : '',
+  });
 }
 
 function renderSearchableView(view) {
@@ -393,7 +401,11 @@ function renderSearchableView(view) {
     renderTable('#trainingTable', rows, ['OfficerID', 'RobloxUsername', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ReviewDate']);
   }
   if (view === 'discipline') {
-    renderTable('#disciplineTable', rows, ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status']);
+    renderTable('#disciplineTable', rows, ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status'], {
+      actions: (row) => can('ADD_DISCIPLINE')
+        ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>`
+        : '',
+    });
   }
   if (view === 'loa') {
     renderLoaTable(rows);
@@ -415,7 +427,7 @@ async function loadUsers() {
 
 function renderUsersTable(rows) {
   renderTable('#usersTable', rows, ['RobloxUsername', 'DiscordID', 'Rank', 'Role', 'Status'], {
-    actions: (row) => `<button class="mini" data-reset-password="${escapeHtml(row.UserID)}">Reset password</button>`,
+    actions: (row) => `<button class="mini" data-edit-user="${escapeHtml(row.UserID)}">Edit</button><button class="mini" data-reset-password="${escapeHtml(row.UserID)}">Reset password</button><button class="mini ghost" data-delete-user="${escapeHtml(row.UserID)}">Delete</button>`,
   });
 }
 
@@ -438,6 +450,7 @@ function renderOfficerProfile(data) {
       </div>
       <div class="profile-actions">
         <button data-edit-officer="${escapeHtml(officer.OfficerID)}" data-permission="EDIT_OFFICERS">Edit officer</button>
+        <button class="ghost" data-delete-officer="${escapeHtml(officer.OfficerID)}" data-permission="ARCHIVE_OFFICERS">Delete officer</button>
         <button data-add-discipline="${escapeHtml(officer.OfficerID)}" data-permission="ADD_DISCIPLINE">Add discipline</button>
         <button data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA">Add LOA</button>
       </div>
@@ -491,23 +504,30 @@ function openTrainingEditor(officerId) {
   ], async (values) => api('saveTraining', values));
 }
 
-function openDisciplineEditor(officerId) {
-  openEditor('Add discipline record', [
+function openDisciplineEditor(officerIdOrRecord) {
+  const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
+  const officerId = record.OfficerID || officerIdOrRecord || '';
+  openEditor(record.ActionID ? 'Edit discipline record' : 'Add discipline record', [
+    hiddenField('ActionID', record.ActionID),
     hiddenField('OfficerID', officerId),
-    selectField('Type', 'Type', DISCIPLINE_TYPES, 'Note'),
-    field('Summary', 'Summary'),
-    field('Details', 'Details', 'textarea', true),
-    selectField('Status', 'Status', DISCIPLINE_STATUSES, 'Active'),
-  ], async (values) => api('addDiscipline', values));
+    selectField('Type', 'Type', DISCIPLINE_TYPES, record.Type || 'Note'),
+    field('Summary', 'Summary', 'text', false, record.Summary),
+    field('Details', 'Details', 'textarea', true, record.Details),
+    selectField('Status', 'Status', DISCIPLINE_STATUSES, record.Status || 'Active'),
+  ], async (values) => api(values.ActionID ? 'saveDiscipline' : 'addDiscipline', values));
 }
 
-function openLoaEditor(officerId) {
-  openEditor('Add LOA request', [
+function openLoaEditor(officerIdOrRecord) {
+  const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
+  const officerId = record.OfficerID || officerIdOrRecord || '';
+  openEditor(record.RequestID ? 'Edit LOA request' : 'Add LOA request', [
+    hiddenField('RequestID', record.RequestID),
     hiddenField('OfficerID', officerId),
-    field('StartDate', 'Start date', 'date'),
-    field('EndDate', 'End date', 'date'),
-    field('Reason', 'Reason', 'textarea', true),
-  ], async (values) => api('createLoa', values));
+    field('StartDate', 'Start date', 'date', false, record.StartDate),
+    field('EndDate', 'End date', 'date', false, record.EndDate),
+    field('Reason', 'Reason', 'textarea', true, record.Reason),
+    selectField('Status', 'Status', LOA_STATUSES, record.Status || 'Pending'),
+  ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values));
 }
 
 function openDocumentEditor(document = {}) {
@@ -556,11 +576,72 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const deleteOfficer = event.target.closest('[data-delete-officer]');
+  if (deleteOfficer) {
+    await confirmDelete('Delete this officer and their linked user profile?', 'deleteOfficer', { OfficerID: deleteOfficer.dataset.deleteOfficer }, async () => {
+      state.selectedOfficerId = '';
+      await showView('officers');
+    });
+    return;
+  }
+
   const addDiscipline = event.target.closest('[data-add-discipline]');
   if (addDiscipline) return openDisciplineEditor(addDiscipline.dataset.addDiscipline);
 
+  const editDiscipline = event.target.closest('[data-edit-discipline]');
+  if (editDiscipline) {
+    const record = state.discipline.find((row) => row.ActionID === editDiscipline.dataset.editDiscipline);
+    if (record) openDisciplineEditor(record);
+    return;
+  }
+
+  const deleteDiscipline = event.target.closest('[data-delete-discipline]');
+  if (deleteDiscipline) {
+    await confirmDelete('Delete this disciplinary record?', 'deleteDiscipline', { ActionID: deleteDiscipline.dataset.deleteDiscipline }, loadDiscipline);
+    return;
+  }
+
   const addLoa = event.target.closest('[data-add-loa]');
   if (addLoa) return openLoaEditor(addLoa.dataset.addLoa);
+
+  const editLoa = event.target.closest('[data-edit-loa]');
+  if (editLoa) {
+    const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa);
+    if (record) openLoaEditor(record);
+    return;
+  }
+
+  const deleteLoa = event.target.closest('[data-delete-loa]');
+  if (deleteLoa) {
+    await confirmDelete('Delete this LOA request?', 'deleteLoa', { RequestID: deleteLoa.dataset.deleteLoa }, loadLoa);
+    return;
+  }
+
+  const editDocument = event.target.closest('[data-edit-document]');
+  if (editDocument) {
+    const document = state.documents.find((row) => row.DocumentID === editDocument.dataset.editDocument);
+    if (document) openDocumentEditor(document);
+    return;
+  }
+
+  const deleteDocument = event.target.closest('[data-delete-document]');
+  if (deleteDocument) {
+    await confirmDelete('Delete this document link?', 'deleteDocument', { DocumentID: deleteDocument.dataset.deleteDocument }, loadDocuments);
+    return;
+  }
+
+  const editUser = event.target.closest('[data-edit-user]');
+  if (editUser) {
+    const user = state.users.find((row) => row.UserID === editUser.dataset.editUser);
+    if (user) openUserEditor(user);
+    return;
+  }
+
+  const deleteUser = event.target.closest('[data-delete-user]');
+  if (deleteUser) {
+    await confirmDelete('Delete this user and their linked officer profile?', 'deleteUser', { UserID: deleteUser.dataset.deleteUser }, loadUsers);
+    return;
+  }
 
   const resetPassword = event.target.closest('[data-reset-password]');
   if (resetPassword) {
@@ -812,6 +893,17 @@ async function openNotifications() {
     await api('markNotificationsRead', {});
     invalidateCache('myProfile');
   }
+}
+
+async function confirmDelete(message, action, payload, onSuccess) {
+  if (!window.confirm(message)) return;
+  const response = await api(action, payload);
+  if (!response.ok) {
+    showInfo('Delete failed', `<p>${escapeHtml(response.error || 'The record could not be deleted.')}</p>`);
+    return;
+  }
+  invalidateCache();
+  await onSuccess();
 }
 
 function showInfo(title, content) {
