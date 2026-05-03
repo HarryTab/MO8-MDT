@@ -30,6 +30,7 @@ const state = {
   token: localStorage.getItem('mo8_token') || '',
   user: null,
   permissions: [],
+  unreadNotifications: 0,
   activeView: 'dashboard',
   officers: [],
   training: [],
@@ -102,6 +103,8 @@ elements.logoutButton.addEventListener('click', async () => {
   state.token = '';
   state.user = null;
   state.permissions = [];
+  state.unreadNotifications = 0;
+  updateNotificationBadge();
   invalidateCache();
   showLogin();
 });
@@ -181,12 +184,27 @@ function showApp() {
     <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
   `;
   applyPermissions();
+  refreshNotificationBadge();
 }
 
 function applyPermissions() {
   document.querySelectorAll('[data-permission]').forEach((node) => {
     node.hidden = !can(node.dataset.permission);
   });
+}
+
+async function refreshNotificationBadge() {
+  const response = await api('listNotifications', {});
+  if (!response.ok) return;
+  state.unreadNotifications = response.unread || 0;
+  updateNotificationBadge();
+}
+
+function updateNotificationBadge() {
+  elements.notificationsButton.classList.toggle('has-unread', state.unreadNotifications > 0);
+  elements.notificationsButton.setAttribute('aria-label', state.unreadNotifications > 0
+    ? `Notifications, ${state.unreadNotifications} unread`
+    : 'Notifications');
 }
 
 function defaultView() {
@@ -278,6 +296,8 @@ async function loadMyProfile() {
   const officer = response.officer;
   const user = response.user;
   const notifications = response.notifications || [];
+  state.unreadNotifications = notifications.filter((item) => !item.ReadAt).length;
+  updateNotificationBadge();
   container.innerHTML = `
     <div class="profile-head">
       <div>
@@ -294,7 +314,7 @@ async function loadMyProfile() {
     </section>
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
-    ${profileTable('My LOA', response.loa || [], ['StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'])}
+    ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
   `;
@@ -313,7 +333,7 @@ async function loadTasks() {
     stat('Pending LOA', counts.pendingLoa || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Callsign', 'StartDate', 'EndDate', 'Reason', 'CreatedAt'], {
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'StartDate', 'EndDate', 'Reason'], {
     rowAction: (row) => `data-open-loa-review="${escapeHtml(row.RequestID)}"`,
     actions: (row) => `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>`,
   });
@@ -381,7 +401,7 @@ async function loadLoa() {
 }
 
 function renderLoaTable(rows) {
-  renderTable('#loaTable', rows, ['OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy'], {
+  renderTable('#loaTable', rows, ['Officer', 'Rank', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'], {
     actions: (row) => [
       can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
       can('APPROVE_LOA') && row.Status === 'Pending'
@@ -502,7 +522,7 @@ function renderOfficerProfile(data) {
       ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'], {
         actions: (row) => can('ADD_DISCIPLINE') ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>` : '',
       })}
-      ${profileTable('LOA', data.loa, ['StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'], {
+      ${profileTable('LOA', data.loa, ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'], {
         actions: (row) => [
           can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
           can('APPROVE_LOA') ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
@@ -558,8 +578,8 @@ function openLoaEditor(officerIdOrRecord) {
   openEditor(record.RequestID ? 'Edit LOA request' : 'Add LOA request', [
     hiddenField('RequestID', record.RequestID),
     hiddenField('OfficerID', officerId),
-    field('StartDate', 'Start date', 'date', false, record.StartDate),
-    field('EndDate', 'End date', 'date', false, record.EndDate),
+    field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)),
+    field('EndDate', 'End date', 'date', false, dateInputValue(record.EndDate)),
     field('Reason', 'Reason', 'textarea', true, record.Reason),
     selectField('Status', 'Status', LOA_STATUSES, record.Status || 'Pending'),
   ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values));
@@ -580,8 +600,8 @@ function openLoaReviewEditor(record, status = '') {
   openEditor('Review LOA request', [
     hiddenField('RequestID', record.RequestID),
     field('OfficerID', 'Officer ID', 'text', false, record.OfficerID),
-    field('StartDate', 'Start date', 'date', false, record.StartDate),
-    field('EndDate', 'End date', 'date', false, record.EndDate),
+    field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)),
+    field('EndDate', 'End date', 'date', false, dateInputValue(record.EndDate)),
     field('Reason', 'Request reason', 'textarea', true, record.Reason),
     selectField('Status', 'Decision', ['Approved', 'Denied'], currentDecision),
     field('ReviewReason', 'Review reason', 'textarea', true, record.ReviewReason),
@@ -821,7 +841,7 @@ function dashboardPanel(title, rows, columns) {
         ${columns.map((column) => `
           <span>
             <small>${escapeHtml(column)}</small>
-            <strong>${formatCell(row[column]) || '&nbsp;'}</strong>
+            <strong>${formatCell(row[column], column) || '&nbsp;'}</strong>
           </span>
         `).join('')}
       </article>
@@ -846,7 +866,7 @@ function profileTable(title, rows, columns, options = {}) {
   const body = rows.length
     ? rows.map((row) => {
       const actionCell = options.actions ? `<td class="actions">${options.actions(row)}</td>` : '';
-      return `<tr>${columns.map((column) => `<td>${formatCell(row[column])}</td>`).join('')}${actionCell}</tr>`;
+      return `<tr>${columns.map((column) => `<td>${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
     }).join('')
     : `<tr><td colspan="${columns.length + (options.actions ? 1 : 0)}">No records found.</td></tr>`;
   return `
@@ -917,7 +937,7 @@ function renderTrainingMatrix(officers, trainingRows) {
   const rows = officers.map((officer) => {
     const cells = standards.map((standard) => {
       const record = trainingRows.find((item) => item.OfficerID === officer.OfficerID && item.Standard === standard);
-      return `<td>${formatCell(record ? record.Status : 'Not Started')}</td>`;
+      return `<td>${formatCell(record ? record.Status : 'Not Started', 'Status')}</td>`;
     }).join('');
     return `<tr><td>${escapeHtml(officer.RobloxUsername)}</td><td>${escapeHtml(officer.Callsign || '')}</td>${cells}</tr>`;
   }).join('');
@@ -947,7 +967,7 @@ function renderTable(selector, rows, columns, options = {}) {
   const body = rows.map((row) => {
     const attrs = options.rowAction ? options.rowAction(row) : '';
     const actionCell = options.actions ? `<td class="actions">${options.actions(row)}</td>` : '';
-    return `<tr ${attrs}>${columns.map((column) => `<td>${formatCell(row[column])}</td>`).join('')}${actionCell}</tr>`;
+    return `<tr ${attrs}>${columns.map((column) => `<td>${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
   }).join('');
   table.innerHTML = `${head}<tbody>${body}</tbody>`;
 }
@@ -979,6 +999,8 @@ async function openNotifications() {
   showInfo('Notifications', content);
   if ((response.unread || 0) > 0) {
     await api('markNotificationsRead', {});
+    state.unreadNotifications = 0;
+    updateNotificationBadge();
     invalidateCache('myProfile');
   }
 }
@@ -1004,8 +1026,11 @@ function emptyState(message) {
   return `<section class="data-view"><p class="empty">${escapeHtml(message)}</p></section>`;
 }
 
-function formatCell(value) {
+function formatCell(value, column = '') {
   const text = value === undefined || value === null ? '' : String(value);
+  if (isDateColumn(column) && text) {
+    return escapeHtml(formatDisplayDate(text));
+  }
   if (text.startsWith('https://')) {
     return `<a href="${escapeHtml(text)}" target="_blank" rel="noopener">Open</a>`;
   }
@@ -1019,6 +1044,37 @@ function formatCell(value) {
     return `<span class="pill danger">${escapeHtml(text)}</span>`;
   }
   return escapeHtml(text);
+}
+
+function isDateColumn(column) {
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin'].includes(column);
+}
+
+function formatDisplayDate(value) {
+  const input = String(value || '').trim();
+  const isoMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+
+  const date = new Date(input);
+  if (!Number.isNaN(date.getTime())) {
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+  }
+  return input;
+}
+
+function dateInputValue(value) {
+  const input = String(value || '').trim();
+  const isoMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const ukMatch = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (ukMatch) return `${ukMatch[3]}-${ukMatch[2]}-${ukMatch[1]}`;
+
+  const date = new Date(input);
+  if (!Number.isNaN(date.getTime())) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+  return '';
 }
 
 function openEditor(title, fields, onSubmit, options = {}) {

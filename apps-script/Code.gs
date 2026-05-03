@@ -145,7 +145,7 @@ function handleRequest_(e) {
       addDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => addDiscipline_(auth, payload)),
       saveDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => saveDiscipline_(auth, payload)),
       deleteDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => deleteDiscipline_(auth, payload)),
-      listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
+      listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listLoa_()),
       requestOwnLoa: () => requestOwnLoa_(auth, payload),
       createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
       saveLoa: () => requirePermission_(auth, 'CREATE_LOA', () => saveLoa_(auth, payload)),
@@ -316,7 +316,7 @@ function getMyProfile_(auth) {
     officer,
     training: getTrainingForOfficer_(officer),
     discipline: getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID),
-    loa: getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID),
+    loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     documents,
     notifications,
   });
@@ -329,7 +329,7 @@ function getOfficerProfile_(payload) {
 
   const training = getTrainingForOfficer_(officer);
   const discipline = getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID);
-  const loa = getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID);
+  const loa = decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID));
   return ok_({ officer, training, discipline, loa });
 }
 
@@ -659,6 +659,10 @@ function deleteDocument_(auth, payload) {
   deleteRows_(CONFIG.sheets.documents, (row) => row.DocumentID === documentId);
   audit_(auth.user.UserID, 'DELETE_DOCUMENT', 'Document', documentId, existing);
   return ok_({ DocumentID: documentId });
+}
+
+function listLoa_() {
+  return ok_({ rows: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows) });
 }
 
 function listTrainingCertifications_() {
@@ -995,6 +999,18 @@ function seedPermissions_() {
 
 function listRows_(sheetName) {
   return ok_({ rows: getTable_(sheetName).rows });
+}
+
+function decorateLoaRows_(rows) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  return rows.map((row) => {
+    const officer = officers.find((entry) => entry.OfficerID === row.OfficerID) || {};
+    return Object.assign({}, row, {
+      Officer: officer.RobloxUsername || row.OfficerID,
+      Rank: officer.Rank || '',
+      Callsign: officer.Callsign || '',
+    });
+  });
 }
 
 function getTable_(sheetName) {
