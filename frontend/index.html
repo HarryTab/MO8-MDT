@@ -30,6 +30,7 @@
             <button class="nav-item" data-view="myProfile">My Profile</button>
             <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
             <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
+            <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
             <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
             <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
             <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
@@ -103,6 +104,16 @@
           </section>
 
           <section class="data-view profile-view" id="officerProfileView" hidden></section>
+
+          <section class="data-view" id="rankChangesView" hidden>
+            <div class="section-head">
+              <h2>Rank Change Log</h2>
+            </div>
+            <input class="search-input" data-search-view="rankChanges" placeholder="Search rank changes">
+            <div class="table-wrap">
+              <table id="rankChangesTable"></table>
+            </div>
+          </section>
 
           <section class="data-view" id="trainingView" hidden>
             <div class="section-head">

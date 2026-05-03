@@ -29,6 +29,7 @@ const CONFIG = {
     permissions: 'Permissions',
     userPermissions: 'UserPermissions',
     audit: 'AuditLog',
+    rankChanges: 'RankChanges',
     notifications: 'Notifications',
   },
 };
@@ -46,6 +47,7 @@ const HEADERS = {
   Permissions: ['Role', 'Permission', 'Allowed'],
   UserPermissions: ['UserID', 'Permission', 'Allowed', 'UpdatedBy', 'UpdatedAt'],
   AuditLog: ['AuditID', 'Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID', 'Details'],
+  RankChanges: ['ChangeID', 'MemberID', 'OfficerID', 'UserID', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedBy', 'ChangedAt'],
   Notifications: ['NotificationID', 'MemberID', 'Title', 'Message', 'CreatedAt', 'ReadAt', 'ActorUserID'],
 };
 
@@ -53,9 +55,9 @@ let TABLE_CACHE = {};
 
 const DEFAULT_PERMISSIONS = {
   Constable: ['VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
 
@@ -63,6 +65,7 @@ const ALL_PERMISSIONS = [
   'VIEW_DASHBOARD',
   'VIEW_TASKS',
   'VIEW_OFFICERS',
+  'VIEW_RANK_LOG',
   'ADD_OFFICERS',
   'EDIT_OFFICERS',
   'ARCHIVE_OFFICERS',
@@ -196,6 +199,7 @@ function handleRequest_(e) {
       resetUserPassword: () => requirePermission_(auth, 'RESET_PASSWORDS', () => resetUserPassword_(auth, payload)),
       changePassword: () => requirePermission_(auth, 'CHANGE_OWN_PASSWORD', () => changePassword_(auth, payload)),
       auditLog: () => requirePermission_(auth, 'VIEW_AUDIT_LOG', () => listRows_(CONFIG.sheets.audit)),
+      rankChangeLog: () => requirePermission_(auth, 'VIEW_RANK_LOG', () => listRankChanges_()),
     };
 
     if (!protectedActions[action]) {
@@ -364,13 +368,14 @@ function getMyProfile_(auth) {
   const documents = listDocuments_(auth).rows || [];
   const announcements = listAnnouncements_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], documents, announcements, notifications });
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
   return ok_({
     user: publicUser_(auth.user),
     officer: decorateOfficer_(officer),
     training: getTrainingForOfficer_(officer),
     discipline: getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID),
     loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
+    rankChanges: rankChangesForMember_(officer.MemberID || auth.user.MemberID),
     documents,
     announcements,
     notifications,
@@ -385,7 +390,8 @@ function getOfficerProfile_(payload) {
   const training = getTrainingForOfficer_(officer);
   const discipline = getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID);
   const loa = decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID));
-  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa });
+  const rankChanges = rankChangesForMember_(officer.MemberID);
+  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa, rankChanges });
 }
 
 function saveOfficer_(auth, payload) {
@@ -409,6 +415,15 @@ function saveOfficer_(auth, payload) {
     updateRow_(CONFIG.sheets.officers, 'OfficerID', payload.OfficerID, officer);
     ensureTrainingMatrixRow_(Object.assign({ OfficerID: payload.OfficerID }, officer));
     const userSync = syncUserForOfficer_(auth, Object.assign({ OfficerID: payload.OfficerID }, officer));
+    logRankChangeIfNeeded_(auth, {
+      MemberID: officer.MemberID,
+      OfficerID: payload.OfficerID,
+      UserID: userSync.UserID || '',
+      RobloxUsername: officer.RobloxUsername,
+      PreviousRank: existingOfficer.Rank || '',
+      NewRank: officer.Rank || '',
+      Reason: payload.RankChangeReason || '',
+    });
     notifyMember_(officer.MemberID, 'Officer record updated', 'Your MO8 officer record was updated.', auth.user.UserID);
     audit_(auth.user.UserID, 'UPDATE_OFFICER', 'Officer', payload.OfficerID, officer);
     return ok_({ OfficerID: payload.OfficerID });
@@ -420,6 +435,15 @@ function saveOfficer_(auth, payload) {
   appendObject_(CONFIG.sheets.officers, officer);
   ensureTrainingMatrixRow_(officer);
   const userSync = syncUserForOfficer_(auth, officer);
+  logRankChange_(auth, {
+    MemberID: officer.MemberID,
+    OfficerID: officer.OfficerID,
+    UserID: userSync.UserID || '',
+    RobloxUsername: officer.RobloxUsername,
+    PreviousRank: '',
+    NewRank: officer.Rank || '',
+    Reason: payload.RankChangeReason || 'Initial appointment',
+  });
   notifyMember_(officer.MemberID, 'MO8 account created', 'Your MDT account and officer profile were created.', auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_OFFICER', 'Officer', officer.OfficerID, officer);
   return ok_({ OfficerID: officer.OfficerID, temporaryPassword: userSync.temporaryPassword || '' });
@@ -861,6 +885,10 @@ function listUsers_() {
   return ok_({ rows });
 }
 
+function listRankChanges_() {
+  return ok_({ rows: decorateRankChanges_(getTable_(CONFIG.sheets.rankChanges).rows).slice().reverse() });
+}
+
 function permissionsConfig_() {
   const roleRows = getTable_(CONFIG.sheets.permissions).rows;
   const userRows = getTable_(CONFIG.sheets.userPermissions).rows;
@@ -868,6 +896,7 @@ function permissionsConfig_() {
   return ok_({
     roles: CONFIG.roles,
     permissions: ALL_PERMISSIONS,
+    defaultPermissions: DEFAULT_PERMISSIONS,
     rolePermissions: roleRows,
     userPermissions: userRows,
     users,
@@ -934,7 +963,16 @@ function saveUser_(auth, payload) {
     if (!existingUser) return fail_('User not found.');
     user.MemberID = user.MemberID || existingUser.MemberID || memberIdForUsername_(user.RobloxUsername) || id_('MBR');
     updateRow_(CONFIG.sheets.users, 'UserID', payload.UserID, user);
-    syncOfficerForUser_(auth, Object.assign({ UserID: payload.UserID }, user));
+    const officerSync = syncOfficerForUser_(auth, Object.assign({ UserID: payload.UserID }, user));
+    logRankChangeIfNeeded_(auth, {
+      MemberID: user.MemberID,
+      OfficerID: officerSync.OfficerID || '',
+      UserID: payload.UserID,
+      RobloxUsername: user.RobloxUsername,
+      PreviousRank: existingUser.Rank || '',
+      NewRank: user.Rank || '',
+      Reason: payload.RankChangeReason || '',
+    });
     notifyMember_(user.MemberID, 'Account updated', 'Your MDT account details were updated.', auth.user.UserID);
     audit_(auth.user.UserID, 'UPDATE_USER', 'User', payload.UserID, user);
     return ok_({ UserID: payload.UserID });
@@ -950,7 +988,16 @@ function saveUser_(auth, payload) {
   user.CreatedAt = now;
   user.CreatedBy = auth.user.UserID;
   appendObject_(CONFIG.sheets.users, user);
-  syncOfficerForUser_(auth, user);
+  const officerSync = syncOfficerForUser_(auth, user);
+  logRankChange_(auth, {
+    MemberID: user.MemberID,
+    OfficerID: officerSync.OfficerID || '',
+    UserID: user.UserID,
+    RobloxUsername: user.RobloxUsername,
+    PreviousRank: '',
+    NewRank: user.Rank || '',
+    Reason: payload.RankChangeReason || 'Initial appointment',
+  });
   notifyMember_(user.MemberID, 'MDT account created', 'Your MDT user account was created.', auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_USER', 'User', user.UserID, publicUser_(user));
   return ok_({ UserID: user.UserID, temporaryPassword });
@@ -1335,6 +1382,48 @@ function audit_(actorUserId, action, targetType, targetId, details) {
     TargetType: targetType,
     TargetID: targetId,
     Details: JSON.stringify(details || {}),
+  });
+}
+
+function logRankChangeIfNeeded_(auth, change) {
+  if (String(change.PreviousRank || '') === String(change.NewRank || '')) return;
+  logRankChange_(auth, change);
+}
+
+function logRankChange_(auth, change) {
+  if (!change.NewRank) return;
+  const record = {
+    ChangeID: id_('RCH'),
+    MemberID: change.MemberID || '',
+    OfficerID: change.OfficerID || '',
+    UserID: change.UserID || '',
+    RobloxUsername: change.RobloxUsername || '',
+    PreviousRank: change.PreviousRank || '',
+    NewRank: change.NewRank || '',
+    Reason: change.Reason || '',
+    ChangedBy: auth.user.UserID,
+    ChangedAt: now_(),
+  };
+  appendObject_(CONFIG.sheets.rankChanges, record);
+  notifyMember_(record.MemberID, 'Rank updated', `Your rank changed from ${record.PreviousRank || 'No rank'} to ${record.NewRank}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'RANK_CHANGE', 'RankChange', record.ChangeID, record);
+}
+
+function rankChangesForMember_(memberId) {
+  if (!memberId) return [];
+  return decorateRankChanges_(getTable_(CONFIG.sheets.rankChanges).rows)
+    .filter((row) => row.MemberID === memberId)
+    .slice()
+    .reverse();
+}
+
+function decorateRankChanges_(rows) {
+  const users = getTable_(CONFIG.sheets.users).rows;
+  return rows.map((row) => {
+    const actor = users.find((user) => user.UserID === row.ChangedBy) || {};
+    return Object.assign({}, row, {
+      ChangedByName: actor.RobloxUsername || row.ChangedBy || '',
+    });
   });
 }
 

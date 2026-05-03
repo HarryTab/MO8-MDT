@@ -43,6 +43,7 @@ const state = {
   profileLoa: [],
   documents: [],
   announcements: [],
+  rankChanges: [],
   users: [],
   permissionConfig: null,
   audit: [],
@@ -224,6 +225,7 @@ async function showView(view) {
     tasks: ['Tasks', 'Outstanding approvals and command actions'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
+    rankChanges: ['Rank Change Log', 'Promotion and rank movement history'],
     training: ['Training', 'Training standards and status'],
     discipline: ['Discipline', 'Internal roleplay administration records'],
     loa: ['Leave of Absence', 'Requests and reviews'],
@@ -250,6 +252,7 @@ async function showView(view) {
     tasks: loadTasks,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
+    rankChanges: loadRankChanges,
     training: loadTraining,
     discipline: loadDiscipline,
     loa: loadLoa,
@@ -328,6 +331,7 @@ async function loadMyProfile() {
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
+    ${profileTable('My Rank History', response.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('Notice Board', response.announcements || [], ['Title', 'Audience', 'Pinned', 'ExpiresAt'])}
@@ -400,6 +404,17 @@ async function loadTraining() {
   state.training = trainingRows;
   renderTrainingMatrix(officerRows, trainingRows);
   renderSearchableView('training');
+}
+
+async function loadRankChanges() {
+  await showViewOnly('rankChanges');
+  const response = await apiCached('rankChangeLog', {});
+  if (!response.ok) {
+    state.rankChanges = [];
+    return renderTable('#rankChangesTable', [], ['Error'], { emptyMessage: response.error || 'Could not load rank changes.' });
+  }
+  state.rankChanges = response.rows || [];
+  renderSearchableView('rankChanges');
 }
 
 async function loadDiscipline() {
@@ -498,6 +513,9 @@ function renderSearchableView(view) {
   if (view === 'training') {
     renderTable('#trainingTable', rows, ['OfficerID', 'RobloxUsername', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ReviewDate']);
   }
+  if (view === 'rankChanges') {
+    renderTable('#rankChangesTable', rows, ['ChangedAt', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName']);
+  }
   if (view === 'discipline') {
     renderTable('#disciplineTable', rows, ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status'], {
       actions: (row) => can('ADD_DISCIPLINE')
@@ -589,7 +607,9 @@ function renderUserPermissionsMatrix() {
 }
 
 function rolePermissionEnabled(role, permission) {
-  return state.permissionConfig.rolePermissions.some((row) => row.Role === role && row.Permission === permission && String(row.Allowed).toUpperCase() === 'TRUE');
+  const explicit = state.permissionConfig.rolePermissions.find((row) => row.Role === role && row.Permission === permission);
+  if (explicit) return String(explicit.Allowed).toUpperCase() === 'TRUE';
+  return Boolean((state.permissionConfig.defaultPermissions?.[role] || []).includes(permission));
 }
 
 function userPermissionMode(userId, permission) {
@@ -641,6 +661,7 @@ function renderOfficerProfile(data) {
 
     <section class="profile-columns">
       ${profileTable('Training History', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
+      ${profileTable('Rank History', data.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
       ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'], {
         actions: (row) => can('ADD_DISCIPLINE') ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>` : '',
       })}
@@ -663,6 +684,7 @@ function openOfficerEditor(officer = {}) {
     field('DiscordID', 'Discord ID', 'text', false, officer.DiscordID),
     field('Callsign', 'Callsign', 'text', false, officer.Callsign),
     selectField('Rank', 'Rank', OFFICER_RANKS, officer.Rank),
+    field('RankChangeReason', 'Rank change reason', 'textarea', true),
     selectField('Status', 'Status', OFFICER_STATUSES, officer.Status || 'Active'),
     field('JoinDate', 'Join date', 'date', false, officer.JoinDate),
     field('Notes', 'Notes', 'textarea', true, officer.Notes),
@@ -761,6 +783,7 @@ function openUserEditor(user = {}) {
     field('RobloxUsername', 'Roblox username', 'text', false, user.RobloxUsername),
     field('DiscordID', 'Discord ID', 'text', false, user.DiscordID),
     selectField('Rank', 'Rank', OFFICER_RANKS, user.Rank || 'Police Constable'),
+    field('RankChangeReason', 'Rank change reason', 'textarea', true),
     selectField('Role', 'System role', SYSTEM_ROLES, user.Role || 'Constable'),
     selectField('Status', 'Status', ['Active', 'Suspended', 'Archived'], user.Status || 'Active'),
     field('TemporaryPassword', 'Temporary password', 'text', false),
@@ -1254,7 +1277,7 @@ function formatCell(value, column = '') {
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd', 'ChangedAt'].includes(column);
 }
 
 function formatDisplayDate(value) {
