@@ -28,6 +28,7 @@
           <nav class="nav" id="nav" hidden>
             <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
             <button class="nav-item" data-view="myProfile">My Profile</button>
+            <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
             <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
             <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
             <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
@@ -88,6 +89,16 @@
           </section>
 
           <section class="data-view profile-view" id="myProfileView" hidden></section>
+
+          <section class="data-view" id="tasksView" hidden>
+            <div class="section-head">
+              <h2>Tasks</h2>
+            </div>
+            <div id="tasksSummary" class="stat-row"></div>
+            <div class="table-wrap">
+              <table id="tasksTable"></table>
+            </div>
+          </section>
 
           <section class="data-view profile-view" id="officerProfileView" hidden></section>
 

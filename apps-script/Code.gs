@@ -49,9 +49,9 @@ let TABLE_CACHE = {};
 
 const DEFAULT_PERMISSIONS = {
   Constable: ['VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  Inspector: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
 
@@ -128,6 +128,7 @@ function handleRequest_(e) {
       logout: () => logout_(auth, payload),
       me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role) }),
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
+      tasks: () => requirePermission_(auth, 'VIEW_TASKS', () => tasks_(auth)),
       myProfile: () => getMyProfile_(auth),
       listNotifications: () => listNotifications_(auth),
       markNotificationsRead: () => markNotificationsRead_(auth),
@@ -145,6 +146,7 @@ function handleRequest_(e) {
       saveDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => saveDiscipline_(auth, payload)),
       deleteDiscipline: () => requirePermission_(auth, 'ADD_DISCIPLINE', () => deleteDiscipline_(auth, payload)),
       listLoa: () => requirePermission_(auth, 'VIEW_LOA', () => listRows_(CONFIG.sheets.loa)),
+      requestOwnLoa: () => requestOwnLoa_(auth, payload),
       createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
       saveLoa: () => requirePermission_(auth, 'CREATE_LOA', () => saveLoa_(auth, payload)),
       reviewLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => reviewLoa_(auth, payload)),
@@ -190,6 +192,7 @@ function isWriteAction_(action) {
     'setDrivingStandard',
     'setTrainingReviewDate',
     'addDiscipline',
+    'requestOwnLoa',
     'saveDiscipline',
     'deleteDiscipline',
     'createLoa',
@@ -277,6 +280,29 @@ function dashboard_() {
     recentAudit: audit,
     recentDocuments: documents.slice(-5).reverse(),
     pendingLoa: loa.filter((request) => request.Status === 'Pending').slice(-5).reverse(),
+  });
+}
+
+function tasks_() {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const pendingLoa = getTable_(CONFIG.sheets.loa).rows
+    .filter((request) => request.Status === 'Pending')
+    .map((request) => {
+      const officer = officers.find((row) => row.OfficerID === request.OfficerID) || {};
+      return Object.assign({}, request, {
+        TaskType: 'LOA Approval',
+        Officer: officer.RobloxUsername || request.OfficerID,
+        Rank: officer.Rank || '',
+        Callsign: officer.Callsign || '',
+      });
+    })
+    .reverse();
+  return ok_({
+    counts: {
+      pendingLoa: pendingLoa.length,
+      total: pendingLoa.length,
+    },
+    pendingLoa,
   });
 }
 
@@ -533,6 +559,27 @@ function createLoa_(auth, payload) {
   appendObject_(CONFIG.sheets.loa, request);
   notifyOfficer_(request.OfficerID, 'LOA request added', `An LOA request was added for ${request.StartDate || 'an upcoming date'} to ${request.EndDate || 'an upcoming date'}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_LOA', 'LOARequest', request.RequestID, request);
+  return ok_({ RequestID: request.RequestID });
+}
+
+function requestOwnLoa_(auth, payload) {
+  const officer = findOfficerForUser_(auth.user);
+  if (!officer) return fail_('No linked officer profile was found for your account.');
+  const request = {
+    RequestID: id_('LOA'),
+    OfficerID: officer.OfficerID,
+    StartDate: payload.StartDate || '',
+    EndDate: payload.EndDate || '',
+    Reason: payload.Reason || '',
+    Status: 'Pending',
+    ReviewedBy: '',
+    ReviewedAt: '',
+    CreatedAt: now_(),
+  };
+  if (!request.StartDate || !request.EndDate) return fail_('Start and end dates are required.');
+  appendObject_(CONFIG.sheets.loa, request);
+  notifyOfficer_(officer.OfficerID, 'LOA request submitted', 'Your LOA request was submitted for review.', auth.user.UserID);
+  audit_(auth.user.UserID, 'REQUEST_OWN_LOA', 'LOARequest', request.RequestID, request);
   return ok_({ RequestID: request.RequestID });
 }
 
@@ -821,6 +868,8 @@ function getUserPermissions_(role) {
   }
   if (role === 'Constable' && !permissions.includes('VIEW_DOCUMENTS')) permissions.push('VIEW_DOCUMENTS');
   if (role === 'Sergeant' && !permissions.includes('MANAGE_TRAINING')) permissions.push('MANAGE_TRAINING');
+  if (role !== 'Constable' && !permissions.includes('VIEW_TASKS')) permissions.push('VIEW_TASKS');
+  if (role !== 'Constable' && !permissions.includes('APPROVE_LOA')) permissions.push('APPROVE_LOA');
   if (permissions.includes('APPROVE_LOA') && !permissions.includes('VIEW_LOA')) permissions.push('VIEW_LOA');
   if (permissions.includes('CREATE_LOA_REVIEW_NOTE') && !permissions.includes('CREATE_LOA')) permissions.push('CREATE_LOA');
   if (!permissions.includes('CHANGE_OWN_PASSWORD')) permissions.push('CHANGE_OWN_PASSWORD');

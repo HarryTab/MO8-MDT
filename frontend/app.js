@@ -35,6 +35,7 @@ const state = {
   training: [],
   discipline: [],
   loa: [],
+  tasks: [],
   documents: [],
   users: [],
   audit: [],
@@ -195,6 +196,7 @@ async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
+    tasks: ['Tasks', 'Outstanding approvals and command actions'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
     training: ['Training', 'Training standards and status'],
@@ -218,6 +220,7 @@ async function showView(view) {
   const loaders = {
     dashboard: loadDashboard,
     myProfile: loadMyProfile,
+    tasks: loadTasks,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
     training: loadTraining,
@@ -279,6 +282,7 @@ async function loadMyProfile() {
         <h2>${escapeHtml(user.RobloxUsername)}</h2>
         <p>${escapeHtml(user.Rank || user.Role)} / ${escapeHtml(user.Role)}</p>
       </div>
+      ${officer ? '<button data-request-loa>Request LOA</button>' : ''}
     </div>
     <section class="profile-grid">
       ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
@@ -292,6 +296,24 @@ async function loadMyProfile() {
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
   `;
+}
+
+async function loadTasks() {
+  await showViewOnly('tasks');
+  const response = await apiCached('tasks', {});
+  if (!response.ok) {
+    document.querySelector('#tasksSummary').innerHTML = '';
+    return renderTable('#tasksTable', [], ['Error'], { emptyMessage: response.error || 'Could not load tasks.' });
+  }
+  state.tasks = response.pendingLoa || [];
+  const counts = response.counts || {};
+  document.querySelector('#tasksSummary').innerHTML = [
+    stat('Pending LOA', counts.pendingLoa || 0),
+    stat('Total Tasks', counts.total || 0),
+  ].join('');
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Callsign', 'StartDate', 'EndDate', 'Reason', 'CreatedAt'], {
+    actions: (row) => `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`,
+  });
 }
 
 async function loadOfficers() {
@@ -530,6 +552,16 @@ function openLoaEditor(officerIdOrRecord) {
   ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values));
 }
 
+function openOwnLoaEditor() {
+  openEditor('Request LOA', [
+    field('StartDate', 'Start date', 'date'),
+    field('EndDate', 'End date', 'date'),
+    field('Reason', 'Reason', 'textarea', true),
+  ], async (values) => api('requestOwnLoa', values), {
+    successMessage: 'LOA request submitted for review.',
+  });
+}
+
 function openDocumentEditor(document = {}) {
   openEditor(document.DocumentID ? 'Edit document' : 'Add document', [
     hiddenField('DocumentID', document.DocumentID),
@@ -604,6 +636,9 @@ async function handleDocumentClick(event) {
   const addLoa = event.target.closest('[data-add-loa]');
   if (addLoa) return openLoaEditor(addLoa.dataset.addLoa);
 
+  const requestLoa = event.target.closest('[data-request-loa]');
+  if (requestLoa) return openOwnLoaEditor();
+
   const editLoa = event.target.closest('[data-edit-loa]');
   if (editLoa) {
     const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa);
@@ -661,7 +696,11 @@ async function handleDocumentClick(event) {
   if (reviewLoa) {
     await api('reviewLoa', { RequestID: reviewLoa.dataset.reviewLoa, Status: reviewLoa.dataset.status });
     invalidateCache();
-    await loadLoa();
+    if (state.activeView === 'tasks') {
+      await loadTasks();
+    } else {
+      await loadLoa();
+    }
   }
 }
 
