@@ -92,13 +92,14 @@ button:hover {
 }
 
 button.ghost {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.78);
-  border-color: var(--line-strong);
+  color: #123259;
+  background: #eef5ff;
+  border-color: #8fb7eb;
   box-shadow: none;
 }
 
 button.ghost:hover {
+  color: #fff;
   background: var(--hover);
 }
 
@@ -603,6 +604,20 @@ tr[data-open-officer] {
   align-items: center;
 }
 
+.actions button.ghost,
+.profile-actions button.ghost {
+  color: #9d241b;
+  background: #fff0ee;
+  border-color: #e1aaa4;
+}
+
+.actions button.ghost:hover,
+.profile-actions button.ghost:hover {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
 .compact th,
 .compact td {
   padding: 9px 10px;
@@ -653,9 +668,9 @@ dialog::backdrop {
 }
 
 dialog .section-head .ghost {
-  color: #123259;
-  background: #eef5ff;
-  border-color: #8fb7eb;
+  color: #0b2547;
+  background: #e4f0ff;
+  border-color: #6a9de0;
   font-weight: 950;
 }
 
@@ -1070,7 +1085,14 @@ body.is-authenticated #currentUser strong {
 }
 
 body.is-authenticated .ghost {
-  color: #ecf6ff;
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.20);
+  color: #10345f;
+  background: #eef5ff;
+  border-color: #86b1e8;
+}
+
+body.is-authenticated .actions button.ghost,
+body.is-authenticated .profile-actions button.ghost {
+  color: #9d241b;
+  background: #fff0ee;
+  border-color: #e1aaa4;
 }
