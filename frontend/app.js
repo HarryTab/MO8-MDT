@@ -36,6 +36,8 @@ const state = {
   discipline: [],
   loa: [],
   tasks: [],
+  profileDiscipline: [],
+  profileLoa: [],
   documents: [],
   users: [],
   audit: [],
@@ -282,7 +284,7 @@ async function loadMyProfile() {
         <h2>${escapeHtml(user.RobloxUsername)}</h2>
         <p>${escapeHtml(user.Rank || user.Role)} / ${escapeHtml(user.Role)}</p>
       </div>
-      ${officer ? '<button data-request-loa>Request LOA</button>' : ''}
+      <button data-request-loa>Request LOA</button>
     </div>
     <section class="profile-grid">
       ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
@@ -292,7 +294,7 @@ async function loadMyProfile() {
     </section>
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
-    ${profileTable('My LOA', response.loa || [], ['StartDate', 'EndDate', 'Reason', 'Status'])}
+    ${profileTable('My LOA', response.loa || [], ['StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
   `;
@@ -312,7 +314,8 @@ async function loadTasks() {
     stat('Total Tasks', counts.total || 0),
   ].join('');
   renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Callsign', 'StartDate', 'EndDate', 'Reason', 'CreatedAt'], {
-    actions: (row) => `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`,
+    rowAction: (row) => `data-open-loa-review="${escapeHtml(row.RequestID)}"`,
+    actions: (row) => `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>`,
   });
 }
 
@@ -382,7 +385,7 @@ function renderLoaTable(rows) {
     actions: (row) => [
       can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
       can('APPROVE_LOA') && row.Status === 'Pending'
-        ? `<button class="mini" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-loa="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`
+        ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-open-loa-review="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button>`
         : '',
       can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
     ].join(''),
@@ -463,6 +466,8 @@ async function loadAudit() {
 function renderOfficerProfile(data) {
   const officer = data.officer;
   const container = document.querySelector('#officerProfileView');
+  state.profileDiscipline = data.discipline || [];
+  state.profileLoa = data.loa || [];
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -494,8 +499,16 @@ function renderOfficerProfile(data) {
 
     <section class="profile-columns">
       ${profileTable('Training History', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
-      ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'])}
-      ${profileTable('LOA', data.loa, ['StartDate', 'EndDate', 'Reason', 'Status'])}
+      ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'], {
+        actions: (row) => can('ADD_DISCIPLINE') ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>` : '',
+      })}
+      ${profileTable('LOA', data.loa, ['StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'], {
+        actions: (row) => [
+          can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
+          can('APPROVE_LOA') ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
+          can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
+        ].join(''),
+      })}
     </section>
   `;
   applyPermissions();
@@ -562,6 +575,21 @@ function openOwnLoaEditor() {
   });
 }
 
+function openLoaReviewEditor(record, status = '') {
+  const currentDecision = ['Approved', 'Denied'].includes(status || record.Status) ? status || record.Status : 'Approved';
+  openEditor('Review LOA request', [
+    hiddenField('RequestID', record.RequestID),
+    field('OfficerID', 'Officer ID', 'text', false, record.OfficerID),
+    field('StartDate', 'Start date', 'date', false, record.StartDate),
+    field('EndDate', 'End date', 'date', false, record.EndDate),
+    field('Reason', 'Request reason', 'textarea', true, record.Reason),
+    selectField('Status', 'Decision', ['Approved', 'Denied'], currentDecision),
+    field('ReviewReason', 'Review reason', 'textarea', true, record.ReviewReason),
+  ], async (values) => api('reviewLoa', values), {
+    successMessage: 'LOA review saved.',
+  });
+}
+
 function openDocumentEditor(document = {}) {
   openEditor(document.DocumentID ? 'Edit document' : 'Add document', [
     hiddenField('DocumentID', document.DocumentID),
@@ -622,14 +650,21 @@ async function handleDocumentClick(event) {
 
   const editDiscipline = event.target.closest('[data-edit-discipline]');
   if (editDiscipline) {
-    const record = state.discipline.find((row) => row.ActionID === editDiscipline.dataset.editDiscipline);
+    const record = state.discipline.find((row) => row.ActionID === editDiscipline.dataset.editDiscipline)
+      || state.profileDiscipline.find((row) => row.ActionID === editDiscipline.dataset.editDiscipline);
     if (record) openDisciplineEditor(record);
     return;
   }
 
   const deleteDiscipline = event.target.closest('[data-delete-discipline]');
   if (deleteDiscipline) {
-    await confirmDelete('Delete this disciplinary record?', 'deleteDiscipline', { ActionID: deleteDiscipline.dataset.deleteDiscipline }, loadDiscipline);
+    await confirmDelete('Delete this disciplinary record?', 'deleteDiscipline', { ActionID: deleteDiscipline.dataset.deleteDiscipline }, async () => {
+      if (state.activeView === 'officerProfile') {
+        await loadOfficerProfile(state.selectedOfficerId);
+      } else {
+        await loadDiscipline();
+      }
+    });
     return;
   }
 
@@ -641,14 +676,32 @@ async function handleDocumentClick(event) {
 
   const editLoa = event.target.closest('[data-edit-loa]');
   if (editLoa) {
-    const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa);
+    const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa)
+      || state.profileLoa.find((row) => row.RequestID === editLoa.dataset.editLoa);
     if (record) openLoaEditor(record);
+    return;
+  }
+
+  const reviewLoaOpen = event.target.closest('[data-open-loa-review]');
+  if (reviewLoaOpen) {
+    const record = state.tasks.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || state.loa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || state.profileLoa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
+    if (record) openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
     return;
   }
 
   const deleteLoa = event.target.closest('[data-delete-loa]');
   if (deleteLoa) {
-    await confirmDelete('Delete this LOA request?', 'deleteLoa', { RequestID: deleteLoa.dataset.deleteLoa }, loadLoa);
+    await confirmDelete('Delete this LOA request?', 'deleteLoa', { RequestID: deleteLoa.dataset.deleteLoa }, async () => {
+      if (state.activeView === 'tasks') {
+        await loadTasks();
+      } else if (state.activeView === 'officerProfile') {
+        await loadOfficerProfile(state.selectedOfficerId);
+      } else {
+        await loadLoa();
+      }
+    });
     return;
   }
 
@@ -693,15 +746,7 @@ async function handleDocumentClick(event) {
   }
 
   const reviewLoa = event.target.closest('[data-review-loa]');
-  if (reviewLoa) {
-    await api('reviewLoa', { RequestID: reviewLoa.dataset.reviewLoa, Status: reviewLoa.dataset.status });
-    invalidateCache();
-    if (state.activeView === 'tasks') {
-      await loadTasks();
-    } else {
-      await loadLoa();
-    }
-  }
+  if (reviewLoa) return;
 }
 
 async function handleDocumentChange(event) {
@@ -796,16 +841,20 @@ function detailCard(label, value, allowHtml = false) {
   return `<article class="detail-card"><span>${escapeHtml(label)}</span><strong>${content}</strong></article>`;
 }
 
-function profileTable(title, rows, columns) {
+function profileTable(title, rows, columns, options = {}) {
+  const actionHeader = options.actions ? '<th>Actions</th>' : '';
   const body = rows.length
-    ? rows.map((row) => `<tr>${columns.map((column) => `<td>${formatCell(row[column])}</td>`).join('')}</tr>`).join('')
-    : `<tr><td colspan="${columns.length}">No records found.</td></tr>`;
+    ? rows.map((row) => {
+      const actionCell = options.actions ? `<td class="actions">${options.actions(row)}</td>` : '';
+      return `<tr>${columns.map((column) => `<td>${formatCell(row[column])}</td>`).join('')}${actionCell}</tr>`;
+    }).join('')
+    : `<tr><td colspan="${columns.length + (options.actions ? 1 : 0)}">No records found.</td></tr>`;
   return `
     <section class="profile-panel">
       <h3>${escapeHtml(title)}</h3>
       <div class="table-wrap compact">
         <table>
-          <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+          <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}${actionHeader}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>

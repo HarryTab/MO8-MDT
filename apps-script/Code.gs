@@ -38,7 +38,7 @@ const HEADERS = {
   TrainingRecords: ['TrainingID', 'OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate', 'Notes', 'UpdatedAt'],
   TrainingMatrix: ['OfficerID', 'MemberID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'ReviewDate', 'UpdatedAt', 'UpdatedBy'],
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
-  LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
+  LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
   Permissions: ['Role', 'Permission', 'Allowed'],
   AuditLog: ['AuditID', 'Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID', 'Details'],
@@ -531,13 +531,16 @@ function deleteDiscipline_(auth, payload) {
 function reviewLoa_(auth, payload) {
   if (!payload.RequestID) return fail_('RequestID is required.');
   const existing = getTable_(CONFIG.sheets.loa).rows.find((row) => row.RequestID === payload.RequestID);
+  const status = payload.Status || 'Pending';
+  if (status === 'Denied' && !payload.ReviewReason) return fail_('A denial reason is required.');
   const update = {
-    Status: payload.Status || 'Pending',
+    Status: status,
+    ReviewReason: payload.ReviewReason || '',
     ReviewedBy: auth.user.UserID,
     ReviewedAt: now_(),
   };
   updateRow_(CONFIG.sheets.loa, 'RequestID', payload.RequestID, update);
-  if (existing) notifyOfficer_(existing.OfficerID, 'LOA request reviewed', `Your LOA request was ${update.Status}.`, auth.user.UserID);
+  if (existing) notifyOfficer_(existing.OfficerID, 'LOA request reviewed', `Your LOA request was ${update.Status}${update.ReviewReason ? `: ${update.ReviewReason}` : ''}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'REVIEW_LOA', 'LOARequest', payload.RequestID, update);
   return ok_({ RequestID: payload.RequestID });
 }
@@ -551,6 +554,7 @@ function createLoa_(auth, payload) {
     EndDate: payload.EndDate || '',
     Reason: payload.Reason || '',
     Status: canReview ? payload.Status || 'Pending' : 'Pending',
+    ReviewReason: '',
     ReviewedBy: canReview && payload.Status && payload.Status !== 'Pending' ? auth.user.UserID : '',
     ReviewedAt: canReview && payload.Status && payload.Status !== 'Pending' ? now_() : '',
     CreatedAt: now_(),
@@ -563,7 +567,11 @@ function createLoa_(auth, payload) {
 }
 
 function requestOwnLoa_(auth, payload) {
-  const officer = findOfficerForUser_(auth.user);
+  let officer = findOfficerForUser_(auth.user);
+  if (!officer) {
+    const linked = syncOfficerForUser_(auth, auth.user);
+    officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === linked.OfficerID);
+  }
   if (!officer) return fail_('No linked officer profile was found for your account.');
   const request = {
     RequestID: id_('LOA'),
@@ -572,6 +580,7 @@ function requestOwnLoa_(auth, payload) {
     EndDate: payload.EndDate || '',
     Reason: payload.Reason || '',
     Status: 'Pending',
+    ReviewReason: '',
     ReviewedBy: '',
     ReviewedAt: '',
     CreatedAt: now_(),
@@ -590,12 +599,14 @@ function saveLoa_(auth, payload) {
   const requestedStatus = payload.Status || existing.Status || 'Pending';
   const statusChanged = requestedStatus !== existing.Status;
   if (statusChanged && !hasPermission_(auth.user, 'APPROVE_LOA')) return fail_('You do not have permission to change LOA status.');
+  if (requestedStatus === 'Denied' && !payload.ReviewReason && !existing.ReviewReason) return fail_('A denial reason is required.');
   const request = {
     OfficerID: payload.OfficerID || existing.OfficerID || '',
     StartDate: payload.StartDate || '',
     EndDate: payload.EndDate || '',
     Reason: payload.Reason || '',
     Status: requestedStatus,
+    ReviewReason: payload.ReviewReason || existing.ReviewReason || '',
     ReviewedBy: statusChanged ? auth.user.UserID : existing.ReviewedBy,
     ReviewedAt: statusChanged ? now_() : existing.ReviewedAt,
     CreatedAt: existing.CreatedAt || now_(),
