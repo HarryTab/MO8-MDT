@@ -88,7 +88,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
   state.permissions = response.permissions || [];
   localStorage.setItem('mo8_token', state.token);
   showApp();
-  await showView('dashboard');
+  await showView(defaultView());
 });
 
 elements.logoutButton.addEventListener('click', async () => {
@@ -151,7 +151,7 @@ async function boot() {
   state.user = response.user;
   state.permissions = response.permissions || [];
   showApp();
-  await showView('dashboard');
+  await showView(defaultView());
 }
 
 function showLogin() {
@@ -183,6 +183,11 @@ function applyPermissions() {
   });
 }
 
+function defaultView() {
+  if (can('VIEW_DASHBOARD')) return 'dashboard';
+  return 'myProfile';
+}
+
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
@@ -198,6 +203,7 @@ async function showView(view) {
   };
 
   state.activeView = view;
+  document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   Object.keys(titles).forEach((key) => {
     const section = document.querySelector(`#${key}View`);
     if (section) section.hidden = key !== view;
@@ -278,6 +284,7 @@ async function loadMyProfile() {
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
+    ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['StartDate', 'EndDate', 'Reason', 'Status'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}

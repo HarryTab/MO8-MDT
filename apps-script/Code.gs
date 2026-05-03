@@ -46,7 +46,7 @@ const HEADERS = {
 };
 
 const DEFAULT_PERMISSIONS = {
-  Constable: ['VIEW_DASHBOARD', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
+  Constable: ['VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   Inspector: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
@@ -242,11 +242,12 @@ function getMyProfile_(auth) {
   const officer = findOfficerForUser_(auth.user);
   const documents = listDocuments_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], loa: [], documents, notifications });
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], documents, notifications });
   return ok_({
     user: publicUser_(auth.user),
     officer,
     training: getTrainingForOfficer_(officer),
+    discipline: getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID),
     loa: getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID),
     documents,
     notifications,
@@ -315,12 +316,14 @@ function saveTraining_(auth, payload) {
 
   if (payload.TrainingID) {
     updateRow_(CONFIG.sheets.training, 'TrainingID', payload.TrainingID, record);
+    notifyOfficer_(record.OfficerID, 'Training record updated', `${record.Standard} was updated to ${record.Status}.`, auth.user.UserID);
     audit_(auth.user.UserID, 'UPDATE_TRAINING', 'Training', payload.TrainingID, record);
     return ok_({ TrainingID: payload.TrainingID });
   }
 
   record.TrainingID = id_('TRN');
   appendObject_(CONFIG.sheets.training, record);
+  notifyOfficer_(record.OfficerID, 'Training record added', `${record.Standard} was added to your training history with status ${record.Status}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_TRAINING', 'Training', record.TrainingID, record);
   return ok_({ TrainingID: record.TrainingID });
 }
@@ -404,18 +407,21 @@ function addDiscipline_(auth, payload) {
     Status: payload.Status || 'Active',
   };
   appendObject_(CONFIG.sheets.discipline, action);
+  notifyOfficer_(action.OfficerID, 'Disciplinary record added', `${action.Type}: ${action.Summary || 'A disciplinary record was added to your profile.'}`, auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_DISCIPLINE', 'Discipline', action.ActionID, action);
   return ok_({ ActionID: action.ActionID });
 }
 
 function reviewLoa_(auth, payload) {
   if (!payload.RequestID) return fail_('RequestID is required.');
+  const existing = getTable_(CONFIG.sheets.loa).rows.find((row) => row.RequestID === payload.RequestID);
   const update = {
     Status: payload.Status || 'Pending',
     ReviewedBy: auth.user.UserID,
     ReviewedAt: now_(),
   };
   updateRow_(CONFIG.sheets.loa, 'RequestID', payload.RequestID, update);
+  if (existing) notifyOfficer_(existing.OfficerID, 'LOA request reviewed', `Your LOA request was ${update.Status}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'REVIEW_LOA', 'LOARequest', payload.RequestID, update);
   return ok_({ RequestID: payload.RequestID });
 }
@@ -434,6 +440,7 @@ function createLoa_(auth, payload) {
   };
   if (!request.OfficerID) return fail_('OfficerID is required.');
   appendObject_(CONFIG.sheets.loa, request);
+  notifyOfficer_(request.OfficerID, 'LOA request added', `An LOA request was added for ${request.StartDate || 'an upcoming date'} to ${request.EndDate || 'an upcoming date'}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'CREATE_LOA', 'LOARequest', request.RequestID, request);
   return ok_({ RequestID: request.RequestID });
 }
@@ -615,6 +622,7 @@ function changePassword_(auth, payload) {
     PasswordHash: hashPassword_(newPassword, salt),
     Salt: salt,
   });
+  notifyMember_(auth.user.MemberID, 'Password changed', 'Your MDT password was changed.', auth.user.UserID);
   audit_(auth.user.UserID, 'CHANGE_PASSWORD', 'User', user.UserID, {});
   return ok_({ changed: true });
 }
@@ -647,7 +655,10 @@ function getUserPermissions_(role) {
   const permissions = table.rows
     .filter((row) => row.Role === role && String(row.Allowed).toUpperCase() === 'TRUE')
     .map((row) => row.Permission);
-  if (role === 'Constable' && !permissions.includes('VIEW_DASHBOARD')) permissions.push('VIEW_DASHBOARD');
+  if (role === 'Constable') {
+    const dashboardIndex = permissions.indexOf('VIEW_DASHBOARD');
+    if (dashboardIndex !== -1) permissions.splice(dashboardIndex, 1);
+  }
   if (role === 'Constable' && !permissions.includes('VIEW_DOCUMENTS')) permissions.push('VIEW_DOCUMENTS');
   if (role === 'Sergeant' && !permissions.includes('MANAGE_TRAINING')) permissions.push('MANAGE_TRAINING');
   if (permissions.includes('APPROVE_LOA') && !permissions.includes('VIEW_LOA')) permissions.push('VIEW_LOA');
@@ -928,6 +939,14 @@ function notifyMember_(memberId, title, message, actorUserId) {
     ReadAt: '',
     ActorUserID: actorUserId || '',
   });
+}
+
+function notifyOfficer_(officerId, title, message, actorUserId) {
+  if (!officerId) return;
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return;
+  const memberId = officer.MemberID || memberIdForUsername_(officer.RobloxUsername);
+  notifyMember_(memberId, title, message, actorUserId);
 }
 
 function listNotifications_(auth) {
