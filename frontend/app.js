@@ -24,6 +24,7 @@ const TRAINING_STATUSES = ['Not Started', 'In Progress', 'Passed', 'Failed'];
 const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
 const DISCIPLINE_STATUSES = ['Active', 'Expired', 'Appealed', 'Removed'];
 const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
+const CACHE_TTL_MS = 45000;
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
@@ -37,6 +38,7 @@ const state = {
   documents: [],
   users: [],
   audit: [],
+  cache: {},
   selectedOfficerId: '',
 };
 
@@ -97,6 +99,7 @@ elements.logoutButton.addEventListener('click', async () => {
   state.token = '';
   state.user = null;
   state.permissions = [];
+  invalidateCache();
   showLogin();
 });
 
@@ -237,7 +240,7 @@ async function showViewOnly(view) {
 
 async function loadDashboard() {
   await showViewOnly('dashboard');
-  const response = await api('dashboard', {});
+  const response = await apiCached('dashboard', {});
   if (!response.ok) return renderError(elements.dashboardView, response.error);
 
   const counts = response.counts || {};
@@ -260,7 +263,7 @@ async function loadDashboard() {
 
 async function loadMyProfile() {
   await showViewOnly('myProfile');
-  const response = await api('myProfile', {});
+  const response = await apiCached('myProfile', {});
   const container = document.querySelector('#myProfileView');
   if (!response.ok) {
     container.innerHTML = emptyState(response.error || 'Could not load profile.');
@@ -293,7 +296,7 @@ async function loadMyProfile() {
 
 async function loadOfficers() {
   await showViewOnly('officers');
-  const response = await api('listOfficers', {});
+  const response = await apiCached('listOfficers', {});
   if (!response.ok) return renderTable('#officersTable', [], ['Error'], response.error);
   state.officers = response.rows || [];
   renderOfficerTable();
@@ -316,7 +319,7 @@ async function loadOfficerProfile(officerId) {
     return;
   }
 
-  const response = await api('getOfficerProfile', { OfficerID: officerId });
+  const response = await apiCached('getOfficerProfile', { OfficerID: officerId });
   if (!response.ok) {
     document.querySelector('#officerProfileView').innerHTML = emptyState(response.error || 'Officer not found.');
     return;
@@ -328,8 +331,8 @@ async function loadOfficerProfile(officerId) {
 async function loadTraining() {
   await showViewOnly('training');
   const [trainingResponse, officersResponse] = await Promise.all([
-    api('listTraining', {}),
-    api('listOfficers', {}),
+    apiCached('listTraining', {}),
+    apiCached('listOfficers', {}),
   ]);
   const trainingRows = trainingResponse.rows || [];
   const officerRows = officersResponse.rows || [];
@@ -340,14 +343,14 @@ async function loadTraining() {
 
 async function loadDiscipline() {
   await showViewOnly('discipline');
-  const response = await api('listDiscipline', {});
+  const response = await apiCached('listDiscipline', {});
   state.discipline = response.rows || [];
   renderSearchableView('discipline');
 }
 
 async function loadLoa() {
   await showViewOnly('loa');
-  const response = await api('listLoa', {});
+  const response = await apiCached('listLoa', {});
   state.loa = response.rows || [];
   renderSearchableView('loa');
 }
@@ -362,7 +365,7 @@ function renderLoaTable(rows) {
 
 async function loadDocuments() {
   await showViewOnly('documents');
-  const response = await api('listDocuments', {});
+  const response = await apiCached('listDocuments', {});
   state.documents = response.rows || [];
   renderDocumentTable();
 }
@@ -405,7 +408,7 @@ function renderSearchableView(view) {
 
 async function loadUsers() {
   await showViewOnly('users');
-  const response = await api('listUsers', {});
+  const response = await apiCached('listUsers', {});
   state.users = response.rows || [];
   renderSearchableView('users');
 }
@@ -418,7 +421,7 @@ function renderUsersTable(rows) {
 
 async function loadAudit() {
   await showViewOnly('audit');
-  const response = await api('auditLog', {});
+  const response = await apiCached('auditLog', {});
   state.audit = response.rows || [];
   renderSearchableView('audit');
 }
@@ -576,6 +579,7 @@ async function handleDocumentClick(event) {
   const reviewLoa = event.target.closest('[data-review-loa]');
   if (reviewLoa) {
     await api('reviewLoa', { RequestID: reviewLoa.dataset.reviewLoa, Status: reviewLoa.dataset.status });
+    invalidateCache();
     await loadLoa();
   }
 }
@@ -596,6 +600,7 @@ async function handleDocumentChange(event) {
       alert(response.error || 'Training update failed.');
       return;
     }
+    invalidateCache();
     await loadOfficerProfile(trainingToggle.dataset.officerId);
     return;
   }
@@ -612,6 +617,7 @@ async function handleDocumentChange(event) {
       alert(response.error || 'Driving standard update failed.');
       return;
     }
+    invalidateCache();
     await loadOfficerProfile(drivingSelect.dataset.officerId);
     return;
   }
@@ -628,6 +634,7 @@ async function handleDocumentChange(event) {
       showInfo('Review date failed', `<p>${escapeHtml(response.error || 'Training review date update failed.')}</p>`);
       return;
     }
+    invalidateCache();
     await loadOfficerProfile(reviewDate.dataset.officerId);
     return;
   }
@@ -803,6 +810,7 @@ async function openNotifications() {
   showInfo('Notifications', content);
   if ((response.unread || 0) > 0) {
     await api('markNotificationsRead', {});
+    invalidateCache('myProfile');
   }
 }
 
@@ -860,6 +868,7 @@ function openEditor(title, fields, onSubmit, options = {}) {
     }
 
     elements.editorDialog.close();
+    invalidateCache();
     await showView(state.activeView);
   };
 }
@@ -897,6 +906,34 @@ async function api(action, data = {}, includeToken = true) {
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}
+
+async function apiCached(action, data = {}, includeToken = true) {
+  const key = cacheKey(action, data, includeToken);
+  const cached = state.cache[key];
+  if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
+    return cached.response;
+  }
+
+  const response = await api(action, data, includeToken);
+  if (response.ok) {
+    state.cache[key] = { time: Date.now(), response };
+  }
+  return response;
+}
+
+function cacheKey(action, data, includeToken) {
+  return JSON.stringify({ action, data, includeToken });
+}
+
+function invalidateCache(action = '') {
+  if (!action) {
+    state.cache = {};
+    return;
+  }
+  Object.keys(state.cache).forEach((key) => {
+    if (key.includes(`"action":"${action}"`)) delete state.cache[key];
+  });
 }
 
 function can(permission) {

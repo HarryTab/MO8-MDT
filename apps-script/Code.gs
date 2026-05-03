@@ -45,6 +45,8 @@ const HEADERS = {
   Notifications: ['NotificationID', 'MemberID', 'Title', 'Message', 'CreatedAt', 'ReadAt', 'ActorUserID'],
 };
 
+let TABLE_CACHE = {};
+
 const DEFAULT_PERMISSIONS = {
   Constable: ['VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
   Sergeant: ['VIEW_DASHBOARD', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
@@ -102,11 +104,15 @@ function doPost(e) {
 }
 
 function handleRequest_(e) {
-  const lock = LockService.getScriptLock();
+  let lock = null;
   try {
-    lock.waitLock(5000);
+    TABLE_CACHE = {};
     const payload = parsePayload_(e);
     const action = payload.action || '';
+    if (isWriteAction_(action)) {
+      lock = LockService.getScriptLock();
+      lock.waitLock(5000);
+    }
 
     const publicActions = {
       ping: () => ok_({ message: 'MO8 MDT API online', time: now_() }),
@@ -155,12 +161,34 @@ function handleRequest_(e) {
   } catch (err) {
     return json_(fail_(err.message || String(err)));
   } finally {
-    try {
-      lock.releaseLock();
-    } catch (err) {
-      // Ignore lock release errors.
+    if (lock) {
+      try {
+        lock.releaseLock();
+      } catch (err) {
+        // Ignore lock release errors.
+      }
     }
   }
+}
+
+function isWriteAction_(action) {
+  return [
+    'login',
+    'logout',
+    'markNotificationsRead',
+    'saveOfficer',
+    'saveTraining',
+    'setOfficerTraining',
+    'setDrivingStandard',
+    'setTrainingReviewDate',
+    'addDiscipline',
+    'createLoa',
+    'reviewLoa',
+    'saveDocument',
+    'saveUser',
+    'resetUserPassword',
+    'changePassword',
+  ].includes(action);
 }
 
 function login_(payload) {
@@ -778,6 +806,7 @@ function listRows_(sheetName) {
 }
 
 function getTable_(sheetName) {
+  if (TABLE_CACHE[sheetName]) return TABLE_CACHE[sheetName];
   const sheet = ensureSheet_(sheetName);
   if (!sheet) throw new Error(`Missing sheet: ${sheetName}`);
   const values = sheet.getDataRange().getValues();
@@ -791,7 +820,8 @@ function getTable_(sheetName) {
       });
       return object;
     });
-  return { sheet, headers, rows };
+  TABLE_CACHE[sheetName] = { sheet, headers, rows };
+  return TABLE_CACHE[sheetName];
 }
 
 function ensureSheet_(sheetName) {
@@ -822,6 +852,7 @@ function appendObject_(sheetName, object) {
   const table = getTable_(sheetName);
   const values = table.headers.map((header) => object[header] !== undefined ? object[header] : '');
   table.sheet.appendRow(values);
+  delete TABLE_CACHE[sheetName];
 }
 
 function updateRow_(sheetName, key, value, updates) {
@@ -835,6 +866,7 @@ function updateRow_(sheetName, key, value, updates) {
       table.sheet.getRange(row._rowNumber, columnIndex + 1).setValue(updates[field]);
     }
   });
+  delete TABLE_CACHE[sheetName];
 }
 
 function audit_(actorUserId, action, targetType, targetId, details) {
