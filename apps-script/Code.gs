@@ -25,6 +25,7 @@ const CONFIG = {
     discipline: 'DisciplinaryActions',
     loa: 'LOARequests',
     documents: 'Documents',
+    announcements: 'Announcements',
     permissions: 'Permissions',
     userPermissions: 'UserPermissions',
     audit: 'AuditLog',
@@ -41,6 +42,7 @@ const HEADERS = {
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
+  Announcements: ['AnnouncementID', 'Title', 'Body', 'Audience', 'Status', 'Pinned', 'ExpiresAt', 'UpdatedBy', 'UpdatedAt'],
   Permissions: ['Role', 'Permission', 'Allowed'],
   UserPermissions: ['UserID', 'Permission', 'Allowed', 'UpdatedBy', 'UpdatedAt'],
   AuditLog: ['AuditID', 'Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID', 'Details'],
@@ -50,10 +52,10 @@ const HEADERS = {
 let TABLE_CACHE = {};
 
 const DEFAULT_PERMISSIONS = {
-  Constable: ['VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'CHANGE_OWN_PASSWORD'],
-  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
+  Constable: ['VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
 
@@ -73,6 +75,8 @@ const ALL_PERMISSIONS = [
   'APPROVE_LOA',
   'VIEW_DOCUMENTS',
   'MANAGE_DOCUMENTS',
+  'VIEW_ANNOUNCEMENTS',
+  'MANAGE_ANNOUNCEMENTS',
   'MANAGE_USERS',
   'RESET_PASSWORDS',
   'VIEW_AUDIT_LOG',
@@ -158,7 +162,7 @@ function handleRequest_(e) {
       myProfile: () => getMyProfile_(auth),
       listNotifications: () => listNotifications_(auth),
       markNotificationsRead: () => markNotificationsRead_(auth),
-      listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listRows_(CONFIG.sheets.officers)),
+      listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listOfficers_()),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
       deleteOfficer: () => requirePermission_(auth, 'ARCHIVE_OFFICERS', () => deleteOfficer_(auth, payload)),
@@ -180,6 +184,9 @@ function handleRequest_(e) {
       listDocuments: () => requirePermission_(auth, 'VIEW_DOCUMENTS', () => listDocuments_(auth)),
       saveDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => saveDocument_(auth, payload)),
       deleteDocument: () => requirePermission_(auth, 'MANAGE_DOCUMENTS', () => deleteDocument_(auth, payload)),
+      listAnnouncements: () => requirePermission_(auth, 'VIEW_ANNOUNCEMENTS', () => listAnnouncements_(auth)),
+      saveAnnouncement: () => requirePermission_(auth, 'MANAGE_ANNOUNCEMENTS', () => saveAnnouncement_(auth, payload)),
+      deleteAnnouncement: () => requirePermission_(auth, 'MANAGE_ANNOUNCEMENTS', () => deleteAnnouncement_(auth, payload)),
       listUsers: () => requirePermission_(auth, 'MANAGE_USERS', () => listUsers_()),
       saveUser: () => requirePermission_(auth, 'MANAGE_USERS', () => saveUser_(auth, payload)),
       deleteUser: () => requirePermission_(auth, 'MANAGE_USERS', () => deleteUser_(auth, payload)),
@@ -230,6 +237,8 @@ function isWriteAction_(action) {
     'deleteLoa',
     'saveDocument',
     'deleteDocument',
+    'saveAnnouncement',
+    'deleteAnnouncement',
     'saveUser',
     'deleteUser',
     'setRolePermission',
@@ -288,13 +297,20 @@ function logout_(auth, payload) {
   return ok_({ loggedOut: true });
 }
 
-function dashboard_() {
+function dashboard_(auth) {
   const officers = getTable_(CONFIG.sheets.officers).rows;
   const training = listTrainingCertifications_().rows || [];
   const discipline = getTable_(CONFIG.sheets.discipline).rows;
   const loa = getTable_(CONFIG.sheets.loa).rows;
   const documents = getTable_(CONFIG.sheets.documents).rows;
+  const announcements = visibleAnnouncements_(auth);
   const audit = getTable_(CONFIG.sheets.audit).rows.slice(-8).reverse();
+  const activeLoa = decorateLoaRows_(loa.filter((request) => isActiveLoa_(request)));
+  const today = new Date(today_());
+  const soon = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const trainingReviewsDue = officers
+    .map((officer) => getTrainingForOfficer_(officer).find((row) => row.ReviewDate))
+    .filter((row) => row && dateInRange_(row.ReviewDate, today, soon));
   const missingCoreTraining = officers.filter((officer) => {
     const officerTraining = getTrainingForOfficer_(officer);
     return officerTraining.some((row) => ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'].includes(row.Standard) && row.Status !== 'Passed');
@@ -302,15 +318,21 @@ function dashboard_() {
   return ok_({
     counts: {
       activeOfficers: officers.filter((officer) => officer.Status === 'Active').length,
+      currentlyOnLoa: activeLoa.length,
       loaPending: loa.filter((request) => request.Status === 'Pending').length,
       trainingRecords: training.length,
+      trainingReviewsDue: trainingReviewsDue.length,
       activeDiscipline: discipline.filter((action) => action.Status === 'Active').length,
       missingCoreTraining,
       documents: documents.filter((document) => document.Status === 'Published').length,
+      notices: announcements.length,
     },
     recentAudit: audit,
     recentDocuments: documents.slice(-5).reverse(),
-    pendingLoa: loa.filter((request) => request.Status === 'Pending').slice(-5).reverse(),
+    pendingLoa: decorateLoaRows_(loa.filter((request) => request.Status === 'Pending').slice(-5).reverse()),
+    activeLoa: activeLoa.slice(0, 5),
+    announcements: announcements.slice(0, 5),
+    trainingReviewsDue: trainingReviewsDue.slice(0, 5),
   });
 }
 
@@ -340,15 +362,17 @@ function tasks_() {
 function getMyProfile_(auth) {
   const officer = findOfficerForUser_(auth.user);
   const documents = listDocuments_(auth).rows || [];
+  const announcements = listAnnouncements_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], documents, notifications });
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], documents, announcements, notifications });
   return ok_({
     user: publicUser_(auth.user),
-    officer,
+    officer: decorateOfficer_(officer),
     training: getTrainingForOfficer_(officer),
     discipline: getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID),
     loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     documents,
+    announcements,
     notifications,
   });
 }
@@ -361,7 +385,7 @@ function getOfficerProfile_(payload) {
   const training = getTrainingForOfficer_(officer);
   const discipline = getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID);
   const loa = decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID));
-  return ok_({ officer, training, discipline, loa });
+  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa });
 }
 
 function saveOfficer_(auth, payload) {
@@ -692,8 +716,51 @@ function deleteDocument_(auth, payload) {
   return ok_({ DocumentID: documentId });
 }
 
+function listAnnouncements_(auth) {
+  return ok_({ rows: visibleAnnouncements_(auth) });
+}
+
+function saveAnnouncement_(auth, payload) {
+  const announcement = {
+    Title: payload.Title || '',
+    Body: payload.Body || '',
+    Audience: payload.Audience || 'Constable',
+    Status: payload.Status || 'Published',
+    Pinned: truthy_(payload.Pinned) ? 'TRUE' : 'FALSE',
+    ExpiresAt: payload.ExpiresAt || '',
+    UpdatedBy: auth.user.UserID,
+    UpdatedAt: now_(),
+  };
+  if (!announcement.Title) return fail_('Title is required.');
+
+  if (payload.AnnouncementID) {
+    updateRow_(CONFIG.sheets.announcements, 'AnnouncementID', payload.AnnouncementID, announcement);
+    audit_(auth.user.UserID, 'UPDATE_ANNOUNCEMENT', 'Announcement', payload.AnnouncementID, announcement);
+    return ok_({ AnnouncementID: payload.AnnouncementID });
+  }
+
+  announcement.AnnouncementID = id_('ANN');
+  appendObject_(CONFIG.sheets.announcements, announcement);
+  audit_(auth.user.UserID, 'CREATE_ANNOUNCEMENT', 'Announcement', announcement.AnnouncementID, announcement);
+  return ok_({ AnnouncementID: announcement.AnnouncementID });
+}
+
+function deleteAnnouncement_(auth, payload) {
+  const announcementId = payload.AnnouncementID || '';
+  if (!announcementId) return fail_('AnnouncementID is required.');
+  const existing = getTable_(CONFIG.sheets.announcements).rows.find((row) => row.AnnouncementID === announcementId);
+  if (!existing) return fail_('Announcement not found.');
+  deleteRows_(CONFIG.sheets.announcements, (row) => row.AnnouncementID === announcementId);
+  audit_(auth.user.UserID, 'DELETE_ANNOUNCEMENT', 'Announcement', announcementId, existing);
+  return ok_({ AnnouncementID: announcementId });
+}
+
 function listLoa_() {
   return ok_({ rows: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows) });
+}
+
+function listOfficers_() {
+  return ok_({ rows: getTable_(CONFIG.sheets.officers).rows.map(decorateOfficer_) });
 }
 
 function listTrainingCertifications_() {
@@ -774,6 +841,19 @@ function listDocuments_(auth) {
     .filter((row) => row.Status === 'Published' || canManageDocuments_(auth))
     .filter((row) => canAccessDocument_(auth.user, row.RequiredRole || 'Police Constable'));
   return ok_({ rows });
+}
+
+function visibleAnnouncements_(auth) {
+  const canManage = hasPermission_(auth.user, 'MANAGE_ANNOUNCEMENTS');
+  return getTable_(CONFIG.sheets.announcements).rows
+    .filter((row) => canManage || row.Status === 'Published')
+    .filter((row) => !row.ExpiresAt || !dateBeforeToday_(row.ExpiresAt))
+    .filter((row) => canAccessDocument_(auth.user, row.Audience || 'Constable'))
+    .sort((a, b) => {
+      const pinned = Number(truthy_(b.Pinned)) - Number(truthy_(a.Pinned));
+      if (pinned) return pinned;
+      return String(b.UpdatedAt || '').localeCompare(String(a.UpdatedAt || ''));
+    });
 }
 
 function listUsers_() {
@@ -1113,6 +1193,51 @@ function decorateLoaRows_(rows) {
       Callsign: officer.Callsign || '',
     });
   });
+}
+
+function decorateOfficer_(officer) {
+  const activeLoa = getTable_(CONFIG.sheets.loa).rows.find((request) => {
+    return request.OfficerID === officer.OfficerID && isActiveLoa_(request);
+  });
+  return Object.assign({}, officer, {
+    LoaStatus: activeLoa ? 'On LOA' : 'Available',
+    CurrentLoaEnd: activeLoa ? activeLoa.EndDate || '' : '',
+    EffectiveStatus: activeLoa ? 'LOA' : officer.Status,
+  });
+}
+
+function isActiveLoa_(request) {
+  if (request.Status !== 'Approved') return false;
+  const today = new Date(today_());
+  const start = parseDateOnly_(request.StartDate);
+  const end = parseDateOnly_(request.EndDate);
+  if (!start || !end) return false;
+  return start <= today && end >= today;
+}
+
+function dateInRange_(value, start, end) {
+  const date = parseDateOnly_(value);
+  return Boolean(date && date >= start && date <= end);
+}
+
+function dateBeforeToday_(value) {
+  const date = parseDateOnly_(value);
+  return Boolean(date && date < new Date(today_()));
+}
+
+function parseDateOnly_(value) {
+  if (!value) return null;
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const input = String(value).trim();
+  const iso = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const uk = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (uk) return new Date(Number(uk[3]), Number(uk[2]) - 1, Number(uk[1]));
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
 function getTable_(sheetName) {

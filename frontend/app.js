@@ -26,6 +26,7 @@ const DISCIPLINE_STATUSES = ['Active', 'Expired', 'Appealed', 'Removed'];
 const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
 const CACHE_TTL_MS = 45000;
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
+const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
@@ -41,6 +42,7 @@ const state = {
   profileDiscipline: [],
   profileLoa: [],
   documents: [],
+  announcements: [],
   users: [],
   permissionConfig: null,
   audit: [],
@@ -139,6 +141,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
 
 document.querySelector('#newOfficerButton').addEventListener('click', () => openOfficerEditor());
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
+document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
 
 async function boot() {
@@ -225,6 +228,7 @@ async function showView(view) {
     discipline: ['Discipline', 'Internal roleplay administration records'],
     loa: ['Leave of Absence', 'Requests and reviews'],
     documents: ['Documents', 'Training guides and policy links'],
+    announcements: ['Notice Board', 'Operational updates and command notices'],
     users: ['Users', 'Sergeant+ login accounts'],
     permissions: ['Permissions', 'Role defaults and individual overrides'],
     audit: ['Audit Log', 'System activity trail'],
@@ -250,6 +254,7 @@ async function showView(view) {
     discipline: loadDiscipline,
     loa: loadLoa,
     documents: loadDocuments,
+    announcements: loadAnnouncements,
     users: loadUsers,
     permissions: loadPermissions,
     audit: loadAudit,
@@ -275,13 +280,18 @@ async function loadDashboard() {
     <div class="stat-row">
       ${[
     stat('Active Officers', counts.activeOfficers || 0),
+    stat('Currently On LOA', counts.currentlyOnLoa || 0),
     stat('Pending LOA', counts.loaPending || 0),
-    stat('Training Items', counts.trainingRecords || 0),
+    stat('Review Due', counts.trainingReviewsDue || 0),
     stat('Missing Core Training', counts.missingCoreTraining || 0),
+    stat('Notices', counts.notices || 0),
   ].join('')}
     </div>
     <section class="dashboard-grid">
-      ${dashboardPanel('Pending LOA', response.pendingLoa || [], ['OfficerID', 'StartDate', 'EndDate', 'Status'])}
+      ${dashboardPanel('Active LOA Status', response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status'])}
+      ${dashboardPanel('Pending LOA', response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate'])}
+      ${announcementPanel('Notice Board', response.announcements || [])}
+      ${dashboardPanel('Training Reviews', response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy'])}
       ${dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt'])}
       ${dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID'])}
     </section>
@@ -312,13 +322,15 @@ async function loadMyProfile() {
     </div>
     <section class="profile-grid">
       ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
-      ${detailCard('Status', officer ? formatCell(officer.Status) : 'No record', true)}
+      ${detailCard('Status', officer ? formatCell(officer.EffectiveStatus || officer.Status, 'Status') : 'No record', true)}
+      ${detailCard('LOA Status', officer ? loaStatusText(officer) : 'No record', true)}
       ${detailCard('Discord ID', user.DiscordID || 'Not set')}
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
+    ${profileTable('Notice Board', response.announcements || [], ['Title', 'Audience', 'Pinned', 'ExpiresAt'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
   `;
@@ -354,9 +366,9 @@ async function loadOfficers() {
 function renderOfficerTable() {
   const query = document.querySelector('#officerSearch').value.toLowerCase();
   const rows = state.officers.filter((officer) => {
-    return ['RobloxUsername', 'Callsign', 'Rank', 'Status'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
+    return ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'EffectiveStatus', 'LoaStatus'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
   });
-  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'JoinDate', 'UpdatedAt'], {
+  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'EffectiveStatus', 'LoaStatus', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
   });
 }
@@ -423,6 +435,18 @@ async function loadDocuments() {
   renderDocumentTable();
 }
 
+async function loadAnnouncements() {
+  await showViewOnly('announcements');
+  const response = await apiCached('listAnnouncements', {});
+  if (!response.ok) {
+    state.announcements = [];
+    document.querySelector('#announcementCards').innerHTML = emptyState(response.error || 'Could not load notices.');
+    return renderTable('#announcementsTable', [], ['Error'], { emptyMessage: response.error || 'Could not load notices.' });
+  }
+  state.announcements = response.rows || [];
+  renderSearchableView('announcements');
+}
+
 function renderDocumentTable() {
   const query = document.querySelector('#documentSearch').value.toLowerCase();
   const category = document.querySelector('#documentCategoryFilter').value;
@@ -434,6 +458,31 @@ function renderDocumentTable() {
   renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL'], {
     actions: (row) => can('MANAGE_DOCUMENTS')
       ? `<button class="mini" data-edit-document="${escapeHtml(row.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(row.DocumentID)}">Delete</button>`
+      : '',
+  });
+}
+
+function renderAnnouncementCards(rows) {
+  const container = document.querySelector('#announcementCards');
+  const published = rows.filter((row) => row.Status === 'Published');
+  container.innerHTML = published.length
+    ? published.slice(0, 6).map((notice) => `
+      <article class="notice-card${truthy(notice.Pinned) ? ' pinned' : ''}">
+        <div>
+          <span>${truthy(notice.Pinned) ? 'Pinned' : escapeHtml(notice.Audience || 'All officers')}</span>
+          <h3>${escapeHtml(notice.Title || 'Notice')}</h3>
+          <p>${escapeHtml(notice.Body || '')}</p>
+        </div>
+        <small>${formatCell(notice.UpdatedAt, 'UpdatedAt')}</small>
+      </article>
+    `).join('')
+    : `<p class="empty">No published notices.</p>`;
+}
+
+function renderAnnouncementsTable(rows) {
+  renderTable('#announcementsTable', rows, ['Title', 'Audience', 'Status', 'Pinned', 'ExpiresAt', 'UpdatedAt'], {
+    actions: (row) => can('MANAGE_ANNOUNCEMENTS')
+      ? `<button class="mini" data-edit-announcement="${escapeHtml(row.AnnouncementID)}">Edit</button><button class="mini ghost" data-delete-announcement="${escapeHtml(row.AnnouncementID)}">Delete</button>`
       : '',
   });
 }
@@ -458,6 +507,10 @@ function renderSearchableView(view) {
   }
   if (view === 'loa') {
     renderLoaTable(rows);
+  }
+  if (view === 'announcements') {
+    renderAnnouncementCards(rows);
+    renderAnnouncementsTable(rows);
   }
   if (view === 'users') {
     renderUsersTable(rows);
@@ -690,6 +743,18 @@ function openDocumentEditor(document = {}) {
   ], async (values) => api('saveDocument', values));
 }
 
+function openAnnouncementEditor(announcement = {}) {
+  openEditor(announcement.AnnouncementID ? 'Edit notice' : 'Add notice', [
+    hiddenField('AnnouncementID', announcement.AnnouncementID),
+    field('Title', 'Title', 'text', false, announcement.Title),
+    field('Body', 'Notice text', 'textarea', true, announcement.Body),
+    selectField('Audience', 'Minimum rank or role', ACCESS_LEVELS, announcement.Audience || 'Constable'),
+    selectField('Status', 'Status', ANNOUNCEMENT_STATUSES, announcement.Status || 'Published'),
+    selectField('Pinned', 'Pinned', ['FALSE', 'TRUE'], truthy(announcement.Pinned) ? 'TRUE' : 'FALSE'),
+    field('ExpiresAt', 'Expires after', 'date', false, dateInputValue(announcement.ExpiresAt)),
+  ], async (values) => api('saveAnnouncement', values));
+}
+
 function openUserEditor(user = {}) {
   openEditor(user.UserID ? 'Edit user' : 'Add user', [
     hiddenField('UserID', user.UserID),
@@ -804,6 +869,19 @@ async function handleDocumentClick(event) {
   const deleteDocument = event.target.closest('[data-delete-document]');
   if (deleteDocument) {
     await confirmDelete('Delete this document link?', 'deleteDocument', { DocumentID: deleteDocument.dataset.deleteDocument }, loadDocuments);
+    return;
+  }
+
+  const editAnnouncement = event.target.closest('[data-edit-announcement]');
+  if (editAnnouncement) {
+    const announcement = state.announcements.find((row) => row.AnnouncementID === editAnnouncement.dataset.editAnnouncement);
+    if (announcement) openAnnouncementEditor(announcement);
+    return;
+  }
+
+  const deleteAnnouncement = event.target.closest('[data-delete-announcement]');
+  if (deleteAnnouncement) {
+    await confirmDelete('Delete this notice?', 'deleteAnnouncement', { AnnouncementID: deleteAnnouncement.dataset.deleteAnnouncement }, loadAnnouncements);
     return;
   }
 
@@ -956,6 +1034,33 @@ function dashboardPanel(title, rows, columns) {
       <div class="dashboard-list">${body}</div>
     </article>
   `;
+}
+
+function announcementPanel(title, rows) {
+  const body = rows.length
+    ? rows.map((row) => `
+      <article class="dashboard-row notice-dashboard">
+        <span>
+          <small>${truthy(row.Pinned) ? 'Pinned notice' : escapeHtml(row.Audience || 'Notice')}</small>
+          <strong>${escapeHtml(row.Title || 'Notice')}</strong>
+          <em>${escapeHtml(row.Body || '')}</em>
+        </span>
+      </article>
+    `).join('')
+    : `<p class="empty">No notices found.</p>`;
+
+  return `
+    <article class="dashboard-panel">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="dashboard-list">${body}</div>
+    </article>
+  `;
+}
+
+function loaStatusText(officer) {
+  if (!officer || officer.LoaStatus !== 'On LOA') return formatCell('Available', 'Status');
+  const endDate = officer.CurrentLoaEnd ? ` until ${formatDisplayDate(officer.CurrentLoaEnd)}` : '';
+  return `<span class="pill warning">On LOA${escapeHtml(endDate)}</span>`;
 }
 
 function detailCard(label, value, allowHtml = false) {
@@ -1139,7 +1244,7 @@ function formatCell(value, column = '') {
   if (['Active', 'Published', 'Passed', 'Approved'].includes(text)) {
     return `<span class="pill success">${escapeHtml(text)}</span>`;
   }
-  if (['LOA', 'Pending', 'In Progress', 'Draft', 'Not Started'].includes(text)) {
+  if (['LOA', 'On LOA', 'Pending', 'In Progress', 'Draft', 'Not Started'].includes(text)) {
     return `<span class="pill warning">${escapeHtml(text)}</span>`;
   }
   if (['Suspended', 'Archived', 'Failed', 'Denied', 'Expired', 'Removed'].includes(text)) {
@@ -1149,7 +1254,7 @@ function formatCell(value, column = '') {
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd'].includes(column);
 }
 
 function formatDisplayDate(value) {
@@ -1276,6 +1381,10 @@ function invalidateCache(action = '') {
 
 function can(permission) {
   return state.permissions.includes('FULL_ACCESS') || state.permissions.includes(permission);
+}
+
+function truthy(value) {
+  return value === true || String(value).toUpperCase() === 'TRUE';
 }
 
 function escapeHtml(value) {

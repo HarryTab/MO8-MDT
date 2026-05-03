@@ -34,6 +34,7 @@
             <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
             <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
             <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
+            <button class="nav-item" data-view="announcements" data-permission="VIEW_ANNOUNCEMENTS">Notice Board</button>
             <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
             <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
             <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
@@ -151,6 +152,18 @@
             </div>
             <div class="table-wrap">
               <table id="documentsTable"></table>
+            </div>
+          </section>
+
+          <section class="data-view" id="announcementsView" hidden>
+            <div class="section-head">
+              <h2>Notice Board</h2>
+              <button id="newAnnouncementButton" data-permission="MANAGE_ANNOUNCEMENTS">Add notice</button>
+            </div>
+            <input class="search-input" data-search-view="announcements" placeholder="Search notices">
+            <div id="announcementCards" class="notice-board"></div>
+            <div class="table-wrap">
+              <table id="announcementsTable"></table>
             </div>
           </section>
 
