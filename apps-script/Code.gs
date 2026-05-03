@@ -26,6 +26,7 @@ const CONFIG = {
     loa: 'LOARequests',
     documents: 'Documents',
     permissions: 'Permissions',
+    userPermissions: 'UserPermissions',
     audit: 'AuditLog',
     notifications: 'Notifications',
   },
@@ -41,6 +42,7 @@ const HEADERS = {
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
   Permissions: ['Role', 'Permission', 'Allowed'],
+  UserPermissions: ['UserID', 'Permission', 'Allowed', 'UpdatedBy', 'UpdatedAt'],
   AuditLog: ['AuditID', 'Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID', 'Details'],
   Notifications: ['NotificationID', 'MemberID', 'Title', 'Message', 'CreatedAt', 'ReadAt', 'ActorUserID'],
 };
@@ -54,6 +56,30 @@ const DEFAULT_PERMISSIONS = {
   'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
+
+const ALL_PERMISSIONS = [
+  'VIEW_DASHBOARD',
+  'VIEW_TASKS',
+  'VIEW_OFFICERS',
+  'ADD_OFFICERS',
+  'EDIT_OFFICERS',
+  'ARCHIVE_OFFICERS',
+  'VIEW_TRAINING',
+  'MANAGE_TRAINING',
+  'VIEW_DISCIPLINE',
+  'ADD_DISCIPLINE',
+  'VIEW_LOA',
+  'CREATE_LOA',
+  'APPROVE_LOA',
+  'VIEW_DOCUMENTS',
+  'MANAGE_DOCUMENTS',
+  'MANAGE_USERS',
+  'RESET_PASSWORDS',
+  'VIEW_AUDIT_LOG',
+  'MANAGE_PERMISSIONS',
+  'CHANGE_OWN_PASSWORD',
+  'FULL_ACCESS',
+];
 
 function setupSpreadsheet() {
   const ss = SpreadsheetApp.getActive();
@@ -126,7 +152,7 @@ function handleRequest_(e) {
     const auth = requireSession_(payload.token);
     const protectedActions = {
       logout: () => logout_(auth, payload),
-      me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role) }),
+      me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role, auth.user.UserID) }),
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
       tasks: () => requirePermission_(auth, 'VIEW_TASKS', () => tasks_(auth)),
       myProfile: () => getMyProfile_(auth),
@@ -157,6 +183,9 @@ function handleRequest_(e) {
       listUsers: () => requirePermission_(auth, 'MANAGE_USERS', () => listUsers_()),
       saveUser: () => requirePermission_(auth, 'MANAGE_USERS', () => saveUser_(auth, payload)),
       deleteUser: () => requirePermission_(auth, 'MANAGE_USERS', () => deleteUser_(auth, payload)),
+      permissionsConfig: () => requirePermission_(auth, 'MANAGE_PERMISSIONS', () => permissionsConfig_()),
+      setRolePermission: () => requirePermission_(auth, 'MANAGE_PERMISSIONS', () => setRolePermission_(auth, payload)),
+      setUserPermission: () => requirePermission_(auth, 'MANAGE_PERMISSIONS', () => setUserPermission_(auth, payload)),
       resetUserPassword: () => requirePermission_(auth, 'RESET_PASSWORDS', () => resetUserPassword_(auth, payload)),
       changePassword: () => requirePermission_(auth, 'CHANGE_OWN_PASSWORD', () => changePassword_(auth, payload)),
       auditLog: () => requirePermission_(auth, 'VIEW_AUDIT_LOG', () => listRows_(CONFIG.sheets.audit)),
@@ -203,6 +232,8 @@ function isWriteAction_(action) {
     'deleteDocument',
     'saveUser',
     'deleteUser',
+    'setRolePermission',
+    'setUserPermission',
     'resetUserPassword',
     'changePassword',
   ].includes(action);
@@ -241,7 +272,7 @@ function login_(payload) {
   return ok_({
     token: rawToken,
     user: publicUser_(match),
-    permissions: getUserPermissions_(match.Role),
+    permissions: getUserPermissions_(match.Role, match.UserID),
     expiresAt: expires.toISOString(),
   });
 }
@@ -750,6 +781,61 @@ function listUsers_() {
   return ok_({ rows });
 }
 
+function permissionsConfig_() {
+  const roleRows = getTable_(CONFIG.sheets.permissions).rows;
+  const userRows = getTable_(CONFIG.sheets.userPermissions).rows;
+  const users = getTable_(CONFIG.sheets.users).rows.map(publicUser_);
+  return ok_({
+    roles: CONFIG.roles,
+    permissions: ALL_PERMISSIONS,
+    rolePermissions: roleRows,
+    userPermissions: userRows,
+    users,
+  });
+}
+
+function setRolePermission_(auth, payload) {
+  const role = payload.Role || '';
+  const permission = payload.Permission || '';
+  const allowed = truthy_(payload.Allowed);
+  if (!CONFIG.roles.includes(role)) return fail_('Unknown role.');
+  if (!ALL_PERMISSIONS.includes(permission)) return fail_('Unknown permission.');
+  if (role === 'Command' && permission === 'FULL_ACCESS' && !allowed) return fail_('Command FULL_ACCESS cannot be disabled.');
+  upsertPermissionRow_(CONFIG.sheets.permissions, ['Role', 'Permission'], { Role: role, Permission: permission }, {
+    Role: role,
+    Permission: permission,
+    Allowed: allowed ? 'TRUE' : 'FALSE',
+  });
+  audit_(auth.user.UserID, 'SET_ROLE_PERMISSION', 'Permission', `${role}:${permission}`, { role, permission, allowed });
+  return ok_({ Role: role, Permission: permission, Allowed: allowed });
+}
+
+function setUserPermission_(auth, payload) {
+  const userId = payload.UserID || '';
+  const permission = payload.Permission || '';
+  const mode = payload.Mode || 'Inherit';
+  if (!getTable_(CONFIG.sheets.users).rows.some((user) => user.UserID === userId)) return fail_('User not found.');
+  if (!ALL_PERMISSIONS.includes(permission)) return fail_('Unknown permission.');
+  if (!['Inherit', 'Allow', 'Deny'].includes(mode)) return fail_('Unknown permission mode.');
+  if (userId === auth.user.UserID && mode === 'Deny' && ['FULL_ACCESS', 'MANAGE_PERMISSIONS'].includes(permission)) {
+    return fail_('You cannot deny your own permission management access.');
+  }
+
+  if (mode === 'Inherit') {
+    deleteRows_(CONFIG.sheets.userPermissions, (row) => row.UserID === userId && row.Permission === permission);
+  } else {
+    upsertPermissionRow_(CONFIG.sheets.userPermissions, ['UserID', 'Permission'], { UserID: userId, Permission: permission }, {
+      UserID: userId,
+      Permission: permission,
+      Allowed: mode === 'Allow' ? 'TRUE' : 'FALSE',
+      UpdatedBy: auth.user.UserID,
+      UpdatedAt: now_(),
+    });
+  }
+  audit_(auth.user.UserID, 'SET_USER_PERMISSION', 'UserPermission', `${userId}:${permission}`, { userId, permission, mode });
+  return ok_({ UserID: userId, Permission: permission, Mode: mode });
+}
+
 function saveUser_(auth, payload) {
   const now = now_();
   const user = {
@@ -868,27 +954,43 @@ function requirePermission_(auth, permission, fn) {
 }
 
 function hasPermission_(user, permission) {
-  const permissions = getUserPermissions_(user.Role);
+  const permissions = getUserPermissions_(user.Role, user.UserID);
   return permissions.includes('FULL_ACCESS') || permissions.includes(permission);
 }
 
-function getUserPermissions_(role) {
+function getUserPermissions_(role, userId) {
   const table = getTable_(CONFIG.sheets.permissions);
   const permissions = table.rows
     .filter((row) => row.Role === role && String(row.Allowed).toUpperCase() === 'TRUE')
     .map((row) => row.Permission);
+  (DEFAULT_PERMISSIONS[role] || []).forEach((permission) => {
+    const explicit = table.rows.some((row) => row.Role === role && row.Permission === permission);
+    if (!explicit && !permissions.includes(permission)) permissions.push(permission);
+  });
+  table.rows
+    .filter((row) => row.Role === role && String(row.Allowed).toUpperCase() === 'FALSE')
+    .forEach((row) => removePermission_(permissions, row.Permission));
   if (role === 'Constable') {
     const dashboardIndex = permissions.indexOf('VIEW_DASHBOARD');
     if (dashboardIndex !== -1) permissions.splice(dashboardIndex, 1);
   }
-  if (role === 'Constable' && !permissions.includes('VIEW_DOCUMENTS')) permissions.push('VIEW_DOCUMENTS');
-  if (role === 'Sergeant' && !permissions.includes('MANAGE_TRAINING')) permissions.push('MANAGE_TRAINING');
-  if (role !== 'Constable' && !permissions.includes('VIEW_TASKS')) permissions.push('VIEW_TASKS');
-  if (role !== 'Constable' && !permissions.includes('APPROVE_LOA')) permissions.push('APPROVE_LOA');
   if (permissions.includes('APPROVE_LOA') && !permissions.includes('VIEW_LOA')) permissions.push('VIEW_LOA');
   if (permissions.includes('CREATE_LOA_REVIEW_NOTE') && !permissions.includes('CREATE_LOA')) permissions.push('CREATE_LOA');
   if (!permissions.includes('CHANGE_OWN_PASSWORD')) permissions.push('CHANGE_OWN_PASSWORD');
+  if (userId) {
+    getTable_(CONFIG.sheets.userPermissions).rows
+      .filter((row) => row.UserID === userId)
+      .forEach((row) => {
+        if (String(row.Allowed).toUpperCase() === 'TRUE' && !permissions.includes(row.Permission)) permissions.push(row.Permission);
+        if (String(row.Allowed).toUpperCase() === 'FALSE') removePermission_(permissions, row.Permission);
+      });
+  }
   return permissions;
+}
+
+function removePermission_(permissions, permission) {
+  const index = permissions.indexOf(permission);
+  if (index !== -1) permissions.splice(index, 1);
 }
 
 function syncUserForOfficer_(auth, officer) {
@@ -968,7 +1070,7 @@ function roleForRank_(rank) {
 }
 
 function canManageDocuments_(auth) {
-  const permissions = getUserPermissions_(auth.user.Role);
+  const permissions = getUserPermissions_(auth.user.Role, auth.user.UserID);
   return permissions.includes('FULL_ACCESS') || permissions.includes('MANAGE_DOCUMENTS');
 }
 
@@ -1075,6 +1177,20 @@ function updateRow_(sheetName, key, value, updates) {
     }
   });
   delete TABLE_CACHE[sheetName];
+}
+
+function upsertPermissionRow_(sheetName, keyFields, keyValues, values) {
+  const table = getTable_(sheetName);
+  const existing = table.rows.find((row) => keyFields.every((field) => String(row[field]) === String(keyValues[field])));
+  if (existing) {
+    Object.keys(values).forEach((field) => {
+      const columnIndex = table.headers.indexOf(field);
+      if (columnIndex !== -1) table.sheet.getRange(existing._rowNumber, columnIndex + 1).setValue(values[field]);
+    });
+    delete TABLE_CACHE[sheetName];
+    return;
+  }
+  appendObject_(sheetName, values);
 }
 
 function deleteRows_(sheetName, predicate) {

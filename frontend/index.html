@@ -35,6 +35,7 @@
             <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
             <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
             <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
+            <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
             <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
           </nav>
         </aside>
@@ -162,6 +163,14 @@
             <div class="table-wrap">
               <table id="usersTable"></table>
             </div>
+          </section>
+
+          <section class="data-view" id="permissionsView" hidden>
+            <div class="section-head">
+              <h2>Permissions</h2>
+            </div>
+            <div id="permissionsMatrix" class="matrix-block"></div>
+            <div id="userPermissionsMatrix" class="matrix-block"></div>
           </section>
 
           <section class="data-view" id="auditView" hidden>

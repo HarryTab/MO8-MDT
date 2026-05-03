@@ -848,6 +848,17 @@ dialog .section-head .ghost:hover {
   font-size: 15px;
 }
 
+.matrix-block input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.matrix-block select {
+  min-width: 96px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
 .profile-panel {
   padding: 14px;
   min-width: 0;

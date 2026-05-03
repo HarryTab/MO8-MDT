@@ -25,6 +25,7 @@ const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
 const DISCIPLINE_STATUSES = ['Active', 'Expired', 'Appealed', 'Removed'];
 const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
 const CACHE_TTL_MS = 45000;
+const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
@@ -41,6 +42,7 @@ const state = {
   profileLoa: [],
   documents: [],
   users: [],
+  permissionConfig: null,
   audit: [],
   cache: {},
   selectedOfficerId: '',
@@ -224,6 +226,7 @@ async function showView(view) {
     loa: ['Leave of Absence', 'Requests and reviews'],
     documents: ['Documents', 'Training guides and policy links'],
     users: ['Users', 'Sergeant+ login accounts'],
+    permissions: ['Permissions', 'Role defaults and individual overrides'],
     audit: ['Audit Log', 'System activity trail'],
   };
 
@@ -248,6 +251,7 @@ async function showView(view) {
     loa: loadLoa,
     documents: loadDocuments,
     users: loadUsers,
+    permissions: loadPermissions,
     audit: loadAudit,
   };
 
@@ -474,6 +478,71 @@ function renderUsersTable(rows) {
   renderTable('#usersTable', rows, ['RobloxUsername', 'DiscordID', 'Rank', 'Role', 'Status'], {
     actions: (row) => `<button class="mini" data-edit-user="${escapeHtml(row.UserID)}">Edit</button><button class="mini" data-reset-password="${escapeHtml(row.UserID)}">Reset password</button><button class="mini ghost" data-delete-user="${escapeHtml(row.UserID)}">Delete</button>`,
   });
+}
+
+async function loadPermissions() {
+  await showViewOnly('permissions');
+  const response = await apiCached('permissionsConfig', {});
+  if (!response.ok) {
+    document.querySelector('#permissionsMatrix').innerHTML = emptyState(response.error || 'Could not load permissions.');
+    document.querySelector('#userPermissionsMatrix').innerHTML = '';
+    return;
+  }
+  state.permissionConfig = response;
+  renderPermissionsMatrix();
+  renderUserPermissionsMatrix();
+}
+
+function renderPermissionsMatrix() {
+  const config = state.permissionConfig;
+  const rows = config.permissions.map((permission) => {
+    const cells = config.roles.map((role) => {
+      const enabled = rolePermissionEnabled(role, permission) ? ' checked' : '';
+      const disabled = permission === 'FULL_ACCESS' ? ' disabled' : '';
+      return `<td><input type="checkbox" data-role-permission data-role="${escapeHtml(role)}" data-permission="${escapeHtml(permission)}"${enabled}${disabled}></td>`;
+    }).join('');
+    return `<tr><td>${escapeHtml(permission)}</td>${cells}</tr>`;
+  }).join('');
+  document.querySelector('#permissionsMatrix').innerHTML = `
+    <h3>Role permissions</h3>
+    <div class="table-wrap compact">
+      <table>
+        <thead><tr><th>Permission</th>${config.roles.map((role) => `<th>${escapeHtml(role)}</th>`).join('')}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderUserPermissionsMatrix() {
+  const config = state.permissionConfig;
+  const rows = config.users.map((user) => {
+    const cells = config.permissions.map((permission) => {
+      const mode = userPermissionMode(user.UserID, permission);
+      const options = USER_PERMISSION_MODES.map((item) => `<option value="${escapeHtml(item)}"${item === mode ? ' selected' : ''}>${escapeHtml(item)}</option>`).join('');
+      return `<td><select data-user-permission data-user-id="${escapeHtml(user.UserID)}" data-permission="${escapeHtml(permission)}">${options}</select></td>`;
+    }).join('');
+    return `<tr><td>${escapeHtml(user.RobloxUsername)}</td><td>${escapeHtml(user.Role)}</td>${cells}</tr>`;
+  }).join('');
+  document.querySelector('#userPermissionsMatrix').innerHTML = `
+    <h3>User-specific overrides</h3>
+    <div class="table-wrap compact">
+      <table>
+        <thead><tr><th>User</th><th>Role</th>${config.permissions.map((permission) => `<th>${escapeHtml(permission)}</th>`).join('')}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function rolePermissionEnabled(role, permission) {
+  return state.permissionConfig.rolePermissions.some((row) => row.Role === role && row.Permission === permission && String(row.Allowed).toUpperCase() === 'TRUE');
+}
+
+function userPermissionMode(userId, permission) {
+  const override = state.permissionConfig.userPermissions.find((row) => row.UserID === userId && row.Permission === permission);
+  if (!override) return 'Inherit';
+  return String(override.Allowed).toUpperCase() === 'TRUE' ? 'Allow' : 'Deny';
 }
 
 async function loadAudit() {
@@ -770,6 +839,39 @@ async function handleDocumentClick(event) {
 }
 
 async function handleDocumentChange(event) {
+  const rolePermission = event.target.closest('[data-role-permission]');
+  if (rolePermission) {
+    rolePermission.disabled = true;
+    const response = await api('setRolePermission', {
+      Role: rolePermission.dataset.role,
+      Permission: rolePermission.dataset.permission,
+      Allowed: rolePermission.checked,
+    });
+    if (!response.ok) {
+      rolePermission.checked = !rolePermission.checked;
+      showInfo('Permission update failed', `<p>${escapeHtml(response.error || 'Could not update role permission.')}</p>`);
+    }
+    invalidateCache();
+    await loadPermissions();
+    return;
+  }
+
+  const userPermission = event.target.closest('[data-user-permission]');
+  if (userPermission) {
+    userPermission.disabled = true;
+    const response = await api('setUserPermission', {
+      UserID: userPermission.dataset.userId,
+      Permission: userPermission.dataset.permission,
+      Mode: userPermission.value,
+    });
+    if (!response.ok) {
+      showInfo('Permission update failed', `<p>${escapeHtml(response.error || 'Could not update user permission.')}</p>`);
+    }
+    invalidateCache();
+    await loadPermissions();
+    return;
+  }
+
   const trainingToggle = event.target.closest('[data-training-toggle]');
   if (trainingToggle) {
     const originalChecked = !trainingToggle.checked;
