@@ -66,6 +66,7 @@ const elements = {
   logoutButton: document.querySelector('#logoutButton'),
   passwordButton: document.querySelector('#passwordButton'),
   notificationsButton: document.querySelector('#notificationsButton'),
+  notificationMenu: document.querySelector('#notificationMenu'),
   infoDialog: document.querySelector('#infoDialog'),
   infoTitle: document.querySelector('#infoTitle'),
   infoContent: document.querySelector('#infoContent'),
@@ -125,7 +126,7 @@ elements.passwordButton.addEventListener('click', () => {
     successMessage: 'Password changed.',
   });
 });
-elements.notificationsButton.addEventListener('click', openNotifications);
+elements.notificationsButton.addEventListener('click', toggleNotifications);
 elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
 
 document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
@@ -358,10 +359,35 @@ function renderViewLoading(view) {
     elements.dashboardView.innerHTML = loadingBlock('Loading dashboard widgets...');
     return;
   }
-  if (['officerProfile', 'myProfile'].includes(view)) {
-    section.innerHTML = loadingBlock('Loading officer profile...');
+  if (view === 'tasks') document.querySelector('#tasksSummary').innerHTML = '';
+  if (view === 'training') document.querySelector('#trainingMatrix').innerHTML = '';
+  if (view === 'permissions') {
+    document.querySelector('#permissionsMatrix').innerHTML = loadingBlock('Loading permissions...');
+    document.querySelector('#userPermissionsMatrix').innerHTML = '';
     return;
   }
+  const messages = {
+    myProfile: 'Loading officer profile...',
+    officerProfile: 'Loading officer profile...',
+    tasks: 'Loading task queue...',
+    officers: 'Loading officer database...',
+    rankChanges: 'Loading rank change log...',
+    training: 'Loading training matrix...',
+    discipline: 'Loading disciplinary records...',
+    loa: 'Loading LOA requests...',
+    documents: 'Loading documents...',
+    announcements: 'Loading notice board...',
+    users: 'Loading users...',
+    permissions: 'Loading permissions...',
+    audit: 'Loading audit log...',
+  };
+  const message = messages[view] || 'Loading data...';
+  const table = section.querySelector('table');
+  if (table) {
+    table.innerHTML = `<tbody><tr><td colspan="99">${loadingBlock(message)}</td></tr></tbody>`;
+    return;
+  }
+  section.innerHTML = loadingBlock(message);
 }
 
 function loaderActionForView(view) {
@@ -437,7 +463,10 @@ async function loadMyProfile() {
         <h2>${escapeHtml(user.RobloxUsername)}</h2>
         <p>${escapeHtml(user.Rank || user.Role)} / ${escapeHtml(user.Role)}</p>
       </div>
-      <button data-request-loa>Request LOA</button>
+      <div class="profile-actions">
+        <button data-request-loa>Request LOA</button>
+        <button data-request-transfer>Request transfer</button>
+      </div>
     </div>
     <section class="profile-grid">
       ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
@@ -450,6 +479,7 @@ async function loadMyProfile() {
     ${profileTable('My Rank History', response.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
+    ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
     ${profileTable('Notice Board', response.announcements || [], ['Title', 'Audience', 'Pinned', 'ExpiresAt'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
@@ -463,15 +493,23 @@ async function loadTasks() {
     document.querySelector('#tasksSummary').innerHTML = '';
     return renderTable('#tasksTable', [], ['Error'], { emptyMessage: response.error || 'Could not load tasks.' });
   }
-  state.tasks = response.pendingLoa || [];
+  state.tasks = [
+    ...(response.pendingLoa || []),
+    ...(response.pendingTransfers || []),
+  ];
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
     stat('Pending LOA', counts.pendingLoa || 0),
+    stat('Transfer Requests', counts.pendingTransfers || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'StartDate', 'EndDate', 'Reason'], {
-    rowAction: (row) => `data-open-loa-review="${escapeHtml(row.RequestID)}"`,
-    actions: (row) => `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>`,
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
+    rowAction: (row) => row.TaskType === 'Transfer Request'
+      ? `data-open-transfer-review="${escapeHtml(row.RequestID)}"`
+      : `data-open-loa-review="${escapeHtml(row.RequestID)}"`,
+    actions: (row) => row.TaskType === 'Transfer Request'
+      ? `<button class="mini" data-open-transfer-review="${escapeHtml(row.RequestID)}">Review</button>`
+      : `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>`,
   });
 }
 
@@ -562,6 +600,10 @@ function renderLoaTable(rows) {
 async function loadDocuments() {
   await showViewOnly('documents');
   const response = await apiCached('listDocuments', {});
+  if (!response.ok) {
+    state.documents = [];
+    return renderTable('#documentsTable', [], ['Error'], { emptyMessage: response.error || 'Could not load documents.' });
+  }
   state.documents = response.rows || [];
   renderDocumentTable();
 }
@@ -633,7 +675,7 @@ function renderSearchableView(view) {
     renderTable('#rankChangesTable', rows, ['ChangedAt', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName']);
   }
   if (view === 'discipline') {
-    renderTable('#disciplineTable', rows, ['OfficerID', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status'], {
+    renderTable('#disciplineTable', rows, ['Officer', 'Rank', 'Type', 'Summary', 'IssuedBy', 'IssuedAt', 'Status'], {
       actions: (row) => can('ADD_DISCIPLINE')
         ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>`
         : '',
@@ -788,6 +830,7 @@ function renderOfficerProfile(data) {
           can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
         ].join(''),
       })}
+      ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
     </section>
   `;
   applyPermissions();
@@ -855,6 +898,33 @@ function openOwnLoaEditor() {
   });
 }
 
+function openTransferRequestEditor() {
+  openEditor('Request transfer', [
+    field('TimeInMO8', 'How long have you been in MO8?', 'text', false),
+    field('TargetDivision', 'Division you wish to transfer to', 'text', false),
+    field('Reason', 'Reason for transfer', 'textarea', true),
+    selectField('HasPermission', 'Permission from receiving division OIC?', ['FALSE', 'TRUE'], 'FALSE'),
+    field('Notes', 'Additional notes', 'textarea', true),
+  ], async (values) => api('requestTransfer', values), {
+    successMessage: 'Transfer request submitted for review.',
+  });
+}
+
+function openTransferReviewEditor(record) {
+  openEditor('Review transfer request', [
+    hiddenField('RequestID', record.RequestID),
+    field('Officer', 'Officer', 'text', false, record.Officer),
+    field('TargetDivision', 'Target division', 'text', false, record.TargetDivision),
+    field('TimeInMO8', 'Time in MO8', 'text', false, record.TimeInMO8),
+    field('Reason', 'Request reason', 'textarea', true, record.Reason),
+    field('Notes', 'Additional notes', 'textarea', true, record.Notes),
+    selectField('Status', 'Decision', ['Approved', 'Denied'], 'Approved'),
+    field('ReviewReason', 'Review reason', 'textarea', true, record.ReviewReason),
+  ], async (values) => api('reviewTransfer', values), {
+    successMessage: 'Transfer review saved.',
+  });
+}
+
 function openLoaReviewEditor(record, status = '') {
   const currentDecision = ['Approved', 'Denied'].includes(status || record.Status) ? status || record.Status : 'Approved';
   openEditor('Review LOA request', [
@@ -909,6 +979,10 @@ function openUserEditor(user = {}) {
 }
 
 async function handleDocumentClick(event) {
+  if (!event.target.closest('.notification-shell')) {
+    closeNotificationMenu();
+  }
+
   const viewLink = event.target.closest('[data-view-link]');
   if (viewLink) {
     await showView(viewLink.dataset.viewLink);
@@ -967,6 +1041,9 @@ async function handleDocumentClick(event) {
   const requestLoa = event.target.closest('[data-request-loa]');
   if (requestLoa) return openOwnLoaEditor();
 
+  const requestTransfer = event.target.closest('[data-request-transfer]');
+  if (requestTransfer) return openTransferRequestEditor();
+
   const editLoa = event.target.closest('[data-edit-loa]');
   if (editLoa) {
     const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa)
@@ -981,6 +1058,13 @@ async function handleDocumentClick(event) {
       || state.loa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || state.profileLoa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
     if (record) openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
+    return;
+  }
+
+  const reviewTransferOpen = event.target.closest('[data-open-transfer-review]');
+  if (reviewTransferOpen) {
+    const record = state.tasks.find((row) => row.RequestID === reviewTransferOpen.dataset.openTransferReview);
+    if (record) openTransferReviewEditor(record);
     return;
   }
 
@@ -1322,33 +1406,55 @@ function renderError(container, message) {
   container.innerHTML = `<article class="stat"><strong>!</strong><span>${escapeHtml(message || 'Something went wrong.')}</span></article>`;
 }
 
-async function openNotifications() {
+async function toggleNotifications(event) {
+  event.stopPropagation();
+  if (!elements.notificationMenu.hidden) {
+    closeNotificationMenu();
+    return;
+  }
+
+  elements.notificationMenu.hidden = false;
+  elements.notificationMenu.innerHTML = loadingBlock('Loading notifications...');
   const response = await api('listNotifications', {});
   if (!response.ok) {
-    showInfo('Notifications', `<p>${escapeHtml(response.error || 'Could not load notifications.')}</p>`);
+    elements.notificationMenu.innerHTML = `<p class="empty">${escapeHtml(response.error || 'Could not load notifications.')}</p>`;
     return;
   }
 
   const rows = response.rows || [];
-  const content = rows.length
+  elements.notificationMenu.innerHTML = `
+    <div class="notification-menu-head">
+      <strong>Notifications</strong>
+      <span>${escapeHtml(String(response.unread || 0))} unread</span>
+    </div>
+    ${rows.length
     ? `<div class="notice-list">${rows.map((notice) => `
-      <article class="notice-item${notice.ReadAt ? '' : ' unread'}">
+      <article class="notice-item${notice.ReadAt ? '' : ' unread'}${importantNotice(notice) ? ' important' : ''}">
         <div>
           <strong>${escapeHtml(notice.Title || 'Notification')}</strong>
           <p>${escapeHtml(notice.Message || '')}</p>
         </div>
-        <span>${escapeHtml(notice.CreatedAt || '')}</span>
+        <span>${formatCell(notice.CreatedAt || '', 'CreatedAt')}</span>
       </article>
     `).join('')}</div>`
-    : `<p class="empty">No notifications yet.</p>`;
+    : `<p class="empty">No notifications yet.</p>`}
+  `;
 
-  showInfo('Notifications', content);
   if ((response.unread || 0) > 0) {
     await api('markNotificationsRead', {});
     state.unreadNotifications = 0;
     updateNotificationBadge();
     invalidateCache('myProfile');
   }
+}
+
+function closeNotificationMenu() {
+  elements.notificationMenu.hidden = true;
+}
+
+function importantNotice(notice) {
+  const text = `${notice.Title || ''} ${notice.Message || ''}`.toLowerCase();
+  return ['disciplinary', 'discipline', 'denied', 'removed', 'suspended'].some((word) => text.includes(word));
 }
 
 async function confirmDelete(message, action, payload, onSuccess) {
