@@ -77,6 +77,18 @@
             </form>
           </section>
 
+          <section class="boot-console" id="bootView" hidden>
+            <div class="boot-card">
+              <span class="access-chip">Secure session</span>
+              <h2>Initializing MDT session</h2>
+              <p id="bootStatus">Preparing workspace...</p>
+              <div class="boot-progress" aria-hidden="true">
+                <span id="bootProgressBar"></span>
+              </div>
+              <div class="boot-steps" id="bootSteps"></div>
+            </div>
+          </section>
+
         <section id="appView" hidden>
           <section class="stats-grid" id="dashboardView"></section>
 

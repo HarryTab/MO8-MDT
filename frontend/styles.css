@@ -380,6 +380,107 @@ body:not(.is-authenticated) .topbar {
   border-radius: 16px;
 }
 
+.boot-console {
+  display: grid;
+  place-items: center;
+  min-height: min(620px, calc(100vh - 130px));
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(22px);
+}
+
+.boot-card {
+  display: grid;
+  gap: 14px;
+  width: min(620px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.boot-card h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
+.boot-card p {
+  margin: 0;
+  color: #c9d8ea;
+  font-size: 14px;
+}
+
+.boot-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(7, 20, 38, 0.45);
+}
+
+.boot-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4ea6ff, #27a7d8);
+  transition: width 180ms ease;
+}
+
+.boot-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.boot-steps span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #c9d8ea;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.boot-steps span::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.boot-steps span[data-status="active"] {
+  color: #fff;
+}
+
+.boot-steps span[data-status="active"]::before {
+  border-color: #4ea6ff;
+  background: #4ea6ff;
+  box-shadow: 0 0 0 4px rgba(78, 166, 255, 0.16);
+}
+
+.boot-steps span[data-status="complete"] {
+  color: #dff8ed;
+}
+
+.boot-steps span[data-status="complete"]::before {
+  border-color: #3ddc93;
+  background: #3ddc93;
+}
+
+.boot-steps span[data-status="warning"] {
+  color: #ffe6a3;
+}
+
+.boot-steps span[data-status="warning"]::before {
+  border-color: #f0b429;
+  background: #f0b429;
+}
+
 body:not(.is-authenticated) .login-console {
   min-height: min(620px, calc(100vh - 130px));
   background: rgba(255, 255, 255, 0.09);
@@ -1038,6 +1139,36 @@ dialog .section-head .ghost:hover {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.loading-panel {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  min-height: 260px;
+  padding: 18px;
+  color: var(--muted);
+}
+
+.loading-panel span {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(18, 103, 216, 0.16);
+  border-top-color: var(--blue);
+  border-radius: 999px;
+  animation: spin 850ms linear infinite;
+}
+
+.loading-panel p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 [hidden] {

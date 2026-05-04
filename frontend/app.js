@@ -55,6 +55,10 @@ const elements = {
   loginForm: document.querySelector('#loginForm'),
   loginStatus: document.querySelector('#loginStatus'),
   loginView: document.querySelector('#loginView'),
+  bootView: document.querySelector('#bootView'),
+  bootStatus: document.querySelector('#bootStatus'),
+  bootSteps: document.querySelector('#bootSteps'),
+  bootProgressBar: document.querySelector('#bootProgressBar'),
   appView: document.querySelector('#appView'),
   nav: document.querySelector('#nav'),
   identity: document.querySelector('#identity'),
@@ -98,8 +102,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
   state.user = response.user;
   state.permissions = response.permissions || [];
   localStorage.setItem('mo8_token', state.token);
-  showApp();
-  await showView(defaultView());
+  await initializeSession();
 });
 
 elements.logoutButton.addEventListener('click', async () => {
@@ -165,23 +168,104 @@ async function boot() {
 
   state.user = response.user;
   state.permissions = response.permissions || [];
+  await initializeSession();
+}
+
+async function initializeSession() {
+  showBoot();
+  const tasks = bootTasks();
+  for (let index = 0; index < tasks.length; index += 1) {
+    const task = tasks[index];
+    updateBootProgress(task.label, index, tasks.length, 'active');
+    const response = await task.run();
+    updateBootProgress(task.label, index + 1, tasks.length, response && response.ok === false ? 'warning' : 'complete');
+    await wait(120);
+  }
+
   showApp();
   await showView(defaultView());
+  backgroundPreload();
+}
+
+function bootTasks() {
+  const tasks = [
+    { label: 'Loading operator profile', run: () => apiCached('myProfile', {}) },
+    { label: 'Checking notifications', run: preloadNotifications },
+  ];
+  if (can('VIEW_DASHBOARD')) tasks.push({ label: 'Preparing dashboard widgets', run: () => apiCached('dashboard', {}) });
+  if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
+  if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
+  if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
+  tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
+  return tasks;
+}
+
+async function preloadNotifications() {
+  const response = await apiCached('listNotifications', {});
+  if (response.ok) {
+    state.unreadNotifications = response.unread || 0;
+    updateNotificationBadge();
+  }
+  return response;
+}
+
+function showBoot() {
+  document.body.classList.add('is-booting');
+  document.body.classList.remove('is-authenticated');
+  elements.pageTitle.textContent = 'Initializing';
+  elements.pageSubtitle.textContent = 'Preparing secure MDT workspace';
+  elements.loginView.hidden = true;
+  elements.bootView.hidden = false;
+  elements.appView.hidden = true;
+  elements.nav.hidden = true;
+  elements.identity.hidden = true;
+  elements.bootSteps.innerHTML = bootTasks().map((task) => `<span data-boot-step="${escapeHtml(task.label)}">${escapeHtml(task.label)}</span>`).join('');
+  updateBootProgress('Preparing workspace', 0, 1, 'active');
+}
+
+function updateBootProgress(label, completed, total, status) {
+  elements.bootStatus.textContent = label;
+  elements.bootProgressBar.style.width = `${Math.min(100, Math.round((completed / total) * 100))}%`;
+  document.querySelectorAll('[data-boot-step]').forEach((step) => {
+    if (step.dataset.bootStep !== label) return;
+    step.dataset.status = status;
+  });
+}
+
+function backgroundPreload() {
+  const actions = [
+    can('VIEW_OFFICERS') ? ['listOfficers', {}] : null,
+    can('VIEW_TRAINING') ? ['listTraining', {}] : null,
+    can('VIEW_LOA') ? ['listLoa', {}] : null,
+    can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
+  ].filter(Boolean);
+
+  window.setTimeout(() => {
+    Promise.allSettled(actions.map(([action, data]) => apiCached(action, data)));
+  }, 500);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function showLogin() {
+  document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
   elements.pageTitle.textContent = 'Sign in';
   elements.pageSubtitle.textContent = 'MO8 roleplay community administration';
   elements.loginView.hidden = false;
+  elements.bootView.hidden = true;
   elements.appView.hidden = true;
   elements.nav.hidden = true;
   elements.identity.hidden = true;
 }
 
 function showApp() {
+  document.body.classList.remove('is-booting');
   document.body.classList.add('is-authenticated');
   elements.loginView.hidden = true;
+  elements.bootView.hidden = true;
   elements.appView.hidden = false;
   elements.nav.hidden = false;
   elements.identity.hidden = false;
@@ -190,7 +274,6 @@ function showApp() {
     <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
   `;
   applyPermissions();
-  refreshNotificationBadge();
 }
 
 function applyPermissions() {
@@ -245,6 +328,7 @@ async function showView(view) {
 
   elements.pageTitle.textContent = titles[view][0];
   elements.pageSubtitle.textContent = titles[view][1];
+  renderViewLoading(view);
 
   const loaders = {
     dashboard: loadDashboard,
@@ -265,6 +349,38 @@ async function showView(view) {
 
   await loaders[view]();
   applyPermissions();
+}
+
+function renderViewLoading(view) {
+  const section = document.querySelector(`#${view}View`);
+  if (!section || state.cache[cacheKey(loaderActionForView(view), {}, true)]) return;
+  if (view === 'dashboard') {
+    elements.dashboardView.innerHTML = loadingBlock('Loading dashboard widgets...');
+    return;
+  }
+  if (['officerProfile', 'myProfile'].includes(view)) {
+    section.innerHTML = loadingBlock('Loading officer profile...');
+    return;
+  }
+}
+
+function loaderActionForView(view) {
+  const actions = {
+    dashboard: 'dashboard',
+    myProfile: 'myProfile',
+    tasks: 'tasks',
+    officers: 'listOfficers',
+    rankChanges: 'rankChangeLog',
+    training: 'listTraining',
+    discipline: 'listDiscipline',
+    loa: 'listLoa',
+    documents: 'listDocuments',
+    announcements: 'listAnnouncements',
+    users: 'listUsers',
+    permissions: 'permissionsConfig',
+    audit: 'auditLog',
+  };
+  return actions[view] || view;
 }
 
 async function showViewOnly(view) {
@@ -1254,6 +1370,15 @@ function showInfo(title, content) {
 
 function emptyState(message) {
   return `<section class="data-view"><p class="empty">${escapeHtml(message)}</p></section>`;
+}
+
+function loadingBlock(message) {
+  return `
+    <section class="loading-panel">
+      <span></span>
+      <p>${escapeHtml(message)}</p>
+    </section>
+  `;
 }
 
 function formatCell(value, column = '') {
