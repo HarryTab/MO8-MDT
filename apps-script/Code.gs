@@ -16,6 +16,7 @@ const CONFIG = {
   ],
   specialistTraining: ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'],
   drivingStandards: ['Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'],
+  officerTags: ['Roads Crime Team', 'MO8 Command', 'Roads and Traffic Policing Team', 'Bronze Command', 'Silver Command', 'Gold Command'],
   sheets: {
     users: 'Users',
     sessions: 'Sessions',
@@ -25,6 +26,7 @@ const CONFIG = {
     discipline: 'DisciplinaryActions',
     loa: 'LOARequests',
     transferRequests: 'TransferRequests',
+    shifts: 'ShiftLogs',
     documents: 'Documents',
     announcements: 'Announcements',
     permissions: 'Permissions',
@@ -38,13 +40,14 @@ const CONFIG = {
 const HEADERS = {
   Users: ['UserID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Rank', 'Role', 'PasswordHash', 'Salt', 'Status', 'LastLogin', 'CreatedAt', 'CreatedBy'],
   Sessions: ['SessionID', 'UserID', 'TokenHash', 'CreatedAt', 'ExpiresAt', 'RevokedAt', 'UserAgent'],
-  Officers: ['OfficerID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'Notes', 'CreatedAt', 'UpdatedAt'],
+  Officers: ['OfficerID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'Tags', 'Notes', 'CreatedAt', 'UpdatedAt'],
   TrainingRecords: ['TrainingID', 'OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate', 'Notes', 'UpdatedAt'],
   TrainingMatrix: ['OfficerID', 'MemberID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'ReviewDate', 'UpdatedAt', 'UpdatedBy'],
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   TransferRequests: ['RequestID', 'OfficerID', 'CurrentDivision', 'TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Notes', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
-  Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'Status', 'UpdatedBy', 'UpdatedAt'],
+  Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'RequiredTags', 'Status', 'UpdatedBy', 'UpdatedAt'],
+  ShiftLogs: ['ShiftID', 'OfficerID', 'MemberID', 'RobloxUsername', 'Callsign', 'Rank', 'StartedAt', 'EndedAt', 'Summary', 'Status', 'UpdatedAt'],
   Announcements: ['AnnouncementID', 'Title', 'Body', 'Audience', 'Status', 'Pinned', 'ExpiresAt', 'UpdatedBy', 'UpdatedAt'],
   Permissions: ['Role', 'Permission', 'Allowed'],
   UserPermissions: ['UserID', 'Permission', 'Allowed', 'UpdatedBy', 'UpdatedAt'],
@@ -165,6 +168,10 @@ function handleRequest_(e) {
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
       tasks: () => requirePermission_(auth, 'VIEW_TASKS', () => tasks_(auth)),
       myProfile: () => getMyProfile_(auth),
+      shiftStatus: () => shiftStatus_(auth),
+      startShift: () => startShift_(auth),
+      endShift: () => endShift_(auth, payload),
+      teamShifts: () => teamShifts_(auth, payload),
       listNotifications: () => listNotifications_(auth),
       markNotificationsRead: () => markNotificationsRead_(auth),
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listOfficers_()),
@@ -229,6 +236,8 @@ function isWriteAction_(action) {
     'login',
     'logout',
     'markNotificationsRead',
+    'startShift',
+    'endShift',
     'saveOfficer',
     'deleteOfficer',
     'saveTraining',
@@ -388,7 +397,8 @@ function getMyProfile_(auth) {
   const documents = listDocuments_(auth).rows || [];
   const announcements = listAnnouncements_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], transfers: [], rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
+  const shiftStatus = shiftStatus_(auth);
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], transfers: [], shifts: [], shiftStatus, rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
   return ok_({
     user: publicUser_(auth.user),
     officer: decorateOfficer_(officer),
@@ -396,6 +406,8 @@ function getMyProfile_(auth) {
     discipline: decorateDisciplineRows_(getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     transfers: decorateTransferRows_(getTable_(CONFIG.sheets.transferRequests).rows.filter((row) => row.OfficerID === officer.OfficerID)),
+    shifts: getTable_(CONFIG.sheets.shifts).rows.filter((row) => row.OfficerID === officer.OfficerID).slice().reverse().slice(0, 20),
+    shiftStatus,
     rankChanges: rankChangesForMember_(officer.MemberID || auth.user.MemberID),
     documents,
     announcements,
@@ -412,8 +424,9 @@ function getOfficerProfile_(payload) {
   const discipline = decorateDisciplineRows_(getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === payload.OfficerID));
   const loa = decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID));
   const transfers = decorateTransferRows_(getTable_(CONFIG.sheets.transferRequests).rows.filter((row) => row.OfficerID === payload.OfficerID));
+  const shifts = getTable_(CONFIG.sheets.shifts).rows.filter((row) => row.OfficerID === payload.OfficerID).slice().reverse().slice(0, 30);
   const rankChanges = rankChangesForMember_(officer.MemberID);
-  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa, transfers, rankChanges });
+  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa, transfers, shifts, rankChanges });
 }
 
 function saveOfficer_(auth, payload) {
@@ -426,6 +439,7 @@ function saveOfficer_(auth, payload) {
     Rank: payload.Rank || '',
     Status: payload.Status || 'Active',
     JoinDate: payload.JoinDate || '',
+    Tags: normalizeTags_(payload.Tags || ''),
     Notes: payload.Notes || '',
     UpdatedAt: now,
   };
@@ -485,6 +499,7 @@ function deleteOfficer_(auth, payload) {
   deleteRows_(CONFIG.sheets.discipline, (row) => row.OfficerID === officerId);
   deleteRows_(CONFIG.sheets.loa, (row) => row.OfficerID === officerId);
   deleteRows_(CONFIG.sheets.transferRequests, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.shifts, (row) => row.OfficerID === officerId);
   notifyMember_(officer.MemberID, 'Officer record removed', 'Your MO8 officer record and linked MDT user were removed.', auth.user.UserID);
   audit_(auth.user.UserID, 'DELETE_OFFICER', 'Officer', officerId, { officer, linkedUsers: linkedUsers.map(publicUser_) });
   return ok_({ OfficerID: officerId, deletedUsers: linkedUsers.length });
@@ -785,6 +800,7 @@ function saveDocument_(auth, payload) {
     Category: payload.Category || 'Training',
     DriveURL: payload.DriveURL || '',
     RequiredRole: payload.RequiredRole || 'Police Constable',
+    RequiredTags: normalizeTags_(payload.RequiredTags || ''),
     Status: payload.Status || 'Published',
     UpdatedBy: auth.user.UserID,
     UpdatedAt: now_(),
@@ -810,6 +826,74 @@ function deleteDocument_(auth, payload) {
   deleteRows_(CONFIG.sheets.documents, (row) => row.DocumentID === documentId);
   audit_(auth.user.UserID, 'DELETE_DOCUMENT', 'Document', documentId, existing);
   return ok_({ DocumentID: documentId });
+}
+
+function shiftStatus_(auth) {
+  const officer = findOfficerForUser_(auth.user);
+  const active = officer ? activeShiftForOfficer_(officer.OfficerID) : null;
+  return ok_({ officer: officer ? decorateOfficer_(officer) : null, activeShift: active, onDuty: Boolean(active) });
+}
+
+function startShift_(auth) {
+  const officer = ensureOfficerForAuth_(auth);
+  const existing = activeShiftForOfficer_(officer.OfficerID);
+  if (existing) return ok_({ ShiftID: existing.ShiftID, activeShift: existing });
+  const shift = {
+    ShiftID: id_('SFT'),
+    OfficerID: officer.OfficerID,
+    MemberID: officer.MemberID || '',
+    RobloxUsername: officer.RobloxUsername || '',
+    Callsign: officer.Callsign || '',
+    Rank: officer.Rank || '',
+    StartedAt: now_(),
+    EndedAt: '',
+    Summary: '',
+    Status: 'Active',
+    UpdatedAt: now_(),
+  };
+  appendObject_(CONFIG.sheets.shifts, shift);
+  audit_(auth.user.UserID, 'START_SHIFT', 'Shift', shift.ShiftID, shift);
+  return ok_({ ShiftID: shift.ShiftID, activeShift: shift });
+}
+
+function endShift_(auth, payload) {
+  const officer = ensureOfficerForAuth_(auth);
+  const shift = activeShiftForOfficer_(officer.OfficerID);
+  if (!shift) return fail_('No active shift was found.');
+  const requestedEnd = payload.EndedAt ? parseDateTime_(payload.EndedAt) : new Date();
+  const startedAt = parseDateTime_(shift.StartedAt);
+  const now = new Date();
+  if (!requestedEnd || requestedEnd < startedAt || requestedEnd > now) return fail_('End time must be between the shift start and now.');
+  const update = {
+    EndedAt: requestedEnd.toISOString(),
+    Summary: payload.Summary || '',
+    Status: 'Completed',
+    UpdatedAt: now_(),
+  };
+  updateRow_(CONFIG.sheets.shifts, 'ShiftID', shift.ShiftID, update);
+  audit_(auth.user.UserID, 'END_SHIFT', 'Shift', shift.ShiftID, update);
+  return ok_({ ShiftID: shift.ShiftID });
+}
+
+function teamShifts_(auth, payload) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const period = payload.Period || 'week';
+  const days = period === 'month' ? 30 : 7;
+  const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const shifts = getTable_(CONFIG.sheets.shifts).rows;
+  const active = shifts.filter((row) => row.Status === 'Active' && !row.EndedAt);
+  const recent = shifts.filter((row) => {
+    const started = parseDateTime_(row.StartedAt);
+    return started && started >= start;
+  }).reverse();
+  const ownOfficer = findOfficerForUser_(auth.user);
+  const own = ownOfficer ? shifts.filter((row) => row.OfficerID === ownOfficer.OfficerID).reverse().slice(0, 20) : [];
+  return ok_({
+    active,
+    recent: hasPermission_(auth.user, 'VIEW_TASKS') ? recent : own,
+    own,
+    metrics: hasPermission_(auth.user, 'VIEW_TASKS') ? shiftMetrics_(recent, officers) : [],
+  });
 }
 
 function listAnnouncements_(auth) {
@@ -939,7 +1023,7 @@ function truthy_(value) {
 function listDocuments_(auth) {
   const rows = getTable_(CONFIG.sheets.documents).rows
     .filter((row) => (row.Status || 'Published') === 'Published' || canManageDocuments_(auth))
-    .filter((row) => canAccessDocument_(auth.user, row.RequiredRole || 'Police Constable'));
+    .filter((row) => canAccessDocument_(auth.user, row.RequiredRole || 'Police Constable', row.RequiredTags || ''));
   return ok_({ rows });
 }
 
@@ -1095,6 +1179,7 @@ function deleteUser_(auth, payload) {
     deleteRows_(CONFIG.sheets.discipline, (row) => row.OfficerID === officer.OfficerID);
     deleteRows_(CONFIG.sheets.loa, (row) => row.OfficerID === officer.OfficerID);
     deleteRows_(CONFIG.sheets.transferRequests, (row) => row.OfficerID === officer.OfficerID);
+    deleteRows_(CONFIG.sheets.shifts, (row) => row.OfficerID === officer.OfficerID);
   });
   notifyMember_(user.MemberID, 'MDT account removed', 'Your MDT user and linked officer profile were removed.', auth.user.UserID);
   audit_(auth.user.UserID, 'DELETE_USER', 'User', userId, { user: publicUser_(user), linkedOfficers });
@@ -1278,17 +1363,17 @@ function canManageDocuments_(auth) {
   return permissions.includes('FULL_ACCESS') || permissions.includes('MANAGE_DOCUMENTS');
 }
 
-function canAccessDocument_(user, required) {
+function canAccessDocument_(user, required, requiredTags) {
   required = String(required || 'Police Constable').replace(/\s*\+$/, '');
   const rank = user.Rank || 'Police Constable';
-  const role = user.Role || roleForRank_(rank);
   const rankIndex = CONFIG.ranks.indexOf(required);
-  if (rankIndex !== -1) return CONFIG.ranks.indexOf(rank) >= rankIndex;
-
-  const roleOrder = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
-  const roleIndex = roleOrder.indexOf(required);
-  if (roleIndex !== -1) return roleOrder.indexOf(role) >= roleIndex;
-  return true;
+  const rankAllowed = rankIndex === -1 || CONFIG.ranks.indexOf(rank) >= rankIndex;
+  if (!rankAllowed) return false;
+  const tags = splitTags_(requiredTags);
+  if (!tags.length) return true;
+  const officer = findOfficerForUser_(user);
+  const officerTags = splitTags_(officer ? officer.Tags : '');
+  return tags.some((tag) => officerTags.includes(tag));
 }
 
 function seedPermissions_() {
@@ -1348,11 +1433,80 @@ function decorateOfficer_(officer) {
   const activeLoa = getTable_(CONFIG.sheets.loa).rows.find((request) => {
     return request.OfficerID === officer.OfficerID && isActiveLoa_(request);
   });
+  const activeShift = activeShiftForOfficer_(officer.OfficerID);
   return Object.assign({}, officer, {
     LoaStatus: activeLoa ? 'On LOA' : 'Available',
+    DutyStatus: activeShift ? 'On Duty' : 'Off Duty',
     CurrentLoaEnd: activeLoa ? activeLoa.EndDate || '' : '',
     EffectiveStatus: activeLoa ? 'LOA' : officer.Status,
   });
+}
+
+function ensureOfficerForAuth_(auth) {
+  let officer = findOfficerForUser_(auth.user);
+  if (!officer) {
+    const linked = syncOfficerForUser_(auth, auth.user);
+    officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === linked.OfficerID);
+  }
+  if (!officer) throw new Error('No linked officer profile was found for your account.');
+  return officer;
+}
+
+function activeShiftForOfficer_(officerId) {
+  return getTable_(CONFIG.sheets.shifts).rows.find((row) => row.OfficerID === officerId && row.Status === 'Active' && !row.EndedAt) || null;
+}
+
+function shiftMetrics_(rows, officers) {
+  const byOfficer = {};
+  (officers || []).filter((officer) => officer.Status !== 'Archived').forEach((officer) => {
+    byOfficer[officer.OfficerID] = {
+      OfficerID: officer.OfficerID,
+      RobloxUsername: officer.RobloxUsername,
+      Callsign: officer.Callsign,
+      Rank: officer.Rank,
+      Shifts: 0,
+      Minutes: 0,
+      LastShift: '',
+    };
+  });
+  rows.forEach((row) => {
+    const key = row.OfficerID || row.RobloxUsername;
+    if (!key) return;
+    if (!byOfficer[key]) {
+      byOfficer[key] = {
+        OfficerID: row.OfficerID,
+        RobloxUsername: row.RobloxUsername,
+        Callsign: row.Callsign,
+        Rank: row.Rank,
+        Shifts: 0,
+        Minutes: 0,
+        LastShift: '',
+      };
+    }
+    byOfficer[key].Shifts += 1;
+    byOfficer[key].Minutes += shiftMinutes_(row);
+    if (!byOfficer[key].LastShift || String(row.StartedAt) > String(byOfficer[key].LastShift)) byOfficer[key].LastShift = row.StartedAt;
+  });
+  return Object.keys(byOfficer).map((key) => {
+    const metric = byOfficer[key];
+    metric.Hours = (metric.Minutes / 60).toFixed(1);
+    metric.ActivityFlag = metric.Shifts === 0 ? 'No activity' : metric.Hours < 1 ? 'Low activity' : 'Active';
+    return metric;
+  }).sort((a, b) => Number(a.Hours) - Number(b.Hours));
+}
+
+function shiftMinutes_(row) {
+  const start = parseDateTime_(row.StartedAt);
+  const end = parseDateTime_(row.EndedAt) || new Date();
+  if (!start || !end || end < start) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 60000);
+}
+
+function parseDateTime_(value) {
+  if (!value) return null;
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) return value;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function isActiveLoa_(request) {
@@ -1387,6 +1541,18 @@ function parseDateOnly_(value) {
   const parsed = new Date(input);
   if (Number.isNaN(parsed.getTime())) return null;
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function normalizeTags_(value) {
+  return splitTags_(value).join(', ');
+}
+
+function splitTags_(value) {
+  if (!value) return [];
+  return String(value).split(/[,\n;]+/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .filter((tag, index, tags) => tags.indexOf(tag) === index);
 }
 
 function getTable_(sheetName) {

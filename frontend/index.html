@@ -28,6 +28,7 @@
           <nav class="nav" id="nav" hidden>
             <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
             <button class="nav-item" data-view="myProfile">My Profile</button>
+            <button class="nav-item" data-view="shift">Shift</button>
             <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
             <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
             <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
@@ -107,6 +108,41 @@
           </section>
 
           <section class="data-view profile-view" id="myProfileView" hidden></section>
+
+          <section class="data-view" id="shiftView" hidden>
+            <div class="section-head">
+              <h2>Shift Log</h2>
+              <div class="profile-actions">
+                <button id="startShiftButton">Start shift</button>
+                <button class="ghost" id="endShiftButton">End shift</button>
+              </div>
+            </div>
+            <div id="shiftSummary" class="stat-row"></div>
+            <section class="dashboard-grid">
+              <article class="dashboard-panel">
+                <h3>On Duty Officers</h3>
+                <div class="table-wrap compact">
+                  <table id="activeShiftsTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Recent Activity</h3>
+                <div class="table-wrap compact">
+                  <table id="recentShiftsTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel" data-permission="VIEW_TASKS">
+                <h3>Team Review</h3>
+                <select id="shiftPeriodFilter">
+                  <option value="week">Last week</option>
+                  <option value="month">Last month</option>
+                </select>
+                <div class="table-wrap compact">
+                  <table id="shiftMetricsTable"></table>
+                </div>
+              </article>
+            </section>
+          </section>
 
           <section class="data-view" id="tasksView" hidden>
             <div class="section-head">

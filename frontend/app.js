@@ -15,7 +15,8 @@ const OFFICER_RANKS = [
 ];
 
 const SYSTEM_ROLES = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
-const ACCESS_LEVELS = [...OFFICER_RANKS, ...SYSTEM_ROLES];
+const ACCESS_LEVELS = [...OFFICER_RANKS];
+const OFFICER_TAGS = ['Roads Crime Team', 'MO8 Command', 'Roads and Traffic Policing Team', 'Bronze Command', 'Silver Command', 'Gold Command'];
 const SPECIALIST_TRAINING = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'];
 const DRIVING_STANDARDS = ['Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'];
 const TRAINING_STANDARDS = [...SPECIALIST_TRAINING, ...DRIVING_STANDARDS];
@@ -44,6 +45,8 @@ const state = {
   documents: [],
   announcements: [],
   rankChanges: [],
+  shifts: [],
+  shiftStatus: null,
   users: [],
   permissionConfig: null,
   audit: [],
@@ -148,6 +151,9 @@ document.querySelector('#newOfficerButton').addEventListener('click', () => open
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
+document.querySelector('#startShiftButton').addEventListener('click', startShift);
+document.querySelector('#endShiftButton').addEventListener('click', openEndShiftEditor);
+document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
 
 async function boot() {
   if (!API_URL || API_URL.includes('YOUR_APPS_SCRIPT')) {
@@ -196,6 +202,7 @@ function bootTasks() {
   if (can('VIEW_DASHBOARD')) tasks.push({ label: 'Preparing dashboard widgets', run: () => apiCached('dashboard', {}) });
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
+  tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
@@ -239,6 +246,7 @@ function backgroundPreload() {
     can('VIEW_TRAINING') ? ['listTraining', {}] : null,
     can('VIEW_LOA') ? ['listLoa', {}] : null,
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
+    ['teamShifts', { Period: 'week' }],
   ].filter(Boolean);
 
   window.setTimeout(() => {
@@ -306,6 +314,7 @@ async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
+    shift: ['Shift Log', 'Duty status and team activity'],
     tasks: ['Tasks', 'Outstanding approvals and command actions'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
@@ -334,6 +343,7 @@ async function showView(view) {
   const loaders = {
     dashboard: loadDashboard,
     myProfile: loadMyProfile,
+    shift: loadShift,
     tasks: loadTasks,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
@@ -368,6 +378,7 @@ function renderViewLoading(view) {
   }
   const messages = {
     myProfile: 'Loading officer profile...',
+    shift: 'Loading shift activity...',
     officerProfile: 'Loading officer profile...',
     tasks: 'Loading task queue...',
     officers: 'Loading officer database...',
@@ -394,6 +405,7 @@ function loaderActionForView(view) {
   const actions = {
     dashboard: 'dashboard',
     myProfile: 'myProfile',
+    shift: 'teamShifts',
     tasks: 'tasks',
     officers: 'listOfficers',
     rankChanges: 'rankChangeLog',
@@ -472,14 +484,17 @@ async function loadMyProfile() {
       ${detailCard('Callsign', officer ? officer.Callsign || 'Not set' : 'No officer record')}
       ${detailCard('Status', officer ? formatCell(officer.EffectiveStatus || officer.Status, 'Status') : 'No record', true)}
       ${detailCard('LOA Status', officer ? loaStatusText(officer) : 'No record', true)}
+      ${detailCard('Duty Status', response.shiftStatus?.onDuty ? formatCell('On Duty', 'Status') : formatCell('Off Duty', 'Status'), true)}
       ${detailCard('Discord ID', user.DiscordID || 'Not set')}
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
+    ${officer ? tagList('Officer Tags', officer.Tags) : ''}
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Rank History', response.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+    ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
     ${profileTable('Notice Board', response.announcements || [], ['Title', 'Audience', 'Pinned', 'ExpiresAt'])}
     ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
     ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
@@ -513,6 +528,31 @@ async function loadTasks() {
   });
 }
 
+async function loadShift() {
+  await showViewOnly('shift');
+  const period = document.querySelector('#shiftPeriodFilter').value || 'week';
+  const [statusResponse, teamResponse] = await Promise.all([
+    apiCached('shiftStatus', {}),
+    apiCached('teamShifts', { Period: period }),
+  ]);
+  state.shiftStatus = statusResponse.ok ? statusResponse : null;
+  state.shifts = teamResponse.ok ? teamResponse.recent || [] : [];
+
+  const onDuty = Boolean(statusResponse.activeShift);
+  document.querySelector('#startShiftButton').disabled = onDuty;
+  document.querySelector('#endShiftButton').disabled = !onDuty;
+  document.querySelector('#shiftSummary').innerHTML = [
+    stat('Your Status', onDuty ? 'On Duty' : 'Off Duty'),
+    stat('On Duty Now', teamResponse.active ? teamResponse.active.length : 0),
+    stat('Recent Shifts', teamResponse.recent ? teamResponse.recent.length : 0),
+  ].join('');
+
+  renderTable('#activeShiftsTable', teamResponse.active || [], ['RobloxUsername', 'Callsign', 'Rank', 'StartedAt']);
+  renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Summary']);
+  renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'Shifts', 'Hours', 'LastShift', 'ActivityFlag']);
+  applyPermissions();
+}
+
 async function loadOfficers() {
   await showViewOnly('officers');
   const response = await apiCached('listOfficers', {});
@@ -524,9 +564,9 @@ async function loadOfficers() {
 function renderOfficerTable() {
   const query = document.querySelector('#officerSearch').value.toLowerCase();
   const rows = state.officers.filter((officer) => {
-    return ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'EffectiveStatus', 'LoaStatus'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
+    return ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'EffectiveStatus', 'LoaStatus', 'DutyStatus', 'Tags'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
   });
-  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'EffectiveStatus', 'LoaStatus', 'JoinDate', 'UpdatedAt'], {
+  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'EffectiveStatus', 'DutyStatus', 'Tags', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
   });
 }
@@ -624,11 +664,11 @@ function renderDocumentTable() {
   const query = document.querySelector('#documentSearch').value.toLowerCase();
   const category = document.querySelector('#documentCategoryFilter').value;
   const rows = state.documents.filter((document) => {
-    const matchesQuery = ['Title', 'Category', 'RequiredRole', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
+    const matchesQuery = ['Title', 'Category', 'RequiredRole', 'RequiredTags', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
     const matchesCategory = !category || document.Category === category;
     return matchesQuery && matchesCategory;
   });
-  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'Status', 'UpdatedAt', 'DriveURL'], {
+  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'RequiredTags', 'Status', 'UpdatedAt', 'DriveURL'], {
     actions: (row) => can('MANAGE_DOCUMENTS')
       ? `<button class="mini" data-edit-document="${escapeHtml(row.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(row.DocumentID)}">Delete</button>`
       : '',
@@ -805,10 +845,12 @@ function renderOfficerProfile(data) {
 
     <section class="profile-grid">
       ${detailCard('Status', formatCell(officer.Status), true)}
+      ${detailCard('Duty Status', formatCell(officer.DutyStatus || 'Off Duty', 'Status'), true)}
       ${detailCard('Join date', officer.JoinDate || 'Not set')}
       ${detailCard('Discord ID', officer.DiscordID || 'Not set')}
       ${detailCard('Updated', officer.UpdatedAt || 'Not set')}
     </section>
+    ${tagList('Officer Tags', officer.Tags)}
 
     ${trainingChecklist(officer.OfficerID, data.training)}
 
@@ -831,6 +873,7 @@ function renderOfficerProfile(data) {
         ].join(''),
       })}
       ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+      ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
     </section>
   `;
   applyPermissions();
@@ -846,6 +889,7 @@ function openOfficerEditor(officer = {}) {
     field('RankChangeReason', 'Rank change reason', 'textarea', true),
     selectField('Status', 'Status', OFFICER_STATUSES, officer.Status || 'Active'),
     field('JoinDate', 'Join date', 'date', false, officer.JoinDate),
+    checkboxGroupField('Tags', 'Officer tags', OFFICER_TAGS, officer.Tags),
     field('Notes', 'Notes', 'textarea', true, officer.Notes),
   ], async (values) => api('saveOfficer', values));
 }
@@ -925,6 +969,26 @@ function openTransferReviewEditor(record) {
   });
 }
 
+async function startShift() {
+  const response = await api('startShift', {});
+  if (!response.ok) {
+    showInfo('Shift start failed', `<p>${escapeHtml(response.error || 'Could not start shift.')}</p>`);
+    return;
+  }
+  invalidateCache();
+  await showView('shift');
+}
+
+function openEndShiftEditor() {
+  const active = state.shiftStatus?.activeShift || {};
+  openEditor('End shift', [
+    field('EndedAt', 'End time', 'datetime-local', false, localDateTimeValue(active.EndedAt || new Date().toISOString())),
+    field('Summary', 'Shift summary', 'textarea', true),
+  ], async (values) => api('endShift', values), {
+    successMessage: 'Shift ended.',
+  });
+}
+
 function openLoaReviewEditor(record, status = '') {
   const currentDecision = ['Approved', 'Denied'].includes(status || record.Status) ? status || record.Status : 'Approved';
   openEditor('Review LOA request', [
@@ -946,7 +1010,8 @@ function openDocumentEditor(document = {}) {
     field('Title', 'Title', 'text', false, document.Title),
     selectField('Category', 'Category', ['Training', 'Policy', 'SOP', 'Form'], document.Category),
     field('DriveURL', 'Drive URL', 'url', false, document.DriveURL),
-    selectField('RequiredRole', 'Minimum rank or role', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
+    selectField('RequiredRole', 'Minimum rank', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
+    checkboxGroupField('RequiredTags', 'Required tags', OFFICER_TAGS, document.RequiredTags),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived'], document.Status),
   ], async (values) => api('saveDocument', values));
 }
@@ -1312,6 +1377,16 @@ function profileTable(title, rows, columns, options = {}) {
   `;
 }
 
+function tagList(title, value) {
+  const tags = splitTags(value);
+  return `
+    <section class="tag-panel">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="tag-list">${tags.length ? tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('') : '<p class="empty">No tags assigned.</p>'}</div>
+    </section>
+  `;
+}
+
 function trainingChecklist(officerId, trainingRows) {
   const rows = SPECIALIST_TRAINING.map((standard) => {
     const record = trainingRows.find((item) => item.Standard === standard && String(item.Status) === 'Passed');
@@ -1498,17 +1573,20 @@ function formatCell(value, column = '') {
   if (['Active', 'Published', 'Passed', 'Approved'].includes(text)) {
     return `<span class="pill success">${escapeHtml(text)}</span>`;
   }
+  if (['On Duty'].includes(text)) {
+    return `<span class="pill success">${escapeHtml(text)}</span>`;
+  }
   if (['LOA', 'On LOA', 'Pending', 'In Progress', 'Draft', 'Not Started'].includes(text)) {
     return `<span class="pill warning">${escapeHtml(text)}</span>`;
   }
-  if (['Suspended', 'Archived', 'Failed', 'Denied', 'Expired', 'Removed'].includes(text)) {
+  if (['Off Duty', 'Suspended', 'Archived', 'Failed', 'Denied', 'Expired', 'Removed', 'Low activity', 'No activity'].includes(text)) {
     return `<span class="pill danger">${escapeHtml(text)}</span>`;
   }
   return escapeHtml(text);
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd', 'ChangedAt'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift'].includes(column);
 }
 
 function formatDisplayDate(value) {
@@ -1538,6 +1616,12 @@ function dateInputValue(value) {
   return '';
 }
 
+function localDateTimeValue(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 function openEditor(title, fields, onSubmit, options = {}) {
   elements.editorTitle.textContent = title;
   elements.editorStatus.textContent = '';
@@ -1552,7 +1636,7 @@ function openEditor(title, fields, onSubmit, options = {}) {
     }
 
     elements.editorStatus.textContent = 'Saving...';
-    const values = Object.fromEntries(new FormData(elements.editorForm).entries());
+    const values = formValues(elements.editorForm);
     const response = await onSubmit(values);
     if (!response.ok) {
       elements.editorStatus.textContent = response.error || 'Save failed.';
@@ -1568,6 +1652,19 @@ function openEditor(title, fields, onSubmit, options = {}) {
     invalidateCache();
     await showView(state.activeView);
   };
+}
+
+function formValues(form) {
+  const data = new FormData(form);
+  const values = {};
+  data.forEach((value, key) => {
+    if (values[key]) {
+      values[key] = `${values[key]}, ${value}`;
+    } else {
+      values[key] = value;
+    }
+  });
+  return values;
 }
 
 function hiddenField(name, value = '') {
@@ -1588,6 +1685,20 @@ function selectField(name, label, options, selected = '') {
     return `<option value="${escapeHtml(option)}"${isSelected}>${escapeHtml(option)}</option>`;
   }).join('');
   return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
+}
+
+function checkboxGroupField(name, label, options, selected = '') {
+  const selectedTags = splitTags(selected);
+  const checkboxes = options.map((option) => {
+    const checked = selectedTags.includes(option) ? ' checked' : '';
+    return `
+      <label class="training-check">
+        <input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(option)}"${checked}>
+        <span>${escapeHtml(option)}</span>
+      </label>
+    `;
+  }).join('');
+  return { html: `<fieldset class="wide checkbox-group"><legend>${escapeHtml(label)}</legend>${checkboxes}</fieldset>` };
 }
 
 async function api(action, data = {}, includeToken = true) {
@@ -1639,6 +1750,10 @@ function can(permission) {
 
 function truthy(value) {
   return value === true || String(value).toUpperCase() === 'TRUE';
+}
+
+function splitTags(value) {
+  return String(value || '').split(/[,\n;]+/).map((tag) => tag.trim()).filter(Boolean);
 }
 
 function escapeHtml(value) {

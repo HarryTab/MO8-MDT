@@ -353,7 +353,7 @@ body:not(.is-authenticated) .topbar {
   padding: 12px;
   border: 1px solid rgba(184, 197, 212, 0.86);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
+  background: #ffffff;
   box-shadow: 0 18px 40px rgba(8, 23, 43, 0.18);
 }
 
@@ -1129,13 +1129,13 @@ dialog .section-head .ghost:hover {
 }
 
 .notice-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 14px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(245, 248, 252, 0.84);
+  background: #f8fafc;
 }
 
 .notice-item.unread {
@@ -1154,21 +1154,71 @@ dialog .section-head .ghost:hover {
 
 .notice-item strong {
   display: block;
+  color: var(--ink);
   font-size: 14px;
 }
 
 .notice-item p {
   margin: 5px 0 0;
-  color: var(--muted);
+  color: #40516a;
   font-size: 13px;
   line-height: 1.4;
 }
 
 .notice-item span {
   flex: 0 0 auto;
-  color: var(--faint);
+  color: #617086;
   font-size: 11px;
   font-weight: 850;
+}
+
+.tag-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(184, 197, 212, 0.76);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.tag-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tag-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid rgba(18, 103, 216, 0.22);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--blue-dark);
+  background: var(--panel-blue);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.checkbox-group {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.checkbox-group legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .temporary-password {
