@@ -383,14 +383,14 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item p {
   margin: 0;
-  color: #071527;
+  color: #020817;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 500;
   line-height: 1.4;
 }
 
 .notification-menu .notice-item > span {
-  color: #071527;
+  color: #020817;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -412,7 +412,7 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item.important p,
 .notification-menu .notice-item.important > span {
-  color: #7f1d1a;
+  color: #681713;
 }
 
 .notification-menu .notice-item.positive {
@@ -426,7 +426,7 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item.positive p,
 .notification-menu .notice-item.positive > span {
-  color: #145f35;
+  color: #0f4f2c;
 }
 
 .notification-menu .loading-panel {
