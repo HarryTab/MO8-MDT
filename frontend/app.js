@@ -25,7 +25,9 @@ const TRAINING_STATUSES = ['Not Started', 'In Progress', 'Passed', 'Failed'];
 const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
 const DISCIPLINE_STATUSES = ['Active', 'Expired', 'Appealed', 'Removed'];
 const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
-const CACHE_TTL_MS = 45000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_STORAGE_KEY = 'mo8_api_cache';
+const BOOT_STORAGE_KEY = 'mo8_boot_ready';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 
@@ -37,6 +39,7 @@ const state = {
   activeView: 'dashboard',
   officers: [],
   training: [],
+  trainingSummary: [],
   discipline: [],
   loa: [],
   tasks: [],
@@ -50,7 +53,7 @@ const state = {
   users: [],
   permissionConfig: null,
   audit: [],
-  cache: {},
+  cache: loadStoredCache(),
   selectedOfficerId: '',
 };
 
@@ -112,6 +115,8 @@ elements.loginForm.addEventListener('submit', async (event) => {
 elements.logoutButton.addEventListener('click', async () => {
   await api('logout', {});
   localStorage.removeItem('mo8_token');
+  sessionStorage.removeItem(CACHE_STORAGE_KEY);
+  sessionStorage.removeItem(BOOT_STORAGE_KEY);
   state.token = '';
   state.user = null;
   state.permissions = [];
@@ -154,6 +159,8 @@ document.querySelector('#newUserButton').addEventListener('click', () => openUse
 document.querySelector('#startShiftButton').addEventListener('click', startShift);
 document.querySelector('#endShiftButton').addEventListener('click', openEndShiftEditor);
 document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
+document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
+document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 
 async function boot() {
   if (!API_URL || API_URL.includes('YOUR_APPS_SCRIPT')) {
@@ -175,6 +182,12 @@ async function boot() {
 
   state.user = response.user;
   state.permissions = response.permissions || [];
+  if (hasWarmBootCache()) {
+    showApp();
+    await showView(defaultView());
+    backgroundPreload();
+    return;
+  }
   await initializeSession();
 }
 
@@ -190,8 +203,15 @@ async function initializeSession() {
   }
 
   showApp();
+  sessionStorage.setItem(BOOT_STORAGE_KEY, String(Date.now()));
   await showView(defaultView());
   backgroundPreload();
+}
+
+function hasWarmBootCache() {
+  const bootedAt = Number(sessionStorage.getItem(BOOT_STORAGE_KEY) || 0);
+  if (!bootedAt || Date.now() - bootedAt > CACHE_TTL_MS) return false;
+  return ['myProfile', 'listNotifications'].every((action) => state.cache[cacheKey(action, {}, true)]);
 }
 
 function bootTasks() {
@@ -364,7 +384,7 @@ async function showView(view) {
 
 function renderViewLoading(view) {
   const section = document.querySelector(`#${view}View`);
-  if (!section || state.cache[cacheKey(loaderActionForView(view), {}, true)]) return;
+  if (!section || isViewCached(view)) return;
   if (view === 'dashboard') {
     elements.dashboardView.innerHTML = loadingBlock('Loading dashboard widgets...');
     return;
@@ -399,6 +419,16 @@ function renderViewLoading(view) {
     return;
   }
   section.innerHTML = loadingBlock(message);
+}
+
+function isViewCached(view) {
+  if (view === 'officerProfile') {
+    return Boolean(state.cache[cacheKey('getOfficerProfile', { OfficerID: state.selectedOfficerId }, true)]);
+  }
+  if (view === 'shift') {
+    return Boolean(state.cache[cacheKey('teamShifts', shiftQuery(), true)]);
+  }
+  return Boolean(state.cache[cacheKey(loaderActionForView(view), {}, true)]);
 }
 
 function loaderActionForView(view) {
@@ -495,9 +525,6 @@ async function loadMyProfile() {
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
-    ${profileTable('Notice Board', response.announcements || [], ['Title', 'Audience', 'Pinned', 'ExpiresAt'])}
-    ${profileTable('Available Documents', response.documents || [], ['Title', 'Category', 'RequiredRole', 'DriveURL'])}
-    ${profileTable('Notifications', notifications, ['CreatedAt', 'Title', 'Message', 'ReadAt'])}
   `;
 }
 
@@ -530,10 +557,10 @@ async function loadTasks() {
 
 async function loadShift() {
   await showViewOnly('shift');
-  const period = document.querySelector('#shiftPeriodFilter').value || 'week';
+  const query = shiftQuery();
   const [statusResponse, teamResponse] = await Promise.all([
     apiCached('shiftStatus', {}),
-    apiCached('teamShifts', { Period: period }),
+    apiCached('teamShifts', query),
   ]);
   state.shiftStatus = statusResponse.ok ? statusResponse : null;
   state.shifts = teamResponse.ok ? teamResponse.recent || [] : [];
@@ -547,10 +574,20 @@ async function loadShift() {
     stat('Recent Shifts', teamResponse.recent ? teamResponse.recent.length : 0),
   ].join('');
 
-  renderTable('#activeShiftsTable', teamResponse.active || [], ['RobloxUsername', 'Callsign', 'Rank', 'StartedAt']);
-  renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Summary']);
-  renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'Shifts', 'Hours', 'LastShift', 'ActivityFlag']);
+  renderTable('#activeShiftsTable', teamResponse.active || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'StartedAt']);
+  renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Duration', 'Summary']);
+  renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'Shifts', 'Duration', 'LastShift', 'ActivityFlag']);
   applyPermissions();
+}
+
+function shiftQuery() {
+  const period = document.querySelector('#shiftPeriodFilter')?.value || 'week';
+  const query = { Period: period };
+  if (period === 'custom') {
+    query.StartDate = document.querySelector('#shiftStartFilter')?.value || '';
+    query.EndDate = document.querySelector('#shiftEndFilter')?.value || '';
+  }
+  return query;
 }
 
 async function loadOfficers() {
@@ -596,7 +633,8 @@ async function loadTraining() {
   const trainingRows = trainingResponse.rows || [];
   const officerRows = officersResponse.rows || [];
   state.training = trainingRows;
-  renderTrainingMatrix(officerRows, trainingRows);
+  state.trainingSummary = summarizeTraining(officerRows, trainingRows);
+  renderTrainingOverview(state.trainingSummary);
   renderSearchableView('training');
 }
 
@@ -709,7 +747,11 @@ function renderSearchableView(view) {
   });
 
   if (view === 'training') {
-    renderTable('#trainingTable', rows, ['OfficerID', 'RobloxUsername', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ReviewDate']);
+    const summaryRows = (state.trainingSummary || []).filter((row) => {
+      if (!query) return true;
+      return Object.values(row).some((value) => String(value || '').toLowerCase().includes(query));
+    });
+    renderTable('#trainingTable', summaryRows, ['RobloxUsername', 'Callsign', 'Rank', 'DrivingStandard', 'SpecialistTickets', 'MissingTraining', 'ReviewDate']);
   }
   if (view === 'rankChanges') {
     renderTable('#rankChangesTable', rows, ['ChangedAt', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName']);
@@ -1431,31 +1473,53 @@ function trainingChecklist(officerId, trainingRows) {
   `;
 }
 
-function renderTrainingMatrix(officers, trainingRows) {
+function summarizeTraining(officers, trainingRows) {
+  return officers.map((officer) => {
+    const records = trainingRows.filter((item) => item.OfficerID === officer.OfficerID);
+    const passed = (standard) => records.some((item) => item.Standard === standard && item.Status === 'Passed');
+    const specialistTickets = SPECIALIST_TRAINING.filter(passed);
+    const drivingStandard = DRIVING_STANDARDS.find(passed) || 'Not set';
+    const missing = [
+      ...SPECIALIST_TRAINING.filter((standard) => !passed(standard)),
+      drivingStandard === 'Not set' ? 'Driving standard' : '',
+    ].filter(Boolean);
+    const reviewDate = records.find((item) => item.ReviewDate)?.ReviewDate || '';
+    return {
+      OfficerID: officer.OfficerID,
+      RobloxUsername: officer.RobloxUsername,
+      Callsign: officer.Callsign,
+      Rank: officer.Rank,
+      DrivingStandard: drivingStandard,
+      SpecialistTickets: specialistTickets.length ? specialistTickets.join(', ') : 'None',
+      MissingTraining: missing.length ? `${missing.length} missing` : 'Complete',
+      MissingDetails: missing.join(', '),
+      ReviewDate: reviewDate,
+    };
+  });
+}
+
+function renderTrainingOverview(rows) {
   const container = document.querySelector('#trainingMatrix');
-  const standards = TRAINING_STANDARDS;
-  if (!officers.length) {
-    container.innerHTML = `<p class="empty">Training matrix will appear once officers and standards have records.</p>`;
+  if (!rows.length) {
+    container.innerHTML = `<p class="empty">Training overview will appear once officers have records.</p>`;
     return;
   }
 
-  const rows = officers.map((officer) => {
-    const cells = standards.map((standard) => {
-      const record = trainingRows.find((item) => item.OfficerID === officer.OfficerID && item.Standard === standard);
-      return `<td>${formatCell(record ? record.Status : 'Not Started', 'Status')}</td>`;
-    }).join('');
-    return `<tr><td>${escapeHtml(officer.RobloxUsername)}</td><td>${escapeHtml(officer.Callsign || '')}</td>${cells}</tr>`;
-  }).join('');
+  const complete = rows.filter((row) => row.MissingTraining === 'Complete').length;
+  const needsReview = rows.filter((row) => row.ReviewDate).length;
+  const noDriving = rows.filter((row) => row.DrivingStandard === 'Not set').length;
+  const cards = [
+    stat('Officers tracked', rows.length),
+    stat('Training complete', complete),
+    stat('No driving standard', noDriving),
+    stat('Review dates set', needsReview),
+  ].join('');
 
   container.innerHTML = `
-    <h3>Training Matrix</h3>
-    <div class="table-wrap compact">
-      <table>
-        <thead>
-          <tr><th>Officer</th><th>Callsign</th>${standards.map((standard) => `<th>${escapeHtml(standard)}</th>`).join('')}</tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <h3>Training Overview</h3>
+    <div class="training-overview">
+      ${cards}
+      <p>Select an officer profile to update specialist tickets, driving standard, and review date.</p>
     </div>
   `;
 }
@@ -1489,13 +1553,36 @@ async function toggleNotifications(event) {
   }
 
   elements.notificationMenu.hidden = false;
-  elements.notificationMenu.innerHTML = loadingBlock('Loading notifications...');
-  const response = await api('listNotifications', {});
+  const cached = getCachedResponse('listNotifications', {});
+  if (cached) {
+    renderNotificationMenu(cached);
+  } else {
+    elements.notificationMenu.innerHTML = loadingBlock('Loading notifications...');
+  }
+
+  const response = cached ? await api('listNotifications', {}) : await apiCached('listNotifications', {});
   if (!response.ok) {
-    elements.notificationMenu.innerHTML = `<p class="empty">${escapeHtml(response.error || 'Could not load notifications.')}</p>`;
+    if (!cached) elements.notificationMenu.innerHTML = `<p class="empty">${escapeHtml(response.error || 'Could not load notifications.')}</p>`;
     return;
   }
 
+  setCachedResponse('listNotifications', {}, response);
+  renderNotificationMenu(response);
+  if ((response.unread || 0) > 0) {
+    await api('markNotificationsRead', {});
+    const readResponse = {
+      ...response,
+      unread: 0,
+      rows: (response.rows || []).map((notice) => ({ ...notice, ReadAt: notice.ReadAt || new Date().toISOString() })),
+    };
+    setCachedResponse('listNotifications', {}, readResponse);
+    state.unreadNotifications = 0;
+    updateNotificationBadge();
+    invalidateCache('myProfile');
+  }
+}
+
+function renderNotificationMenu(response) {
   const rows = response.rows || [];
   elements.notificationMenu.innerHTML = `
     <div class="notification-menu-head">
@@ -1514,13 +1601,6 @@ async function toggleNotifications(event) {
     `).join('')}</div>`
     : `<p class="empty">No notifications yet.</p>`}
   `;
-
-  if ((response.unread || 0) > 0) {
-    await api('markNotificationsRead', {});
-    state.unreadNotifications = 0;
-    updateNotificationBadge();
-    invalidateCache('myProfile');
-  }
 }
 
 function closeNotificationMenu() {
@@ -1564,6 +1644,9 @@ function loadingBlock(message) {
 
 function formatCell(value, column = '') {
   const text = value === undefined || value === null ? '' : String(value);
+  if (isDateTimeColumn(column) && text) {
+    return escapeHtml(formatDisplayDateTime(text));
+  }
   if (isDateColumn(column) && text) {
     return escapeHtml(formatDisplayDate(text));
   }
@@ -1586,7 +1669,11 @@ function formatCell(value, column = '') {
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ExpiresAt', 'CurrentLoaEnd', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'ExpiresAt', 'CurrentLoaEnd'].includes(column);
+}
+
+function isDateTimeColumn(column) {
+  return ['UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift'].includes(column);
 }
 
 function formatDisplayDate(value) {
@@ -1599,6 +1686,17 @@ function formatDisplayDate(value) {
     return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
   }
   return input;
+}
+
+function formatDisplayDateTime(value) {
+  const input = String(value || '').trim();
+  const date = new Date(input);
+  if (!Number.isNaN(date.getTime())) {
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+  const isoMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]} ${isoMatch[4]}:${isoMatch[5]}`;
+  return formatDisplayDate(input);
 }
 
 function dateInputValue(value) {
@@ -1726,6 +1824,7 @@ async function apiCached(action, data = {}, includeToken = true) {
   const response = await api(action, data, includeToken);
   if (response.ok) {
     state.cache[key] = { time: Date.now(), response };
+    storeCache();
   }
   return response;
 }
@@ -1734,14 +1833,49 @@ function cacheKey(action, data, includeToken) {
   return JSON.stringify({ action, data, includeToken });
 }
 
+function getCachedResponse(action, data = {}, includeToken = true) {
+  const cached = state.cache[cacheKey(action, data, includeToken)];
+  if (!cached || Date.now() - cached.time >= CACHE_TTL_MS) return null;
+  return cached.response;
+}
+
+function setCachedResponse(action, data = {}, response, includeToken = true) {
+  state.cache[cacheKey(action, data, includeToken)] = { time: Date.now(), response };
+  storeCache();
+}
+
+function loadStoredCache() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(CACHE_STORAGE_KEY) || '{}');
+    return Object.keys(parsed).reduce((cache, key) => {
+      if (parsed[key] && Date.now() - parsed[key].time < CACHE_TTL_MS) cache[key] = parsed[key];
+      return cache;
+    }, {});
+  } catch (error) {
+    sessionStorage.removeItem(CACHE_STORAGE_KEY);
+    return {};
+  }
+}
+
+function storeCache() {
+  try {
+    sessionStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(state.cache));
+  } catch (error) {
+    // Storage can fill up in older browsers; the app still works with memory cache only.
+  }
+}
+
 function invalidateCache(action = '') {
   if (!action) {
     state.cache = {};
+    sessionStorage.removeItem(CACHE_STORAGE_KEY);
+    sessionStorage.removeItem(BOOT_STORAGE_KEY);
     return;
   }
   Object.keys(state.cache).forEach((key) => {
     if (key.includes(`"action":"${action}"`)) delete state.cache[key];
   });
+  storeCache();
 }
 
 function can(permission) {

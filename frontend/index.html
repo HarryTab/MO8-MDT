@@ -118,7 +118,7 @@
               </div>
             </div>
             <div id="shiftSummary" class="stat-row"></div>
-            <section class="dashboard-grid">
+            <section class="dashboard-grid shift-dashboard">
               <article class="dashboard-panel">
                 <h3>On Duty Officers</h3>
                 <div class="table-wrap compact">
@@ -131,12 +131,17 @@
                   <table id="recentShiftsTable"></table>
                 </div>
               </article>
-              <article class="dashboard-panel" data-permission="VIEW_TASKS">
+              <article class="dashboard-panel shift-review-panel" data-permission="VIEW_TASKS">
                 <h3>Team Review</h3>
-                <select id="shiftPeriodFilter">
-                  <option value="week">Last week</option>
-                  <option value="month">Last month</option>
-                </select>
+                <div class="filter-row shift-filter">
+                  <select id="shiftPeriodFilter">
+                    <option value="week">Last week</option>
+                    <option value="month">Last month</option>
+                    <option value="custom">Custom dates</option>
+                  </select>
+                  <input id="shiftStartFilter" type="date">
+                  <input id="shiftEndFilter" type="date">
+                </div>
                 <div class="table-wrap compact">
                   <table id="shiftMetricsTable"></table>
                 </div>

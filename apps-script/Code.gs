@@ -878,19 +878,19 @@ function endShift_(auth, payload) {
 function teamShifts_(auth, payload) {
   const officers = getTable_(CONFIG.sheets.officers).rows;
   const period = payload.Period || 'week';
-  const days = period === 'month' ? 30 : 7;
-  const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const range = shiftRange_(payload, period);
   const shifts = getTable_(CONFIG.sheets.shifts).rows;
-  const active = shifts.filter((row) => row.Status === 'Active' && !row.EndedAt);
+  const active = decorateShiftRows_(shifts.filter((row) => row.Status === 'Active' && !row.EndedAt), officers);
   const recent = shifts.filter((row) => {
     const started = parseDateTime_(row.StartedAt);
-    return started && started >= start;
+    return started && started >= range.start && started <= range.end;
   }).reverse();
   const ownOfficer = findOfficerForUser_(auth.user);
-  const own = ownOfficer ? shifts.filter((row) => row.OfficerID === ownOfficer.OfficerID).reverse().slice(0, 20) : [];
+  const decoratedRecent = decorateShiftRows_(recent, officers);
+  const own = ownOfficer ? decorateShiftRows_(shifts.filter((row) => row.OfficerID === ownOfficer.OfficerID).reverse().slice(0, 20), officers) : [];
   return ok_({
     active,
-    recent: hasPermission_(auth.user, 'VIEW_TASKS') ? recent : own,
+    recent: hasPermission_(auth.user, 'VIEW_TASKS') ? decoratedRecent : own,
     own,
     metrics: hasPermission_(auth.user, 'VIEW_TASKS') ? shiftMetrics_(recent, officers) : [],
   });
@@ -1459,11 +1459,13 @@ function activeShiftForOfficer_(officerId) {
 function shiftMetrics_(rows, officers) {
   const byOfficer = {};
   (officers || []).filter((officer) => officer.Status !== 'Archived').forEach((officer) => {
+    const decorated = decorateOfficer_(officer);
     byOfficer[officer.OfficerID] = {
       OfficerID: officer.OfficerID,
       RobloxUsername: officer.RobloxUsername,
       Callsign: officer.Callsign,
       Rank: officer.Rank,
+      LoaStatus: decorated.LoaStatus,
       Shifts: 0,
       Minutes: 0,
       LastShift: '',
@@ -1478,6 +1480,7 @@ function shiftMetrics_(rows, officers) {
         RobloxUsername: row.RobloxUsername,
         Callsign: row.Callsign,
         Rank: row.Rank,
+        LoaStatus: row.LoaStatus || 'Available',
         Shifts: 0,
         Minutes: 0,
         LastShift: '',
@@ -1489,10 +1492,10 @@ function shiftMetrics_(rows, officers) {
   });
   return Object.keys(byOfficer).map((key) => {
     const metric = byOfficer[key];
-    metric.Hours = (metric.Minutes / 60).toFixed(1);
-    metric.ActivityFlag = metric.Shifts === 0 ? 'No activity' : metric.Hours < 1 ? 'Low activity' : 'Active';
+    metric.Duration = formatDuration_(metric.Minutes);
+    metric.ActivityFlag = metric.LoaStatus === 'On LOA' ? 'On LOA' : metric.Shifts === 0 ? 'No activity' : metric.Minutes < 60 ? 'Low activity' : 'Active';
     return metric;
-  }).sort((a, b) => Number(a.Hours) - Number(b.Hours));
+  }).sort((a, b) => Number(a.Minutes) - Number(b.Minutes));
 }
 
 function shiftMinutes_(row) {
@@ -1500,6 +1503,44 @@ function shiftMinutes_(row) {
   const end = parseDateTime_(row.EndedAt) || new Date();
   if (!start || !end || end < start) return 0;
   return Math.round((end.getTime() - start.getTime()) / 60000);
+}
+
+function shiftRange_(payload, period) {
+  if (period === 'custom') {
+    const startDate = parseDateOnly_(payload.StartDate);
+    const endDate = parseDateOnly_(payload.EndDate);
+    if (startDate && endDate) {
+      const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999);
+      return { start: startDate, end };
+    }
+  }
+  const days = period === 'month' ? 30 : 7;
+  return {
+    start: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+    end: new Date(),
+  };
+}
+
+function decorateShiftRows_(rows, officers) {
+  const officerMap = {};
+  (officers || []).forEach((officer) => {
+    officerMap[officer.OfficerID] = decorateOfficer_(officer);
+  });
+  return rows.map((row) => {
+    const officer = officerMap[row.OfficerID] || {};
+    return Object.assign({}, row, {
+      LoaStatus: officer.LoaStatus || 'Available',
+      Duration: formatDuration_(shiftMinutes_(row)),
+    });
+  });
+}
+
+function formatDuration_(minutes) {
+  const total = Math.max(0, Number(minutes) || 0);
+  const hours = Math.floor(total / 60);
+  const remainder = total % 60;
+  if (!hours) return `${remainder}m`;
+  return `${hours}h ${String(remainder).padStart(2, '0')}m`;
 }
 
 function parseDateTime_(value) {
