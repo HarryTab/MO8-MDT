@@ -369,26 +369,27 @@ body:not(.is-authenticated) .topbar {
   padding: 12px;
   border: 1px solid rgba(184, 197, 212, 0.92);
   border-radius: 10px;
-  color: var(--ink);
-  background: #f8fbff;
+  color: #071527;
+  background: #f7faff;
 }
 
 .notification-menu .notice-item strong {
   display: block;
   margin-bottom: 4px;
-  color: #102746;
-  font-size: 13px;
+  color: #071527;
+  font-size: 14px;
+  font-weight: 950;
 }
 
 .notification-menu .notice-item p {
   margin: 0;
-  color: #425268;
+  color: #243349;
   font-size: 13px;
   line-height: 1.4;
 }
 
 .notification-menu .notice-item > span {
-  color: #526176;
+  color: #2f3c50;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -396,12 +397,25 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item.unread {
   border-color: rgba(43, 107, 230, 0.55);
-  background: #eef5ff;
+  background: #eaf3ff;
 }
 
 .notification-menu .notice-item.important {
   border-color: rgba(181, 38, 28, 0.48);
-  background: #fff2f1;
+  background: #fff0ef;
+}
+
+.notification-menu .notice-item.important strong {
+  color: #941f17;
+}
+
+.notification-menu .notice-item.positive {
+  border-color: rgba(31, 123, 68, 0.48);
+  background: #eefbf3;
+}
+
+.notification-menu .notice-item.positive strong {
+  color: #17683a;
 }
 
 .notification-menu .loading-panel {
@@ -1228,6 +1242,15 @@ dialog .section-head .ghost:hover {
 
 .notice-item.important strong {
   color: var(--red);
+}
+
+.notice-item.positive {
+  border-color: rgba(31, 123, 68, 0.34);
+  background: var(--green-soft);
+}
+
+.notice-item.positive strong {
+  color: var(--green);
 }
 
 .notice-item strong {

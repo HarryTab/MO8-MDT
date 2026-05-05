@@ -28,6 +28,7 @@ const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_STORAGE_KEY = 'mo8_api_cache';
 const BOOT_STORAGE_KEY = 'mo8_boot_ready';
+const SESSION_STORAGE_KEY = 'mo8_session_auth';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 
@@ -109,6 +110,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
   state.user = response.user;
   state.permissions = response.permissions || [];
   localStorage.setItem('mo8_token', state.token);
+  storeSessionAuth(state.user, state.permissions);
   await initializeSession();
 });
 
@@ -117,6 +119,7 @@ elements.logoutButton.addEventListener('click', async () => {
   localStorage.removeItem('mo8_token');
   sessionStorage.removeItem(CACHE_STORAGE_KEY);
   sessionStorage.removeItem(BOOT_STORAGE_KEY);
+  sessionStorage.removeItem(SESSION_STORAGE_KEY);
   state.token = '';
   state.user = null;
   state.permissions = [];
@@ -173,15 +176,28 @@ async function boot() {
     return;
   }
 
+  const cachedAuth = loadSessionAuth();
+  if (cachedAuth?.user) {
+    state.user = cachedAuth.user;
+    state.permissions = cachedAuth.permissions || [];
+    showApp();
+    await showView(defaultView());
+    backgroundPreload();
+    validateSessionQuietly();
+    return;
+  }
+
   const response = await api('me', {});
   if (!response.ok) {
     localStorage.removeItem('mo8_token');
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
     showLogin();
     return;
   }
 
   state.user = response.user;
   state.permissions = response.permissions || [];
+  storeSessionAuth(state.user, state.permissions);
   if (hasWarmBootCache()) {
     showApp();
     await showView(defaultView());
@@ -209,9 +225,26 @@ async function initializeSession() {
 }
 
 function hasWarmBootCache() {
-  const bootedAt = Number(sessionStorage.getItem(BOOT_STORAGE_KEY) || 0);
-  if (!bootedAt || Date.now() - bootedAt > CACHE_TTL_MS) return false;
-  return ['myProfile', 'listNotifications'].every((action) => state.cache[cacheKey(action, {}, true)]);
+  return Boolean(getCachedResponse('myProfile', {}) && getCachedResponse('listNotifications', {}));
+}
+
+async function validateSessionQuietly() {
+  const response = await api('me', {});
+  if (!response.ok) {
+    localStorage.removeItem('mo8_token');
+    sessionStorage.removeItem(CACHE_STORAGE_KEY);
+    sessionStorage.removeItem(BOOT_STORAGE_KEY);
+    state.token = '';
+    state.user = null;
+    state.permissions = [];
+    invalidateCache();
+    showLogin();
+    return;
+  }
+  state.user = response.user;
+  state.permissions = response.permissions || [];
+  storeSessionAuth(state.user, state.permissions);
+  showApp();
 }
 
 function bootTasks() {
@@ -610,14 +643,18 @@ function renderOfficerTable() {
 
 async function loadOfficerProfile(officerId) {
   await showViewOnly('officerProfile');
+  const container = document.querySelector('#officerProfileView');
   if (!officerId) {
-    document.querySelector('#officerProfileView').innerHTML = emptyState('No officer selected.');
+    container.innerHTML = emptyState('No officer selected.');
     return;
   }
 
+  const requestOfficerId = officerId;
+  container.innerHTML = loadingBlock('Loading officer profile...');
   const response = await apiCached('getOfficerProfile', { OfficerID: officerId });
+  if (state.selectedOfficerId !== requestOfficerId) return;
   if (!response.ok) {
-    document.querySelector('#officerProfileView').innerHTML = emptyState(response.error || 'Officer not found.');
+    container.innerHTML = emptyState(response.error || 'Officer not found.');
     return;
   }
 
@@ -1591,7 +1628,7 @@ function renderNotificationMenu(response) {
     </div>
     ${rows.length
     ? `<div class="notice-list">${rows.map((notice) => `
-      <article class="notice-item${notice.ReadAt ? '' : ' unread'}${importantNotice(notice) ? ' important' : ''}">
+      <article class="notice-item${notice.ReadAt ? '' : ' unread'}${importantNotice(notice) ? ' important' : ''}${positiveNotice(notice) ? ' positive' : ''}">
         <div>
           <strong>${escapeHtml(notice.Title || 'Notification')}</strong>
           <p>${escapeHtml(notice.Message || '')}</p>
@@ -1610,6 +1647,11 @@ function closeNotificationMenu() {
 function importantNotice(notice) {
   const text = `${notice.Title || ''} ${notice.Message || ''}`.toLowerCase();
   return ['disciplinary', 'discipline', 'denied', 'removed', 'suspended'].some((word) => text.includes(word));
+}
+
+function positiveNotice(notice) {
+  const text = `${notice.Title || ''} ${notice.Message || ''}`.toLowerCase();
+  return ['approved', 'passed', 'created', 'completed', 'published'].some((word) => text.includes(word));
 }
 
 async function confirmDelete(message, action, payload, onSuccess) {
@@ -1862,6 +1904,25 @@ function storeCache() {
     sessionStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(state.cache));
   } catch (error) {
     // Storage can fill up in older browsers; the app still works with memory cache only.
+  }
+}
+
+function loadSessionAuth() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || '{}');
+    if (!parsed.time || Date.now() - parsed.time > CACHE_TTL_MS) return null;
+    return parsed;
+  } catch (error) {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    return null;
+  }
+}
+
+function storeSessionAuth(user, permissions) {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ time: Date.now(), user, permissions }));
+  } catch (error) {
+    // Non-critical; refresh simply falls back to normal startup.
   }
 }
 
