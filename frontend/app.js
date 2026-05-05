@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-05-4';
+const APP_VERSION = '2026-05-05-5';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -33,6 +33,8 @@ const SESSION_STORAGE_KEY = 'mo8_session_auth';
 const VERSION_STORAGE_KEY = 'mo8_app_version';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
+const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
+const DEVELOPMENT_STATUSES = ['Open', 'In Progress', 'Completed', 'Paused'];
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
@@ -49,6 +51,8 @@ const state = {
   profileDiscipline: [],
   profileLoa: [],
   profileSupervisorRequests: [],
+  profileCheckins: [],
+  profileDevelopmentPlans: [],
   documents: [],
   documentFolder: '',
   announcements: [],
@@ -57,6 +61,7 @@ const state = {
   shiftStatus: null,
   users: [],
   supervisorOptions: [],
+  supervisorDashboard: null,
   permissionConfig: null,
   audit: [],
   cache: loadStoredCache(),
@@ -266,6 +271,7 @@ function bootTasks() {
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
+  if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
 }
@@ -309,6 +315,7 @@ function backgroundPreload() {
     can('VIEW_LOA') ? ['listLoa', {}] : null,
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
     ['teamShifts', { Period: 'week' }],
+    can('VIEW_TASKS') ? ['supervisorDashboard', {}] : null,
   ].filter(Boolean);
 
   window.setTimeout(() => {
@@ -378,6 +385,7 @@ async function showView(view) {
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
     shift: ['Shift Log', 'Duty status and team activity'],
     tasks: ['Tasks', 'Outstanding approvals and command actions'],
+    supervisor: ['Supervisor', 'Assigned officers, check-ins, development plans and workload'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
     rankChanges: ['Rank Change Log', 'Promotion and rank movement history'],
@@ -407,6 +415,7 @@ async function showView(view) {
     myProfile: loadMyProfile,
     shift: loadShift,
     tasks: loadTasks,
+    supervisor: loadSupervisor,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
     rankChanges: loadRankChanges,
@@ -432,6 +441,13 @@ function renderViewLoading(view) {
     return;
   }
   if (view === 'tasks') document.querySelector('#tasksSummary').innerHTML = '';
+  if (view === 'supervisor') {
+    document.querySelector('#supervisorSummary').innerHTML = '';
+    ['#supervisorAssignedTable', '#supervisorRequestsTable', '#supervisorUnassignedTable', '#supervisorWorkloadTable', '#supervisorPlansTable', '#supervisorCheckinsTable'].forEach((selector) => {
+      document.querySelector(selector).innerHTML = `<tbody><tr><td>${loadingBlock('Loading supervisor dashboard...')}</td></tr></tbody>`;
+    });
+    return;
+  }
   if (view === 'training') document.querySelector('#trainingMatrix').innerHTML = '';
   if (view === 'documents') {
     document.querySelector('#documentExplorer').innerHTML = loadingBlock('Loading documents...');
@@ -483,6 +499,7 @@ function loaderActionForView(view) {
     myProfile: 'myProfile',
     shift: 'teamShifts',
     tasks: 'tasks',
+    supervisor: 'supervisorDashboard',
     officers: 'listOfficers',
     rankChanges: 'rankChangeLog',
     training: 'listTraining',
@@ -573,6 +590,8 @@ async function loadMyProfile() {
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
     ${profileTable('My Supervisor Requests', response.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'])}
+    ${profileTable('My Development Plans', response.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'])}
+    ${profileTable('My Supervisor Check-ins', response.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
   `;
 }
@@ -607,6 +626,42 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
+}
+
+async function loadSupervisor() {
+  await showViewOnly('supervisor');
+  const response = await apiCached('supervisorDashboard', {});
+  if (!response.ok) {
+    document.querySelector('#supervisorSummary').innerHTML = '';
+    return renderTable('#supervisorAssignedTable', [], ['Error'], { emptyMessage: response.error || 'Could not load supervisor dashboard.' });
+  }
+
+  state.supervisorDashboard = response;
+  const counts = response.counts || {};
+  document.querySelector('#supervisorSummary').innerHTML = [
+    stat('Assigned Officers', counts.assigned || 0),
+    stat('Unassigned Officers', counts.unassigned || 0),
+    stat('Pending Requests', counts.pendingRequests || 0),
+    stat('Open Goals', counts.openPlans || 0),
+  ].join('');
+
+  renderTable('#supervisorAssignedTable', response.assigned || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'LastShift', 'MonthlyActivity', 'TrainingGaps', 'DisciplineFlags', 'OpenPlans'], {
+    rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
+    actions: (row) => `<button class="mini" data-add-checkin="${escapeHtml(row.OfficerID)}">Check-in</button><button class="mini" data-add-plan="${escapeHtml(row.OfficerID)}">Add goal</button>`,
+  });
+  renderTable('#supervisorRequestsTable', response.pendingRequests || [], ['Officer', 'Rank', 'Category', 'Subject', 'CreatedAt', 'Supervisor'], {
+    actions: (row) => `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>`,
+  });
+  renderTable('#supervisorUnassignedTable', response.unassigned || [], ['RobloxUsername', 'Callsign', 'Rank', 'DutyStatus'], {
+    rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
+    actions: (row) => `<button class="mini" data-assign-supervisor="${escapeHtml(row.OfficerID)}">Assign</button>`,
+  });
+  renderTable('#supervisorWorkloadTable', response.workload || [], ['Supervisor', 'Rank', 'AssignedOfficers', 'PendingRequests']);
+  renderTable('#supervisorPlansTable', response.developmentPlans || [], ['Officer', 'Goal', 'Category', 'Status', 'DueDate', 'Notes'], {
+    actions: (row) => `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>`,
+  });
+  renderTable('#supervisorCheckinsTable', response.checkins || [], ['Officer', 'CheckinDate', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate']);
+  applyPermissions();
 }
 
 async function loadShift() {
@@ -1002,6 +1057,8 @@ function renderOfficerProfile(data) {
   state.profileDiscipline = data.discipline || [];
   state.profileLoa = data.loa || [];
   state.profileSupervisorRequests = data.supervisorRequests || [];
+  state.profileCheckins = data.checkins || [];
+  state.profileDevelopmentPlans = data.developmentPlans || [];
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -1015,6 +1072,8 @@ function renderOfficerProfile(data) {
         <button class="ghost" data-delete-officer="${escapeHtml(officer.OfficerID)}" data-permission="ARCHIVE_OFFICERS">Delete officer</button>
         <button data-add-discipline="${escapeHtml(officer.OfficerID)}" data-permission="ADD_DISCIPLINE">Add discipline</button>
         <button data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA">Add LOA</button>
+        <button data-add-checkin="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Check-in</button>
+        <button data-add-plan="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Add goal</button>
       </div>
     </div>
 
@@ -1052,6 +1111,10 @@ function renderOfficerProfile(data) {
       ${profileTable('Supervisor Requests', data.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'], {
         actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
       })}
+      ${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], {
+        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '',
+      })}
+      ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
     </section>
   `;
@@ -1167,6 +1230,35 @@ function openSupervisorReviewEditor(record) {
   });
 }
 
+function openCheckinEditor(officerId) {
+  openEditor('Log supervisor check-in', [
+    hiddenField('OfficerID', officerId),
+    field('CheckinDate', 'Check-in date', 'date', false, dateInputValue(new Date().toISOString())),
+    field('Summary', 'Summary', 'textarea', true),
+    field('Concerns', 'Concerns', 'textarea', true),
+    field('DevelopmentGoals', 'Development goals', 'textarea', true),
+    field('FollowUpDate', 'Follow-up date', 'date'),
+  ], async (values) => api('saveSupervisorCheckin', values), {
+    successMessage: 'Supervisor check-in logged.',
+  });
+}
+
+function openDevelopmentPlanEditor(officerIdOrRecord) {
+  const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
+  const officerId = record.OfficerID || officerIdOrRecord || '';
+  openEditor(record.PlanID ? 'Edit development goal' : 'Add development goal', [
+    hiddenField('PlanID', record.PlanID),
+    hiddenField('OfficerID', officerId),
+    field('Goal', 'Goal', 'textarea', true, record.Goal),
+    selectField('Category', 'Category', DEVELOPMENT_CATEGORIES, record.Category || 'Development'),
+    selectField('Status', 'Status', DEVELOPMENT_STATUSES, record.Status || 'Open'),
+    field('DueDate', 'Due date', 'date', false, dateInputValue(record.DueDate)),
+    field('Notes', 'Notes', 'textarea', true, record.Notes),
+  ], async (values) => api('saveDevelopmentPlan', values), {
+    successMessage: 'Development plan saved.',
+  });
+}
+
 function openTransferReviewEditor(record) {
   openEditor('Review transfer request', [
     hiddenField('RequestID', record.RequestID),
@@ -1268,7 +1360,7 @@ async function handleDocumentClick(event) {
   }
 
   const officerLink = event.target.closest('[data-open-officer]');
-  if (officerLink) {
+  if (officerLink && (event.target === officerLink || !event.target.closest('button, a, input, select, textarea'))) {
     state.selectedOfficerId = officerLink.dataset.openOfficer;
     await showView('officerProfile');
     return;
@@ -1331,6 +1423,20 @@ async function handleDocumentClick(event) {
   const requestSupervisor = event.target.closest('[data-request-supervisor]');
   if (requestSupervisor) return openSupervisorRequestEditor();
 
+  const addCheckin = event.target.closest('[data-add-checkin]');
+  if (addCheckin) return openCheckinEditor(addCheckin.dataset.addCheckin);
+
+  const addPlan = event.target.closest('[data-add-plan]');
+  if (addPlan) return openDevelopmentPlanEditor(addPlan.dataset.addPlan);
+
+  const editPlan = event.target.closest('[data-edit-plan]');
+  if (editPlan) {
+    const record = (state.supervisorDashboard?.developmentPlans || []).find((row) => row.PlanID === editPlan.dataset.editPlan)
+      || state.profileDevelopmentPlans.find((row) => row.PlanID === editPlan.dataset.editPlan);
+    if (record) openDevelopmentPlanEditor(record);
+    return;
+  }
+
   const editLoa = event.target.closest('[data-edit-loa]');
   if (editLoa) {
     const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa)
@@ -1358,7 +1464,8 @@ async function handleDocumentClick(event) {
   const reviewSupervisorOpen = event.target.closest('[data-open-supervisor-review]');
   if (reviewSupervisorOpen) {
     const record = state.tasks.find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview)
-      || state.profileSupervisorRequests.find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview);
+      || state.profileSupervisorRequests.find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview)
+      || (state.supervisorDashboard?.pendingRequests || []).find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview);
     if (record) openSupervisorReviewEditor(record);
     return;
   }
@@ -1869,7 +1976,7 @@ function formatCell(value, column = '') {
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'ExpiresAt', 'CurrentLoaEnd'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'ExpiresAt', 'CurrentLoaEnd', 'CheckinDate', 'FollowUpDate', 'DueDate'].includes(column);
 }
 
 function isDateTimeColumn(column) {

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-05-4">
+    <link rel="stylesheet" href="styles.css?v=2026-05-05-5">
   </head>
   <body>
     <main class="terminal-shell">
@@ -33,6 +33,7 @@
             <button class="nav-item" data-view="myProfile">My Profile</button>
             <button class="nav-item" data-view="shift">Shift</button>
             <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
+            <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
             <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
             <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
             <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
@@ -160,6 +161,51 @@
             <div class="table-wrap">
               <table id="tasksTable"></table>
             </div>
+          </section>
+
+          <section class="data-view" id="supervisorView" hidden>
+            <div class="section-head">
+              <h2>Supervisor</h2>
+            </div>
+            <div id="supervisorSummary" class="stat-row"></div>
+            <section class="dashboard-grid supervisor-grid">
+              <article class="dashboard-panel supervisor-wide">
+                <h3>Assigned Officers</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorAssignedTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Pending Requests</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorRequestsTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Unassigned Officers</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorUnassignedTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Supervisor Workload</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorWorkloadTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel supervisor-wide">
+                <h3>Development Plans</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorPlansTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel supervisor-wide">
+                <h3>Recent Check-ins</h3>
+                <div class="table-wrap compact">
+                  <table id="supervisorCheckinsTable"></table>
+                </div>
+              </article>
+            </section>
           </section>
 
           <section class="data-view profile-view" id="officerProfileView" hidden></section>
@@ -290,6 +336,6 @@
       </div>
     </dialog>
 
-    <script src="app.js?v=2026-05-05-4"></script>
+    <script src="app.js?v=2026-05-05-5"></script>
   </body>
 </html>

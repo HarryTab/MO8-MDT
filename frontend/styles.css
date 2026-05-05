@@ -1278,6 +1278,14 @@ dialog .section-head .ghost:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.supervisor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.supervisor-wide {
+  grid-column: 1 / -1;
+}
+
 .shift-review-panel {
   grid-column: 1 / -1;
   min-height: 420px;

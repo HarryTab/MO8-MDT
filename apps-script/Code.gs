@@ -27,6 +27,8 @@ const CONFIG = {
     loa: 'LOARequests',
     transferRequests: 'TransferRequests',
     supervisorRequests: 'SupervisorRequests',
+    supervisorCheckins: 'SupervisorCheckins',
+    developmentPlans: 'DevelopmentPlans',
     shifts: 'ShiftLogs',
     documents: 'Documents',
     announcements: 'Announcements',
@@ -48,6 +50,8 @@ const HEADERS = {
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   TransferRequests: ['RequestID', 'OfficerID', 'CurrentDivision', 'TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Notes', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   SupervisorRequests: ['RequestID', 'OfficerID', 'SupervisorUserID', 'Category', 'Subject', 'Details', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
+  SupervisorCheckins: ['CheckinID', 'OfficerID', 'SupervisorUserID', 'CheckinDate', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate', 'CreatedBy', 'CreatedAt'],
+  DevelopmentPlans: ['PlanID', 'OfficerID', 'SupervisorUserID', 'Goal', 'Category', 'Status', 'DueDate', 'Notes', 'CreatedBy', 'CreatedAt', 'UpdatedAt'],
   Documents: ['DocumentID', 'Title', 'Category', 'DriveURL', 'RequiredRole', 'RequiredTags', 'Status', 'UpdatedBy', 'UpdatedAt'],
   ShiftLogs: ['ShiftID', 'OfficerID', 'MemberID', 'RobloxUsername', 'Callsign', 'Rank', 'StartedAt', 'EndedAt', 'Summary', 'Status', 'UpdatedAt'],
   Announcements: ['AnnouncementID', 'Title', 'Body', 'Audience', 'Status', 'Pinned', 'ExpiresAt', 'UpdatedBy', 'UpdatedAt'],
@@ -170,6 +174,7 @@ function handleRequest_(e) {
       me: () => ok_({ user: publicUser_(auth.user), permissions: getUserPermissions_(auth.user.Role, auth.user.UserID) }),
       dashboard: () => requirePermission_(auth, 'VIEW_DASHBOARD', () => dashboard_(auth)),
       tasks: () => requirePermission_(auth, 'VIEW_TASKS', () => tasks_(auth)),
+      supervisorDashboard: () => requirePermission_(auth, 'VIEW_TASKS', () => supervisorDashboard_(auth)),
       myProfile: () => getMyProfile_(auth),
       shiftStatus: () => shiftStatus_(auth),
       startShift: () => startShift_(auth),
@@ -198,6 +203,8 @@ function handleRequest_(e) {
       reviewTransfer: () => requirePermission_(auth, 'VIEW_TASKS', () => reviewTransfer_(auth, payload)),
       requestSupervisorSupport: () => requestSupervisorSupport_(auth, payload),
       reviewSupervisorRequest: () => requirePermission_(auth, 'VIEW_TASKS', () => reviewSupervisorRequest_(auth, payload)),
+      saveSupervisorCheckin: () => requirePermission_(auth, 'VIEW_TASKS', () => saveSupervisorCheckin_(auth, payload)),
+      saveDevelopmentPlan: () => requirePermission_(auth, 'VIEW_TASKS', () => saveDevelopmentPlan_(auth, payload)),
       createLoa: () => requirePermission_(auth, 'CREATE_LOA', () => createLoa_(auth, payload)),
       saveLoa: () => requirePermission_(auth, 'CREATE_LOA', () => saveLoa_(auth, payload)),
       reviewLoa: () => requirePermission_(auth, 'APPROVE_LOA', () => reviewLoa_(auth, payload)),
@@ -258,6 +265,8 @@ function isWriteAction_(action) {
     'requestSupervisorSupport',
     'reviewTransfer',
     'reviewSupervisorRequest',
+    'saveSupervisorCheckin',
+    'saveDevelopmentPlan',
     'saveDiscipline',
     'deleteDiscipline',
     'createLoa',
@@ -406,13 +415,66 @@ function tasks_(auth) {
   });
 }
 
+function supervisorDashboard_(auth) {
+  const officers = getTable_(CONFIG.sheets.officers).rows.filter((officer) => officer.Status !== 'Archived');
+  const shifts = getTable_(CONFIG.sheets.shifts).rows;
+  const discipline = getTable_(CONFIG.sheets.discipline).rows;
+  const pendingRequests = getTable_(CONFIG.sheets.supervisorRequests).rows.filter((request) => request.Status === 'Pending');
+  const checkins = decorateCheckinRows_(getTable_(CONFIG.sheets.supervisorCheckins).rows);
+  const plans = decorateDevelopmentPlanRows_(getTable_(CONFIG.sheets.developmentPlans).rows);
+  const assigned = officers.filter((officer) => officer.SupervisorUserID === auth.user.UserID).map((officer) => supervisorOfficerSummary_(officer, shifts, discipline, plans));
+  const unassigned = officers.filter((officer) => !officer.SupervisorUserID).map(decorateOfficer_);
+  const workload = supervisorOptions_().rows.map((supervisor) => ({
+    SupervisorUserID: supervisor.UserID,
+    Supervisor: supervisor.RobloxUsername,
+    Rank: supervisor.Rank,
+    AssignedOfficers: officers.filter((officer) => officer.SupervisorUserID === supervisor.UserID).length,
+    PendingRequests: pendingRequests.filter((request) => request.SupervisorUserID === supervisor.UserID).length,
+  })).sort((a, b) => b.AssignedOfficers - a.AssignedOfficers || a.Supervisor.localeCompare(b.Supervisor));
+  const myPendingRequests = decorateSupervisorRequestRows_(pendingRequests.filter((request) => request.SupervisorUserID === auth.user.UserID || assigned.some((officer) => officer.OfficerID === request.OfficerID)));
+  return ok_({
+    assigned,
+    unassigned,
+    workload,
+    pendingRequests: myPendingRequests,
+    checkins: checkins.filter((row) => row.SupervisorUserID === auth.user.UserID || assigned.some((officer) => officer.OfficerID === row.OfficerID)).slice().reverse().slice(0, 40),
+    developmentPlans: plans.filter((row) => row.SupervisorUserID === auth.user.UserID || assigned.some((officer) => officer.OfficerID === row.OfficerID)).slice().reverse().slice(0, 40),
+    counts: {
+      assigned: assigned.length,
+      unassigned: unassigned.length,
+      pendingRequests: myPendingRequests.length,
+      openPlans: plans.filter((row) => row.SupervisorUserID === auth.user.UserID && row.Status !== 'Completed').length,
+    },
+  });
+}
+
+function supervisorOfficerSummary_(officer, shifts, discipline, plans) {
+  const decorated = decorateOfficer_(officer);
+  const officerShifts = shifts.filter((row) => row.OfficerID === officer.OfficerID);
+  const recentShifts = officerShifts.filter((row) => {
+    const start = parseDateTime_(row.StartedAt);
+    return start && start >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  });
+  const minutes = recentShifts.reduce((total, row) => total + shiftMinutes_(row), 0);
+  const lastShift = officerShifts.map((row) => row.StartedAt).filter(Boolean).sort().pop() || '';
+  const training = getTrainingForOfficer_(officer);
+  const trainingGaps = training.filter((row) => ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'].includes(row.Standard) && row.Status !== 'Passed').length;
+  return Object.assign({}, decorated, {
+    LastShift: lastShift,
+    MonthlyActivity: formatDuration_(minutes),
+    TrainingGaps: trainingGaps,
+    DisciplineFlags: discipline.filter((row) => row.OfficerID === officer.OfficerID && row.Status === 'Active').length,
+    OpenPlans: plans.filter((row) => row.OfficerID === officer.OfficerID && row.Status !== 'Completed').length,
+  });
+}
+
 function getMyProfile_(auth) {
   const officer = findOfficerForUser_(auth.user);
   const documents = listDocuments_(auth).rows || [];
   const announcements = listAnnouncements_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
   const shiftStatus = shiftStatus_(auth);
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], transfers: [], supervisorRequests: [], shifts: [], shiftStatus, rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], transfers: [], supervisorRequests: [], checkins: [], developmentPlans: [], shifts: [], shiftStatus, rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
   return ok_({
     user: publicUser_(auth.user),
     officer: decorateOfficer_(officer),
@@ -421,6 +483,8 @@ function getMyProfile_(auth) {
     loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     transfers: decorateTransferRows_(getTable_(CONFIG.sheets.transferRequests).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     supervisorRequests: decorateSupervisorRequestRows_(getTable_(CONFIG.sheets.supervisorRequests).rows.filter((row) => row.OfficerID === officer.OfficerID)),
+    checkins: decorateCheckinRows_(getTable_(CONFIG.sheets.supervisorCheckins).rows.filter((row) => row.OfficerID === officer.OfficerID)),
+    developmentPlans: decorateDevelopmentPlanRows_(getTable_(CONFIG.sheets.developmentPlans).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     shifts: getTable_(CONFIG.sheets.shifts).rows.filter((row) => row.OfficerID === officer.OfficerID).slice().reverse().slice(0, 20),
     shiftStatus,
     rankChanges: rankChangesForMember_(officer.MemberID || auth.user.MemberID),
@@ -440,9 +504,11 @@ function getOfficerProfile_(payload) {
   const loa = decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === payload.OfficerID));
   const transfers = decorateTransferRows_(getTable_(CONFIG.sheets.transferRequests).rows.filter((row) => row.OfficerID === payload.OfficerID));
   const supervisorRequests = decorateSupervisorRequestRows_(getTable_(CONFIG.sheets.supervisorRequests).rows.filter((row) => row.OfficerID === payload.OfficerID));
+  const checkins = decorateCheckinRows_(getTable_(CONFIG.sheets.supervisorCheckins).rows.filter((row) => row.OfficerID === payload.OfficerID));
+  const developmentPlans = decorateDevelopmentPlanRows_(getTable_(CONFIG.sheets.developmentPlans).rows.filter((row) => row.OfficerID === payload.OfficerID));
   const shifts = getTable_(CONFIG.sheets.shifts).rows.filter((row) => row.OfficerID === payload.OfficerID).slice().reverse().slice(0, 30);
   const rankChanges = rankChangesForMember_(officer.MemberID);
-  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa, transfers, supervisorRequests, shifts, rankChanges });
+  return ok_({ officer: decorateOfficer_(officer), training, discipline, loa, transfers, supervisorRequests, checkins, developmentPlans, shifts, rankChanges });
 }
 
 function saveOfficer_(auth, payload) {
@@ -517,6 +583,8 @@ function deleteOfficer_(auth, payload) {
   deleteRows_(CONFIG.sheets.loa, (row) => row.OfficerID === officerId);
   deleteRows_(CONFIG.sheets.transferRequests, (row) => row.OfficerID === officerId);
   deleteRows_(CONFIG.sheets.supervisorRequests, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.supervisorCheckins, (row) => row.OfficerID === officerId);
+  deleteRows_(CONFIG.sheets.developmentPlans, (row) => row.OfficerID === officerId);
   deleteRows_(CONFIG.sheets.shifts, (row) => row.OfficerID === officerId);
   notifyMember_(officer.MemberID, 'Officer record removed', 'Your MO8 officer record and linked MDT user were removed.', auth.user.UserID);
   audit_(auth.user.UserID, 'DELETE_OFFICER', 'Officer', officerId, { officer, linkedUsers: linkedUsers.map(publicUser_) });
@@ -823,6 +891,65 @@ function reviewSupervisorRequest_(auth, payload) {
   notifyOfficer_(existing.OfficerID, 'Supervisor request updated', `Your request "${existing.Subject}" is now ${status}${update.ReviewReason ? `: ${update.ReviewReason}` : ''}.`, auth.user.UserID);
   audit_(auth.user.UserID, 'REVIEW_SUPERVISOR_REQUEST', 'SupervisorRequest', payload.RequestID, update);
   return ok_({ RequestID: payload.RequestID });
+}
+
+function saveSupervisorCheckin_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  if (!officerId) return fail_('OfficerID is required.');
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  const supervisor = supervisorForOfficer_(officer);
+  const checkin = {
+    CheckinID: id_('CHK'),
+    OfficerID: officerId,
+    SupervisorUserID: supervisor ? supervisor.UserID : auth.user.UserID,
+    CheckinDate: payload.CheckinDate || today_(),
+    Summary: payload.Summary || '',
+    Concerns: payload.Concerns || '',
+    DevelopmentGoals: payload.DevelopmentGoals || '',
+    FollowUpDate: payload.FollowUpDate || '',
+    CreatedBy: auth.user.UserID,
+    CreatedAt: now_(),
+  };
+  appendObject_(CONFIG.sheets.supervisorCheckins, checkin);
+  notifyOfficer_(officerId, 'Supervisor check-in logged', `A supervisor check-in was logged for ${checkin.CheckinDate}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'SAVE_SUPERVISOR_CHECKIN', 'SupervisorCheckin', checkin.CheckinID, checkin);
+  return ok_({ CheckinID: checkin.CheckinID });
+}
+
+function saveDevelopmentPlan_(auth, payload) {
+  const officerId = payload.OfficerID || '';
+  if (!officerId) return fail_('OfficerID is required.');
+  const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
+  if (!officer) return fail_('Officer not found.');
+  const supervisor = supervisorForOfficer_(officer);
+  const existing = payload.PlanID ? getTable_(CONFIG.sheets.developmentPlans).rows.find((row) => row.PlanID === payload.PlanID) : null;
+  const now = now_();
+  const plan = {
+    OfficerID: officerId,
+    SupervisorUserID: supervisor ? supervisor.UserID : auth.user.UserID,
+    Goal: payload.Goal || '',
+    Category: payload.Category || 'Development',
+    Status: payload.Status || 'Open',
+    DueDate: payload.DueDate || '',
+    Notes: payload.Notes || '',
+    CreatedBy: existing ? existing.CreatedBy || auth.user.UserID : auth.user.UserID,
+    CreatedAt: existing ? existing.CreatedAt || now : now,
+    UpdatedAt: now,
+  };
+  if (!plan.Goal) return fail_('Goal is required.');
+  if (payload.PlanID) {
+    if (!existing) return fail_('Development plan not found.');
+    updateRow_(CONFIG.sheets.developmentPlans, 'PlanID', payload.PlanID, plan);
+    notifyOfficer_(officerId, 'Development plan updated', `Development goal updated: ${plan.Goal}.`, auth.user.UserID);
+    audit_(auth.user.UserID, 'UPDATE_DEVELOPMENT_PLAN', 'DevelopmentPlan', payload.PlanID, plan);
+    return ok_({ PlanID: payload.PlanID });
+  }
+  plan.PlanID = id_('DVP');
+  appendObject_(CONFIG.sheets.developmentPlans, plan);
+  notifyOfficer_(officerId, 'Development plan added', `New development goal: ${plan.Goal}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'CREATE_DEVELOPMENT_PLAN', 'DevelopmentPlan', plan.PlanID, plan);
+  return ok_({ PlanID: plan.PlanID });
 }
 
 function reviewTransfer_(auth, payload) {
@@ -1540,6 +1667,34 @@ function decorateSupervisorRequestRows_(rows) {
       Callsign: officer.Callsign || '',
       Supervisor: supervisor ? supervisor.RobloxUsername : 'Not assigned',
       SupervisorUserID: supervisor ? supervisor.UserID : row.SupervisorUserID || '',
+    });
+  });
+}
+
+function decorateCheckinRows_(rows) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const users = getTable_(CONFIG.sheets.users).rows;
+  return rows.map((row) => {
+    const officer = officers.find((entry) => entry.OfficerID === row.OfficerID) || {};
+    const supervisor = users.find((user) => user.UserID === row.SupervisorUserID) || supervisorForOfficer_(officer);
+    return Object.assign({}, row, {
+      Officer: officer.RobloxUsername || row.OfficerID,
+      Rank: officer.Rank || '',
+      Supervisor: supervisor ? supervisor.RobloxUsername : 'Not assigned',
+    });
+  });
+}
+
+function decorateDevelopmentPlanRows_(rows) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const users = getTable_(CONFIG.sheets.users).rows;
+  return rows.map((row) => {
+    const officer = officers.find((entry) => entry.OfficerID === row.OfficerID) || {};
+    const supervisor = users.find((user) => user.UserID === row.SupervisorUserID) || supervisorForOfficer_(officer);
+    return Object.assign({}, row, {
+      Officer: officer.RobloxUsername || row.OfficerID,
+      Rank: officer.Rank || '',
+      Supervisor: supervisor ? supervisor.RobloxUsername : 'Not assigned',
     });
   });
 }
