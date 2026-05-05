@@ -383,10 +383,14 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item p {
   margin: 0;
-  color: #020817;
+  color: #000814;
   font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
+}
+
+.notification-menu .notice-item:not(.important):not(.positive) p {
+  color: #000000;
 }
 
 .notification-menu .notice-item > span {
