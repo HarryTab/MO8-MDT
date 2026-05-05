@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-05-3';
+const APP_VERSION = '2026-05-05-4';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -48,6 +48,7 @@ const state = {
   tasks: [],
   profileDiscipline: [],
   profileLoa: [],
+  profileSupervisorRequests: [],
   documents: [],
   documentFolder: '',
   announcements: [],
@@ -55,6 +56,7 @@ const state = {
   shifts: [],
   shiftStatus: null,
   users: [],
+  supervisorOptions: [],
   permissionConfig: null,
   audit: [],
   cache: loadStoredCache(),
@@ -552,6 +554,7 @@ async function loadMyProfile() {
       <div class="profile-actions">
         <button data-request-loa>Request LOA</button>
         <button data-request-transfer>Request transfer</button>
+        <button data-request-supervisor>Contact supervisor</button>
       </div>
     </div>
     <section class="profile-grid">
@@ -559,6 +562,7 @@ async function loadMyProfile() {
       ${detailCard('Status', officer ? formatCell(officer.EffectiveStatus || officer.Status, 'Status') : 'No record', true)}
       ${detailCard('LOA Status', officer ? loaStatusText(officer) : 'No record', true)}
       ${detailCard('Duty Status', response.shiftStatus?.onDuty ? formatCell('On Duty', 'Status') : formatCell('Off Duty', 'Status'), true)}
+      ${detailCard('Supervisor', officer ? officer.Supervisor || 'Not assigned' : 'No record')}
       ${detailCard('Discord ID', user.DiscordID || 'Not set')}
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
@@ -568,6 +572,7 @@ async function loadMyProfile() {
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
     ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+    ${profileTable('My Supervisor Requests', response.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
   `;
 }
@@ -582,21 +587,26 @@ async function loadTasks() {
   state.tasks = [
     ...(response.pendingLoa || []),
     ...(response.pendingTransfers || []),
+    ...(response.pendingSupervisorRequests || []),
   ];
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
     stat('Pending LOA', counts.pendingLoa || 0),
     stat('Transfer Requests', counts.pendingTransfers || 0),
+    stat('Supervisor Requests', counts.pendingSupervisorRequests || 0),
+    stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
-    rowAction: (row) => row.TaskType === 'Transfer Request'
-      ? `data-open-transfer-review="${escapeHtml(row.RequestID)}"`
-      : `data-open-loa-review="${escapeHtml(row.RequestID)}"`,
-    actions: (row) => row.TaskType === 'Transfer Request'
-      ? `<button class="mini" data-open-transfer-review="${escapeHtml(row.RequestID)}">Review</button>`
-      : `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>`,
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
+    rowAction: (row) => `${row.MySupervisee ? 'class="supervisor-task"' : ''} ${taskOpenAttr(row)}`,
+    actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Review</button>`,
   });
+}
+
+function taskOpenAttr(row) {
+  if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
+  return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
 async function loadShift() {
@@ -645,9 +655,9 @@ async function loadOfficers() {
 function renderOfficerTable() {
   const query = document.querySelector('#officerSearch').value.toLowerCase();
   const rows = state.officers.filter((officer) => {
-    return ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'EffectiveStatus', 'LoaStatus', 'DutyStatus', 'Tags'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
+    return ['RobloxUsername', 'Callsign', 'Rank', 'Status', 'EffectiveStatus', 'LoaStatus', 'DutyStatus', 'Supervisor', 'Tags'].some((field) => String(officer[field] || '').toLowerCase().includes(query));
   });
-  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'EffectiveStatus', 'DutyStatus', 'Tags', 'JoinDate', 'UpdatedAt'], {
+  renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'Supervisor', 'EffectiveStatus', 'DutyStatus', 'Tags', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
   });
 }
@@ -991,6 +1001,7 @@ function renderOfficerProfile(data) {
   const container = document.querySelector('#officerProfileView');
   state.profileDiscipline = data.discipline || [];
   state.profileLoa = data.loa || [];
+  state.profileSupervisorRequests = data.supervisorRequests || [];
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -1000,6 +1011,7 @@ function renderOfficerProfile(data) {
       </div>
       <div class="profile-actions">
         <button data-edit-officer="${escapeHtml(officer.OfficerID)}" data-permission="EDIT_OFFICERS">Edit officer</button>
+        <button data-assign-supervisor="${escapeHtml(officer.OfficerID)}" data-permission="ASSIGN_SUPERVISORS">Supervisor</button>
         <button class="ghost" data-delete-officer="${escapeHtml(officer.OfficerID)}" data-permission="ARCHIVE_OFFICERS">Delete officer</button>
         <button data-add-discipline="${escapeHtml(officer.OfficerID)}" data-permission="ADD_DISCIPLINE">Add discipline</button>
         <button data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA">Add LOA</button>
@@ -1009,6 +1021,7 @@ function renderOfficerProfile(data) {
     <section class="profile-grid">
       ${detailCard('Status', formatCell(officer.Status), true)}
       ${detailCard('Duty Status', formatCell(officer.DutyStatus || 'Off Duty', 'Status'), true)}
+      ${detailCard('Supervisor', officer.Supervisor || 'Not assigned')}
       ${detailCard('Join date', officer.JoinDate || 'Not set')}
       ${detailCard('Discord ID', officer.DiscordID || 'Not set')}
       ${detailCard('Updated', officer.UpdatedAt || 'Not set')}
@@ -1036,6 +1049,9 @@ function renderOfficerProfile(data) {
         ].join(''),
       })}
       ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+      ${profileTable('Supervisor Requests', data.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'], {
+        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
+      })}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
     </section>
   `;
@@ -1055,6 +1071,17 @@ function openOfficerEditor(officer = {}) {
     checkboxGroupField('Tags', 'Officer tags', OFFICER_TAGS, officer.Tags),
     field('Notes', 'Notes', 'textarea', true, officer.Notes),
   ], async (values) => api('saveOfficer', values));
+}
+
+async function openSupervisorEditor(officerId) {
+  const options = await loadSupervisorOptions();
+  const officer = state.officers.find((row) => row.OfficerID === officerId) || {};
+  openEditor('Assign supervisor', [
+    hiddenField('OfficerID', officerId),
+    supervisorSelectField('SupervisorUserID', 'Supervisor', options, officer.SupervisorUserID || ''),
+  ], async (values) => api('setOfficerSupervisor', values), {
+    successMessage: 'Supervisor assignment saved.',
+  });
 }
 
 function openTrainingEditor(officerId) {
@@ -1114,6 +1141,29 @@ function openTransferRequestEditor() {
     field('Notes', 'Additional notes', 'textarea', true),
   ], async (values) => api('requestTransfer', values), {
     successMessage: 'Transfer request submitted for review.',
+  });
+}
+
+function openSupervisorRequestEditor() {
+  openEditor('Contact supervisor', [
+    selectField('Category', 'Request type', ['General', 'Welfare', 'Training', 'Activity', 'Guidance', 'Other'], 'General'),
+    field('Subject', 'Subject', 'text', false),
+    field('Details', 'Details', 'textarea', true),
+  ], async (values) => api('requestSupervisorSupport', values), {
+    successMessage: 'Supervisor request submitted.',
+  });
+}
+
+function openSupervisorReviewEditor(record) {
+  openEditor('Review supervisor request', [
+    hiddenField('RequestID', record.RequestID),
+    field('Officer', 'Officer', 'text', false, record.Officer),
+    field('Subject', 'Subject', 'text', false, record.Subject),
+    field('Details', 'Request details', 'textarea', true, record.Details),
+    selectField('Status', 'Status', ['Completed', 'Pending', 'Denied'], 'Completed'),
+    field('ReviewReason', 'Response / notes', 'textarea', true, record.ReviewReason),
+  ], async (values) => api('reviewSupervisorRequest', values), {
+    successMessage: 'Supervisor request updated.',
   });
 }
 
@@ -1231,6 +1281,12 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const assignSupervisor = event.target.closest('[data-assign-supervisor]');
+  if (assignSupervisor) {
+    await openSupervisorEditor(assignSupervisor.dataset.assignSupervisor);
+    return;
+  }
+
   const deleteOfficer = event.target.closest('[data-delete-officer]');
   if (deleteOfficer) {
     await confirmDelete('Delete this officer and their linked user profile?', 'deleteOfficer', { OfficerID: deleteOfficer.dataset.deleteOfficer }, async () => {
@@ -1272,6 +1328,9 @@ async function handleDocumentClick(event) {
   const requestTransfer = event.target.closest('[data-request-transfer]');
   if (requestTransfer) return openTransferRequestEditor();
 
+  const requestSupervisor = event.target.closest('[data-request-supervisor]');
+  if (requestSupervisor) return openSupervisorRequestEditor();
+
   const editLoa = event.target.closest('[data-edit-loa]');
   if (editLoa) {
     const record = state.loa.find((row) => row.RequestID === editLoa.dataset.editLoa)
@@ -1293,6 +1352,14 @@ async function handleDocumentClick(event) {
   if (reviewTransferOpen) {
     const record = state.tasks.find((row) => row.RequestID === reviewTransferOpen.dataset.openTransferReview);
     if (record) openTransferReviewEditor(record);
+    return;
+  }
+
+  const reviewSupervisorOpen = event.target.closest('[data-open-supervisor-review]');
+  if (reviewSupervisorOpen) {
+    const record = state.tasks.find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview)
+      || state.profileSupervisorRequests.find((row) => row.RequestID === reviewSupervisorOpen.dataset.openSupervisorReview);
+    if (record) openSupervisorReviewEditor(record);
     return;
   }
 
@@ -1916,6 +1983,24 @@ function selectField(name, label, options, selected = '') {
     return `<option value="${escapeHtml(option)}"${isSelected}>${escapeHtml(option)}</option>`;
   }).join('');
   return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
+}
+
+function supervisorSelectField(name, label, options, selected = '') {
+  const optionHtml = [
+    `<option value="">No supervisor assigned</option>`,
+    ...options.map((option) => {
+      const isSelected = option.UserID === selected ? ' selected' : '';
+      return `<option value="${escapeHtml(option.UserID)}"${isSelected}>${escapeHtml(option.RobloxUsername)} - ${escapeHtml(option.Rank || option.Role || '')}</option>`;
+    }),
+  ].join('');
+  return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
+}
+
+async function loadSupervisorOptions() {
+  if (state.supervisorOptions.length) return state.supervisorOptions;
+  const response = await apiCached('supervisorOptions', {});
+  state.supervisorOptions = response.ok ? response.rows || [] : [];
+  return state.supervisorOptions;
 }
 
 function checkboxGroupField(name, label, options, selected = '') {

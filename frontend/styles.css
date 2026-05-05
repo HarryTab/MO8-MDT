@@ -1006,6 +1006,14 @@ tbody tr:hover {
   background: rgba(237, 245, 255, 0.72);
 }
 
+tbody tr.supervisor-task {
+  background: #eefbf3;
+}
+
+tbody tr.supervisor-task:hover {
+  background: #dff7e9;
+}
+
 tr[data-open-officer] {
   cursor: pointer;
 }
