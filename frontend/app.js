@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-05-2';
+const APP_VERSION = '2026-05-05-3';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -49,6 +49,7 @@ const state = {
   profileDiscipline: [],
   profileLoa: [],
   documents: [],
+  documentFolder: '',
   announcements: [],
   rankChanges: [],
   shifts: [],
@@ -144,7 +145,10 @@ elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.clo
 
 document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
 document.querySelector('#documentSearch').addEventListener('input', () => renderDocumentTable());
-document.querySelector('#documentCategoryFilter').addEventListener('change', () => renderDocumentTable());
+document.querySelector('#documentCategoryFilter').addEventListener('change', (event) => {
+  state.documentFolder = event.target.value;
+  renderDocumentTable();
+});
 document.querySelectorAll('[data-search-view]').forEach((input) => {
   input.addEventListener('input', () => renderSearchableView(input.dataset.searchView));
 });
@@ -427,6 +431,10 @@ function renderViewLoading(view) {
   }
   if (view === 'tasks') document.querySelector('#tasksSummary').innerHTML = '';
   if (view === 'training') document.querySelector('#trainingMatrix').innerHTML = '';
+  if (view === 'documents') {
+    document.querySelector('#documentExplorer').innerHTML = loadingBlock('Loading documents...');
+    return;
+  }
   if (view === 'permissions') {
     document.querySelector('#permissionsMatrix').innerHTML = loadingBlock('Loading permissions...');
     document.querySelector('#userPermissionsMatrix').innerHTML = '';
@@ -720,7 +728,8 @@ async function loadDocuments() {
   const response = await apiCached('listDocuments', {});
   if (!response.ok) {
     state.documents = [];
-    return renderTable('#documentsTable', [], ['Error'], { emptyMessage: response.error || 'Could not load documents.' });
+    document.querySelector('#documentExplorer').innerHTML = emptyState(response.error || 'Could not load documents.');
+    return;
   }
   state.documents = response.rows || [];
   renderDocumentTable();
@@ -740,17 +749,89 @@ async function loadAnnouncements() {
 
 function renderDocumentTable() {
   const query = document.querySelector('#documentSearch').value.toLowerCase();
-  const category = document.querySelector('#documentCategoryFilter').value;
+  const category = state.documentFolder || document.querySelector('#documentCategoryFilter').value;
+  syncDocumentCategoryFilter(category);
   const rows = state.documents.filter((document) => {
     const matchesQuery = ['Title', 'Category', 'RequiredRole', 'RequiredTags', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
-    const matchesCategory = !category || document.Category === category;
+    const matchesCategory = !category || documentFolderName(document) === category;
     return matchesQuery && matchesCategory;
   });
-  renderTable('#documentsTable', rows, ['Title', 'Category', 'RequiredRole', 'RequiredTags', 'Status', 'UpdatedAt', 'DriveURL'], {
-    actions: (row) => can('MANAGE_DOCUMENTS')
-      ? `<button class="mini" data-edit-document="${escapeHtml(row.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(row.DocumentID)}">Delete</button>`
-      : '',
-  });
+  renderDocumentExplorer(rows, query, category);
+}
+
+function renderDocumentExplorer(rows, query, category) {
+  const container = document.querySelector('#documentExplorer');
+  const folders = documentFolders();
+  const folderTiles = !category && !query ? folders.map((folder) => {
+    const count = state.documents.filter((document) => documentFolderName(document) === folder).length;
+    return `
+      <button class="folder-tile" data-doc-folder="${escapeHtml(folder)}">
+        <span class="folder-icon"></span>
+        <strong>${escapeHtml(folder)}</strong>
+        <small>${count} ${count === 1 ? 'file' : 'files'}</small>
+      </button>
+    `;
+  }).join('') : '';
+
+  const files = rows.map((document) => `
+    <article class="file-row">
+      <a class="file-main" href="${escapeHtml(document.DriveURL || '#')}" target="_blank" rel="noopener">
+        <span class="file-icon">${escapeHtml(fileInitial(document))}</span>
+        <span>
+          <strong>${escapeHtml(document.Title || 'Untitled document')}</strong>
+          <small>${escapeHtml(document.Category || 'Unfiled')} / ${escapeHtml(document.RequiredRole || 'Constable+')}</small>
+        </span>
+      </a>
+      <span class="file-meta">${formatCell(document.UpdatedAt || '', 'UpdatedAt')}</span>
+      <span class="file-meta">${formatCell(document.Status || '', 'Status')}</span>
+      <div class="actions">
+        ${document.DriveURL ? `<a class="mini" href="${escapeHtml(document.DriveURL)}" target="_blank" rel="noopener">Open</a>` : ''}
+        ${can('MANAGE_DOCUMENTS') ? `<button class="mini" data-edit-document="${escapeHtml(document.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(document.DocumentID)}">Delete</button>` : ''}
+      </div>
+    </article>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="explorer-bar">
+      <div class="breadcrumb">
+        <button data-doc-folder="">Documents</button>
+        ${category ? `<span>/</span><strong>${escapeHtml(category)}</strong>` : ''}
+        ${query ? `<span>/</span><strong>Search results</strong>` : ''}
+      </div>
+      ${category || query ? `<button class="ghost mini" data-doc-folder="">All folders</button>` : ''}
+    </div>
+    ${folderTiles ? `<section class="folder-grid">${folderTiles}</section>` : ''}
+    <section class="file-list">
+      <div class="file-list-head">
+        <strong>${category ? escapeHtml(category) : query ? 'Matching documents' : 'All documents'}</strong>
+        <span>${rows.length} ${rows.length === 1 ? 'file' : 'files'}</span>
+      </div>
+      ${files || `<p class="empty">No documents found.</p>`}
+    </section>
+  `;
+}
+
+function documentFolders() {
+  const folders = state.documents.map(documentFolderName).filter(Boolean);
+  return [...new Set(folders)].sort((a, b) => a.localeCompare(b));
+}
+
+function documentFolderName(document) {
+  return document.Category || 'Unfiled';
+}
+
+function fileInitial(document) {
+  return String(document.Title || document.Category || 'D').trim().slice(0, 1).toUpperCase();
+}
+
+function syncDocumentCategoryFilter(category) {
+  const filter = document.querySelector('#documentCategoryFilter');
+  const folders = documentFolders();
+  filter.innerHTML = [
+    '<option value="">All folders</option>',
+    ...folders.map((folder) => `<option value="${escapeHtml(folder)}">${escapeHtml(folder)}</option>`),
+  ].join('');
+  filter.value = category || '';
 }
 
 function renderAnnouncementCards(rows) {
@@ -1233,6 +1314,13 @@ async function handleDocumentClick(event) {
   if (editDocument) {
     const document = state.documents.find((row) => row.DocumentID === editDocument.dataset.editDocument);
     if (document) openDocumentEditor(document);
+    return;
+  }
+
+  const documentFolder = event.target.closest('[data-doc-folder]');
+  if (documentFolder) {
+    state.documentFolder = documentFolder.dataset.docFolder || '';
+    renderDocumentTable();
     return;
   }
 
