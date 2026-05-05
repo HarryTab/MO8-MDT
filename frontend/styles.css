@@ -383,13 +383,13 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item p {
   margin: 0;
-  color: #243349;
+  color: #111f33;
   font-size: 13px;
   line-height: 1.4;
 }
 
 .notification-menu .notice-item > span {
-  color: #2f3c50;
+  color: #17263b;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
