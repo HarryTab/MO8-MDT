@@ -383,13 +383,14 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item p {
   margin: 0;
-  color: #111f33;
+  color: #071527;
   font-size: 13px;
+  font-weight: 750;
   line-height: 1.4;
 }
 
 .notification-menu .notice-item > span {
-  color: #17263b;
+  color: #071527;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -409,6 +410,11 @@ body:not(.is-authenticated) .topbar {
   color: #941f17;
 }
 
+.notification-menu .notice-item.important p,
+.notification-menu .notice-item.important > span {
+  color: #7f1d1a;
+}
+
 .notification-menu .notice-item.positive {
   border-color: rgba(31, 123, 68, 0.48);
   background: #eefbf3;
@@ -416,6 +422,11 @@ body:not(.is-authenticated) .topbar {
 
 .notification-menu .notice-item.positive strong {
   color: #17683a;
+}
+
+.notification-menu .notice-item.positive p,
+.notification-menu .notice-item.positive > span {
+  color: #145f35;
 }
 
 .notification-menu .loading-panel {
