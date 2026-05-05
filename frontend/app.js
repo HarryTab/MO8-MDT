@@ -1,4 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
+const APP_VERSION = '2026-05-05-2';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -29,6 +30,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_STORAGE_KEY = 'mo8_api_cache';
 const BOOT_STORAGE_KEY = 'mo8_boot_ready';
 const SESSION_STORAGE_KEY = 'mo8_session_auth';
+const VERSION_STORAGE_KEY = 'mo8_app_version';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 
@@ -166,6 +168,7 @@ document.querySelector('#shiftStartFilter').addEventListener('change', loadShift
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 
 async function boot() {
+  clearCacheForNewVersion();
   if (!API_URL || API_URL.includes('YOUR_APPS_SCRIPT')) {
     elements.loginStatus.textContent = 'Set API_URL in frontend/app.js before logging in.';
     return;
@@ -1924,6 +1927,16 @@ function storeSessionAuth(user, permissions) {
   } catch (error) {
     // Non-critical; refresh simply falls back to normal startup.
   }
+}
+
+function clearCacheForNewVersion() {
+  const storedVersion = sessionStorage.getItem(VERSION_STORAGE_KEY);
+  if (storedVersion === APP_VERSION) return;
+  sessionStorage.removeItem(CACHE_STORAGE_KEY);
+  sessionStorage.removeItem(BOOT_STORAGE_KEY);
+  sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  sessionStorage.setItem(VERSION_STORAGE_KEY, APP_VERSION);
+  state.cache = {};
 }
 
 function invalidateCache(action = '') {
