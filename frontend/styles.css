@@ -220,7 +220,7 @@ body:not(.is-authenticated) .access-chip {
 
 .terminal-window {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 176px minmax(0, 1fr);
   min-height: 0;
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(184, 197, 212, 0.82);
@@ -260,19 +260,32 @@ body:not(.is-authenticated) .module-dock {
 .nav {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 12px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-group > span {
+  padding: 0 4px;
+  color: rgba(67, 81, 102, 0.72);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
 }
 
 .nav-item {
   width: 100%;
-  min-height: 62px;
-  padding: 7px 5px;
+  min-height: 38px;
+  padding: 7px 9px;
   color: #435166;
   background: rgba(255, 255, 255, 0.58);
   border-color: rgba(184, 197, 212, 0.70);
   border-radius: 12px;
   box-shadow: none;
-  text-align: center;
+  text-align: left;
 }
 
 .nav-item:hover {
@@ -1330,6 +1343,10 @@ dialog .section-head .ghost:hover {
   font-size: 15px;
 }
 
+.dashboard-config {
+  margin-bottom: 0;
+}
+
 .dashboard-list {
   display: grid;
   gap: 8px;
@@ -1520,6 +1537,52 @@ dialog .section-head .ghost:hover {
   font-weight: 850;
 }
 
+.bulk-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bulk-select input {
+  width: 15px;
+  height: 15px;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(245, 248, 252, 0.82);
+}
+
+.timeline-item span {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.timeline-item strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.timeline-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .checkbox-group {
   display: grid;
   grid-column: 1 / -1;
@@ -1696,6 +1759,10 @@ body.is-authenticated .module-dock {
 
 body.is-authenticated .dock-label {
   color: rgba(255, 255, 255, 0.48);
+}
+
+body.is-authenticated .nav-group > span {
+  color: rgba(255, 255, 255, 0.42);
 }
 
 body.is-authenticated .nav-item {

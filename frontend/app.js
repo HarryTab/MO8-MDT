@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-05-5';
+const APP_VERSION = '2026-05-06-1';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -35,6 +35,18 @@ const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
 const DEVELOPMENT_STATUSES = ['Open', 'In Progress', 'Completed', 'Paused'];
+const DASHBOARD_WIDGETS = [
+  ['activeLoa', 'Active LOA Status'],
+  ['pendingLoa', 'Pending LOA'],
+  ['announcements', 'Notice Board'],
+  ['trainingReviews', 'Training Reviews'],
+  ['recentDocuments', 'Recent Documents'],
+  ['recentActivity', 'Recent Activity'],
+  ['pendingAppeals', 'Pending Appeals'],
+  ['unassignedOfficers', 'Unassigned Officers'],
+  ['lowActivity', 'Low Activity'],
+  ['documentAcknowledgements', 'Document Acknowledgements'],
+];
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
@@ -48,6 +60,7 @@ const state = {
   discipline: [],
   loa: [],
   tasks: [],
+  profileAppeals: [],
   profileDiscipline: [],
   profileLoa: [],
   profileSupervisorRequests: [],
@@ -66,6 +79,7 @@ const state = {
   audit: [],
   cache: loadStoredCache(),
   selectedOfficerId: '',
+  selectedBulkOfficerIds: [],
 };
 
 const elements = {
@@ -100,6 +114,7 @@ const elements = {
 
 document.addEventListener('click', handleDocumentClick);
 document.addEventListener('change', handleDocumentChange);
+document.addEventListener('change', handleBulkOfficerSelection);
 
 elements.loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -169,6 +184,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
 });
 
 document.querySelector('#newOfficerButton').addEventListener('click', () => openOfficerEditor());
+document.querySelector('#bulkOfficerButton').addEventListener('click', () => openBulkOfficerEditor());
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
@@ -358,6 +374,9 @@ function applyPermissions() {
   document.querySelectorAll('[data-permission]').forEach((node) => {
     node.hidden = !can(node.dataset.permission);
   });
+  document.querySelectorAll('.nav-group').forEach((group) => {
+    group.hidden = !group.querySelector('.nav-item:not([hidden])');
+  });
 }
 
 async function refreshNotificationBadge() {
@@ -526,24 +545,34 @@ async function loadDashboard() {
   if (!response.ok) return renderError(elements.dashboardView, response.error);
 
   const counts = response.counts || {};
+  const activeWidgets = response.widgets || DASHBOARD_WIDGETS.map(([key]) => key);
+  const widget = (key, html) => activeWidgets.includes(key) ? html : '';
   elements.dashboardView.innerHTML = `
+    <div class="section-head dashboard-config">
+      <h2>Dashboard</h2>
+      <button class="ghost" data-configure-dashboard>Widgets</button>
+    </div>
     <div class="stat-row">
       ${[
     stat('Active Officers', counts.activeOfficers || 0),
     stat('Currently On LOA', counts.currentlyOnLoa || 0),
     stat('Pending LOA', counts.loaPending || 0),
+    stat('Pending Appeals', counts.pendingAppeals || 0),
     stat('Review Due', counts.trainingReviewsDue || 0),
-    stat('Missing Core Training', counts.missingCoreTraining || 0),
-    stat('Notices', counts.notices || 0),
+    stat('Docs To Ack', counts.pendingAcknowledgements || 0),
   ].join('')}
     </div>
     <section class="dashboard-grid">
-      ${dashboardPanel('Active LOA Status', response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status'])}
-      ${dashboardPanel('Pending LOA', response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate'])}
-      ${announcementPanel('Notice Board', response.announcements || [])}
-      ${dashboardPanel('Training Reviews', response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy'])}
-      ${dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt'])}
-      ${dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID'])}
+      ${widget('activeLoa', dashboardPanel('Active LOA Status', response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status']))}
+      ${widget('pendingLoa', dashboardPanel('Pending LOA', response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate']))}
+      ${widget('announcements', announcementPanel('Notice Board', response.announcements || []))}
+      ${widget('trainingReviews', dashboardPanel('Training Reviews', response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy']))}
+      ${widget('recentDocuments', dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt']))}
+      ${widget('recentActivity', dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID']))}
+      ${widget('pendingAppeals', dashboardPanel('Pending Appeals', response.pendingAppeals || [], ['Officer', 'Rank', 'SourceType', 'Reason']))}
+      ${widget('unassignedOfficers', dashboardPanel('Unassigned Officers', response.unassignedOfficers || [], ['RobloxUsername', 'Rank', 'DutyStatus']))}
+      ${widget('lowActivity', dashboardPanel('Low Activity', response.lowActivity || [], ['RobloxUsername', 'Rank', 'Duration', 'ActivityFlag']))}
+      ${widget('documentAcknowledgements', dashboardPanel('Document Acknowledgements', response.documentAcknowledgements || [], ['Title', 'Category', 'RequiredRole']))}
     </section>
   `;
 }
@@ -587,9 +616,14 @@ async function loadMyProfile() {
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Rank History', response.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
-    ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'])}
-    ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+    ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'], {
+    actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="LOA" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
+  })}
+    ${profileTable('My Transfer Requests', response.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'], {
+    actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="Transfer" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
+  })}
     ${profileTable('My Supervisor Requests', response.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'])}
+    ${profileTable('My Appeals / Reviews', response.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'])}
     ${profileTable('My Development Plans', response.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'])}
     ${profileTable('My Supervisor Check-ins', response.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
@@ -607,16 +641,18 @@ async function loadTasks() {
     ...(response.pendingLoa || []),
     ...(response.pendingTransfers || []),
     ...(response.pendingSupervisorRequests || []),
+    ...(response.pendingAppeals || []),
   ];
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
     stat('Pending LOA', counts.pendingLoa || 0),
     stat('Transfer Requests', counts.pendingTransfers || 0),
     stat('Supervisor Requests', counts.pendingSupervisorRequests || 0),
+    stat('Appeals', counts.pendingAppeals || 0),
     stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
     rowAction: (row) => `${row.MySupervisee ? 'class="supervisor-task"' : ''} ${taskOpenAttr(row)}`,
     actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Review</button>`,
   });
@@ -625,6 +661,7 @@ async function loadTasks() {
 function taskOpenAttr(row) {
   if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Appeal / Review') return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
@@ -714,6 +751,7 @@ function renderOfficerTable() {
   });
   renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'Supervisor', 'EffectiveStatus', 'DutyStatus', 'Tags', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
+    actions: (row) => `<label class="bulk-select"><input type="checkbox" data-bulk-officer="${escapeHtml(row.OfficerID)}"${state.selectedBulkOfficerIds.includes(row.OfficerID) ? ' checked' : ''}> Select</label>`,
   });
 }
 
@@ -848,9 +886,10 @@ function renderDocumentExplorer(rows, query, category) {
         </span>
       </a>
       <span class="file-meta">${formatCell(document.UpdatedAt || '', 'UpdatedAt')}</span>
-      <span class="file-meta">${formatCell(document.Status || '', 'Status')}</span>
+      <span class="file-meta">${document.RequiresAcknowledgement === 'TRUE' ? formatCell(document.Acknowledged === 'TRUE' ? 'Acknowledged' : 'Needs acknowledgement', 'Status') : formatCell(document.Status || '', 'Status')}</span>
       <div class="actions">
         ${document.DriveURL ? `<a class="mini" href="${escapeHtml(document.DriveURL)}" target="_blank" rel="noopener">Open</a>` : ''}
+        ${document.RequiresAcknowledgement === 'TRUE' && document.Acknowledged !== 'TRUE' ? `<button class="mini" data-ack-document="${escapeHtml(document.DocumentID)}">Acknowledge</button>` : ''}
         ${can('MANAGE_DOCUMENTS') ? `<button class="mini" data-edit-document="${escapeHtml(document.DocumentID)}">Edit</button><button class="mini ghost" data-delete-document="${escapeHtml(document.DocumentID)}">Delete</button>` : ''}
       </div>
     </article>
@@ -1057,6 +1096,7 @@ function renderOfficerProfile(data) {
   state.profileDiscipline = data.discipline || [];
   state.profileLoa = data.loa || [];
   state.profileSupervisorRequests = data.supervisorRequests || [];
+  state.profileAppeals = data.appeals || [];
   state.profileCheckins = data.checkins || [];
   state.profileDevelopmentPlans = data.developmentPlans || [];
   container.innerHTML = `
@@ -1104,17 +1144,24 @@ function renderOfficerProfile(data) {
         actions: (row) => [
           can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
           can('APPROVE_LOA') ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
+          row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="LOA" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
           can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
         ].join(''),
       })}
-      ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'])}
+      ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'], {
+        actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="Transfer" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
+      })}
       ${profileTable('Supervisor Requests', data.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'], {
         actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
+      })}
+      ${profileTable('Appeals / Reviews', data.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'], {
+        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-appeal-review="${escapeHtml(row.AppealID)}">Review</button>` : '',
       })}
       ${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], {
         actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '',
       })}
       ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
+      ${profileTimeline(data.timeline || [])}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
     </section>
   `;
@@ -1317,8 +1364,61 @@ function openDocumentEditor(document = {}) {
     field('DriveURL', 'Drive URL', 'url', false, document.DriveURL),
     selectField('RequiredRole', 'Minimum rank', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
     checkboxGroupField('RequiredTags', 'Required tags', OFFICER_TAGS, document.RequiredTags),
+    selectField('RequiresAcknowledgement', 'Requires acknowledgement', ['FALSE', 'TRUE'], truthy(document.RequiresAcknowledgement) ? 'TRUE' : 'FALSE'),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived'], document.Status),
   ], async (values) => api('saveDocument', values));
+}
+
+async function openBulkOfficerEditor() {
+  const options = await loadSupervisorOptions();
+  openEditor('Bulk officer actions', [
+    field('OfficerIDs', 'Selected officer IDs', 'textarea', true, state.selectedBulkOfficerIds.join(', ')),
+    selectField('Status', 'Set status', ['No change', ...OFFICER_STATUSES], 'No change'),
+    bulkSupervisorSelectField('SupervisorUserID', 'Set supervisor', options),
+    checkboxGroupField('Tags', 'Replace tags', OFFICER_TAGS, ''),
+    field('TrainingReviewDate', 'Training review date', 'date'),
+  ], async (values) => {
+    if (values.Status === 'No change') values.Status = '';
+    if (values.SupervisorUserID === '__NO_CHANGE__') delete values.SupervisorUserID;
+    return api('bulkUpdateOfficers', values);
+  }, {
+    successMessage: 'Bulk officer update saved.',
+  });
+}
+
+function openAppealEditor(sourceType, sourceId) {
+  openEditor('Request review / appeal', [
+    hiddenField('SourceType', sourceType),
+    hiddenField('SourceID', sourceId),
+    field('Reason', 'Reason for review', 'textarea', true),
+  ], async (values) => api('requestAppeal', values), {
+    successMessage: 'Review request submitted.',
+  });
+}
+
+function openAppealReviewEditor(record) {
+  openEditor('Review appeal', [
+    hiddenField('AppealID', record.AppealID),
+    field('Officer', 'Officer', 'text', false, record.Officer),
+    field('SourceType', 'Source type', 'text', false, record.SourceType),
+    field('Reason', 'Appeal reason', 'textarea', true, record.Reason),
+    selectField('Status', 'Status', ['Completed', 'Approved', 'Denied', 'Pending'], record.Status || 'Completed'),
+    field('ReviewReason', 'Response / notes', 'textarea', true, record.ReviewReason),
+  ], async (values) => api('reviewAppeal', values), {
+    successMessage: 'Appeal review saved.',
+  });
+}
+
+function openDashboardWidgetEditor() {
+  const current = getCachedResponse('dashboard', {})?.widgets || DASHBOARD_WIDGETS.map(([key]) => key);
+  openEditor('Dashboard widgets', [
+    checkboxGroupField('Widgets', 'Visible widgets', DASHBOARD_WIDGETS.map(([key, label]) => `${key}:${label}`), current.map((key) => `${key}:${DASHBOARD_WIDGETS.find(([item]) => item === key)?.[1] || key}`).join(', ')),
+  ], async (values) => {
+    values.Widgets = splitTags(values.Widgets).map((item) => item.split(':')[0]).join(', ');
+    return api('saveDashboardWidgets', values);
+  }, {
+    successMessage: 'Dashboard widgets saved.',
+  });
 }
 
 function openAnnouncementEditor(announcement = {}) {
@@ -1470,6 +1570,20 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const reviewAppealOpen = event.target.closest('[data-open-appeal-review]');
+  if (reviewAppealOpen) {
+    const record = state.tasks.find((row) => row.AppealID === reviewAppealOpen.dataset.openAppealReview)
+      || state.profileAppeals.find((row) => row.AppealID === reviewAppealOpen.dataset.openAppealReview);
+    if (record) openAppealReviewEditor(record);
+    return;
+  }
+
+  const requestAppeal = event.target.closest('[data-request-appeal-source]');
+  if (requestAppeal) {
+    openAppealEditor(requestAppeal.dataset.requestAppealSource, requestAppeal.dataset.requestAppealId);
+    return;
+  }
+
   const deleteLoa = event.target.closest('[data-delete-loa]');
   if (deleteLoa) {
     await confirmDelete('Delete this LOA request?', 'deleteLoa', { RequestID: deleteLoa.dataset.deleteLoa }, async () => {
@@ -1495,6 +1609,25 @@ async function handleDocumentClick(event) {
   if (documentFolder) {
     state.documentFolder = documentFolder.dataset.docFolder || '';
     renderDocumentTable();
+    return;
+  }
+
+  const acknowledgeDocument = event.target.closest('[data-ack-document]');
+  if (acknowledgeDocument) {
+    const response = await api('acknowledgeDocument', { DocumentID: acknowledgeDocument.dataset.ackDocument });
+    if (!response.ok) {
+      showInfo('Acknowledgement failed', `<p>${escapeHtml(response.error || 'Could not acknowledge document.')}</p>`);
+      return;
+    }
+    invalidateCache('listDocuments');
+    invalidateCache('dashboard');
+    await loadDocuments();
+    return;
+  }
+
+  const configureDashboard = event.target.closest('[data-configure-dashboard]');
+  if (configureDashboard) {
+    openDashboardWidgetEditor();
     return;
   }
 
@@ -1637,6 +1770,15 @@ async function handleDocumentChange(event) {
   }
 }
 
+function handleBulkOfficerSelection(event) {
+  const checkbox = event.target.closest('[data-bulk-officer]');
+  if (!checkbox) return;
+  const officerId = checkbox.dataset.bulkOfficer;
+  state.selectedBulkOfficerIds = checkbox.checked
+    ? [...new Set([...state.selectedBulkOfficerIds, officerId])]
+    : state.selectedBulkOfficerIds.filter((id) => id !== officerId);
+}
+
 function stat(label, value) {
   return `
     <article class="stat">
@@ -1717,6 +1859,24 @@ function profileTable(title, rows, columns, options = {}) {
           <tbody>${body}</tbody>
         </table>
       </div>
+    </section>
+  `;
+}
+
+function profileTimeline(rows) {
+  const body = rows.length
+    ? rows.map((row) => `
+      <article class="timeline-item">
+        <span>${formatCell(row.Date, isDateTimeColumn('CreatedAt') ? 'CreatedAt' : 'Date')}</span>
+        <strong>${escapeHtml(row.Type || 'Update')} / ${escapeHtml(row.Title || '')}</strong>
+        <p>${escapeHtml(row.Detail || '')}</p>
+      </article>
+    `).join('')
+    : `<p class="empty">No timeline events yet.</p>`;
+  return `
+    <section class="profile-panel">
+      <h3>Status Timeline</h3>
+      <div class="timeline-list">${body}</div>
     </section>
   `;
 }
@@ -1960,13 +2120,13 @@ function formatCell(value, column = '') {
   if (text.startsWith('https://')) {
     return `<a href="${escapeHtml(text)}" target="_blank" rel="noopener">Open</a>`;
   }
-  if (['Active', 'Published', 'Passed', 'Approved'].includes(text)) {
+  if (['Active', 'Published', 'Passed', 'Approved', 'Acknowledged', 'Completed'].includes(text)) {
     return `<span class="pill success">${escapeHtml(text)}</span>`;
   }
   if (['On Duty'].includes(text)) {
     return `<span class="pill success">${escapeHtml(text)}</span>`;
   }
-  if (['LOA', 'On LOA', 'Pending', 'In Progress', 'Draft', 'Not Started'].includes(text)) {
+  if (['LOA', 'On LOA', 'Pending', 'In Progress', 'Draft', 'Not Started', 'Needs acknowledgement'].includes(text)) {
     return `<span class="pill warning">${escapeHtml(text)}</span>`;
   }
   if (['Off Duty', 'Suspended', 'Archived', 'Failed', 'Denied', 'Expired', 'Removed', 'Low activity', 'No activity'].includes(text)) {
@@ -2099,6 +2259,15 @@ function supervisorSelectField(name, label, options, selected = '') {
       const isSelected = option.UserID === selected ? ' selected' : '';
       return `<option value="${escapeHtml(option.UserID)}"${isSelected}>${escapeHtml(option.RobloxUsername)} - ${escapeHtml(option.Rank || option.Role || '')}</option>`;
     }),
+  ].join('');
+  return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
+}
+
+function bulkSupervisorSelectField(name, label, options) {
+  const optionHtml = [
+    `<option value="__NO_CHANGE__">No change</option>`,
+    `<option value="">No supervisor assigned</option>`,
+    ...options.map((option) => `<option value="${escapeHtml(option.UserID)}">${escapeHtml(option.RobloxUsername)} - ${escapeHtml(option.Rank || option.Role || '')}</option>`),
   ].join('');
   return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
 }

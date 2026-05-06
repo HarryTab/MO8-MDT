@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-05-5">
+    <link rel="stylesheet" href="styles.css?v=2026-05-06-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -29,21 +29,36 @@
         <aside class="module-dock">
           <div class="dock-label">Modules</div>
           <nav class="nav" id="nav" hidden>
-            <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
-            <button class="nav-item" data-view="myProfile">My Profile</button>
-            <button class="nav-item" data-view="shift">Shift</button>
-            <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
-            <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
-            <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
-            <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
-            <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
-            <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
-            <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
-            <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
-            <button class="nav-item" data-view="announcements" data-permission="VIEW_ANNOUNCEMENTS">Notice Board</button>
-            <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
-            <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
-            <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
+            <section class="nav-group">
+              <span>Home</span>
+              <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
+              <button class="nav-item" data-view="myProfile">My Profile</button>
+              <button class="nav-item" data-view="shift">Shift</button>
+            </section>
+            <section class="nav-group">
+              <span>People</span>
+              <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
+              <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
+              <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
+              <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
+            </section>
+            <section class="nav-group">
+              <span>Records</span>
+              <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
+              <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
+              <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
+            </section>
+            <section class="nav-group">
+              <span>Knowledge</span>
+              <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
+              <button class="nav-item" data-view="announcements" data-permission="VIEW_ANNOUNCEMENTS">Notice Board</button>
+            </section>
+            <section class="nav-group">
+              <span>Admin</span>
+              <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
+              <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
+              <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
+            </section>
           </nav>
         </aside>
 
@@ -103,7 +118,10 @@
           <section class="data-view" id="officersView" hidden>
             <div class="section-head">
               <h2>Officers</h2>
-              <button id="newOfficerButton" data-permission="ADD_OFFICERS">Add officer</button>
+              <div class="profile-actions">
+                <button id="bulkOfficerButton" data-permission="EDIT_OFFICERS">Bulk actions</button>
+                <button id="newOfficerButton" data-permission="ADD_OFFICERS">Add officer</button>
+              </div>
             </div>
             <input class="search-input" id="officerSearch" placeholder="Search officers by username, callsign, rank, or status">
             <div class="table-wrap">
@@ -336,6 +354,6 @@
       </div>
     </dialog>
 
-    <script src="app.js?v=2026-05-05-5"></script>
+    <script src="app.js?v=2026-05-06-1"></script>
   </body>
 </html>
