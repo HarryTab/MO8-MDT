@@ -183,6 +183,7 @@ function handleRequest_(e) {
       listNotifications: () => listNotifications_(auth),
       markNotificationsRead: () => markNotificationsRead_(auth),
       testDiscordAlert: () => testDiscordAlert_(auth),
+      testDiscordBotIdentity: () => testDiscordBotIdentity_(auth),
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listOfficers_()),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
@@ -252,6 +253,7 @@ function isWriteAction_(action) {
     'logout',
     'markNotificationsRead',
     'testDiscordAlert',
+    'testDiscordBotIdentity',
     'startShift',
     'endShift',
     'saveOfficer',
@@ -2187,15 +2189,18 @@ function sendDiscordDm_(discordId, title, message) {
 
 function discordApiRequest_(path, method, payload) {
   const token = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
-  const response = UrlFetchApp.fetch(`https://discord.com/api/v10${path}`, {
+  const options = {
     method,
     muteHttpExceptions: true,
     contentType: 'application/json',
     headers: {
       Authorization: `Bot ${token}`,
     },
-    payload: JSON.stringify(payload || {}),
-  });
+  };
+  if (method.toLowerCase() !== 'get') {
+    options.payload = JSON.stringify(payload || {});
+  }
+  const response = UrlFetchApp.fetch(`https://discord.com/api/v10${path}`, options);
   const code = response.getResponseCode();
   const body = response.getContentText();
   if (code < 200 || code >= 300) {
@@ -2240,6 +2245,22 @@ function testDiscordAlert_(auth) {
   } catch (err) {
     audit_('system', 'DISCORD_TEST_FAILED', 'Member', memberId, Object.assign(diagnostic, { error: err.message || String(err) }));
     return fail_(`Discord test failed: ${err.message || String(err)}`);
+  }
+}
+
+function testDiscordBotIdentity_(auth) {
+  try {
+    const bot = discordApiRequest_('/users/@me', 'get');
+    return ok_({
+      botId: bot.id || '',
+      botUsername: bot.username || '',
+      discriminator: bot.discriminator || '',
+      isBot: Boolean(bot.bot),
+      requestedBy: auth.user.RobloxUsername,
+    });
+  } catch (err) {
+    audit_('system', 'DISCORD_IDENTITY_TEST_FAILED', 'User', auth.user.UserID, { error: err.message || String(err) });
+    return fail_(`Discord bot identity test failed: ${err.message || String(err)}`);
   }
 }
 
