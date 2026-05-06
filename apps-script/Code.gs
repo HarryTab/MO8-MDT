@@ -140,6 +140,11 @@ function createInitialAdmin() {
   });
 }
 
+function authorizeDiscordApi() {
+  const bot = discordApiRequest_('/users/@me', 'get');
+  Logger.log(`Discord bot connected: ${bot.username || 'Unknown'} (${bot.id || 'no id'})`);
+}
+
 function doGet(e) {
   return handleRequest_(e);
 }
