@@ -182,6 +182,7 @@ function handleRequest_(e) {
       teamShifts: () => teamShifts_(auth, payload),
       listNotifications: () => listNotifications_(auth),
       markNotificationsRead: () => markNotificationsRead_(auth),
+      testDiscordAlert: () => testDiscordAlert_(auth),
       listOfficers: () => requirePermission_(auth, 'VIEW_OFFICERS', () => listOfficers_()),
       getOfficerProfile: () => requirePermission_(auth, 'VIEW_OFFICERS', () => getOfficerProfile_(payload)),
       saveOfficer: () => requirePermission_(auth, payload.OfficerID ? 'EDIT_OFFICERS' : 'ADD_OFFICERS', () => saveOfficer_(auth, payload)),
@@ -250,6 +251,7 @@ function isWriteAction_(action) {
     'login',
     'logout',
     'markNotificationsRead',
+    'testDiscordAlert',
     'startShift',
     'endShift',
     'saveOfficer',
@@ -2129,6 +2131,7 @@ function notifyMember_(memberId, title, message, actorUserId) {
     ReadAt: '',
     ActorUserID: actorUserId || '',
   });
+  sendDiscordMemberAlert_(memberId, title, message);
 }
 
 function notifyOfficer_(officerId, title, message, actorUserId) {
@@ -2137,6 +2140,67 @@ function notifyOfficer_(officerId, title, message, actorUserId) {
   if (!officer) return;
   const memberId = officer.MemberID || memberIdForUsername_(officer.RobloxUsername);
   notifyMember_(memberId, title, message, actorUserId);
+}
+
+function sendDiscordMemberAlert_(memberId, title, message) {
+  try {
+    const discordId = discordIdForMember_(memberId);
+    if (!discordId) return;
+    sendDiscordDm_(discordId, title, message);
+  } catch (err) {
+    audit_('system', 'DISCORD_DM_FAILED', 'Member', memberId, { title, error: err.message || String(err) });
+  }
+}
+
+function discordIdForMember_(memberId) {
+  if (!memberId) return '';
+  const users = getTable_(CONFIG.sheets.users).rows;
+  const user = users.find((row) => row.MemberID === memberId && normalizeDiscordId_(row.DiscordID));
+  if (user) return normalizeDiscordId_(user.DiscordID);
+
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const officer = officers.find((row) => row.MemberID === memberId && normalizeDiscordId_(row.DiscordID));
+  return officer ? normalizeDiscordId_(officer.DiscordID) : '';
+}
+
+function normalizeDiscordId_(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/\d{15,22}/);
+  return match ? match[0] : '';
+}
+
+function sendDiscordDm_(discordId, title, message) {
+  const token = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
+  if (!token || !discordId) return;
+
+  const channelResponse = discordApiRequest_('/users/@me/channels', 'post', {
+    recipient_id: String(discordId),
+  });
+  const channelId = channelResponse && channelResponse.id;
+  if (!channelId) throw new Error('Discord did not return a DM channel.');
+
+  discordApiRequest_(`/channels/${channelId}/messages`, 'post', {
+    content: `**${title || 'MO8 MDT Alert'}**\n${message || ''}`.slice(0, 1900),
+  });
+}
+
+function discordApiRequest_(path, method, payload) {
+  const token = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
+  const response = UrlFetchApp.fetch(`https://discord.com/api/v10${path}`, {
+    method,
+    muteHttpExceptions: true,
+    contentType: 'application/json',
+    headers: {
+      Authorization: `Bot ${token}`,
+    },
+    payload: JSON.stringify(payload || {}),
+  });
+  const code = response.getResponseCode();
+  const body = response.getContentText();
+  if (code < 200 || code >= 300) {
+    throw new Error(`Discord API ${code}: ${body.slice(0, 300)}`);
+  }
+  return body ? JSON.parse(body) : {};
 }
 
 function listNotifications_(auth) {
@@ -2155,6 +2219,11 @@ function markNotificationsRead_(auth) {
     table.sheet.getRange(row._rowNumber, table.headers.indexOf('ReadAt') + 1).setValue(now_());
   });
   return ok_({ read: true });
+}
+
+function testDiscordAlert_(auth) {
+  notifyMember_(auth.user.MemberID, 'MO8 MDT Discord test', 'If you received this DM, Discord alerts are connected correctly.', auth.user.UserID);
+  return ok_({ sent: true });
 }
 
 function id_(prefix) {
