@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-06-2';
+const APP_VERSION = '2026-05-06-3';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -39,6 +39,7 @@ const DASHBOARD_WIDGETS = [
   ['activeLoa', 'Active LOA Status'],
   ['pendingLoa', 'Pending LOA'],
   ['announcements', 'Notice Board'],
+  ['upcomingTraining', 'Upcoming Training'],
   ['trainingReviews', 'Training Reviews'],
   ['recentDocuments', 'Recent Documents'],
   ['recentActivity', 'Recent Activity'],
@@ -83,6 +84,7 @@ const state = {
   cache: loadStoredCache(),
   selectedOfficerId: '',
   selectedBulkOfficerIds: [],
+  selectedCourseId: '',
 };
 
 const elements = {
@@ -353,6 +355,7 @@ function wait(ms) {
 function showLogin() {
   document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
+  document.body.classList.remove('is-officer-portal');
   elements.pageTitle.textContent = 'Sign in';
   elements.pageSubtitle.textContent = 'MO8 roleplay community administration';
   elements.loginView.hidden = false;
@@ -580,12 +583,14 @@ async function loadDashboard() {
     stat('Pending Appeals', counts.pendingAppeals || 0),
     stat('Review Due', counts.trainingReviewsDue || 0),
     stat('Docs To Ack', counts.pendingAcknowledgements || 0),
+    stat('Upcoming Training', counts.upcomingTraining || 0),
   ].join('')}
     </div>
     <section class="dashboard-grid">
       ${widget('activeLoa', dashboardPanel('Active LOA Status', response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status']))}
       ${widget('pendingLoa', dashboardPanel('Pending LOA', response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate']))}
       ${widget('announcements', announcementPanel('Notice Board', response.announcements || []))}
+      ${widget('upcomingTraining', dashboardPanel('Upcoming Training', response.upcomingTraining || [], ['Title', 'Standard', 'CourseDate', 'Status', 'Location']))}
       ${widget('trainingReviews', dashboardPanel('Training Reviews', response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy']))}
       ${widget('recentDocuments', dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt']))}
       ${widget('recentActivity', dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID']))}
@@ -638,6 +643,7 @@ async function loadMyProfile() {
     </section>
     ${officer ? tagList('Officer Tags', officer.Tags) : ''}
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
+    ${profileTable('My Upcoming Training', response.upcomingTraining || [], ['Title', 'Standard', 'CourseDate', 'Status', 'Location'])}
     ${profileTable('My Rank History', response.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
     ${profileTable('My Discipline', response.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'])}
     ${profileTable('My LOA', response.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'], {
@@ -830,6 +836,9 @@ async function loadCourses() {
   }
   state.courses = response.rows || [];
   state.courseBookings = response.bookings || [];
+  if (can('MANAGE_COURSES') && !state.selectedCourseId) {
+    state.selectedCourseId = state.courses.find((course) => Number(course.PendingRequests || 0) > 0)?.CourseID || '';
+  }
   renderSearchableView('courses');
 }
 
@@ -1008,11 +1017,37 @@ function renderAnnouncementsTable(rows) {
 }
 
 function renderCoursesTable(rows) {
-  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'Waitlist', 'Status', 'MyBookingStatus'], {
+  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'PendingRequests', 'Waitlist', 'Status', 'MyBookingStatus'], {
     actions: (row) => [
       can('VIEW_COURSES') && !row.MyBookingStatus ? `<button class="mini" data-request-course="${escapeHtml(row.CourseID)}">Request seat</button>` : '',
+      can('MANAGE_COURSES') ? `<button class="mini ${Number(row.PendingRequests || 0) > 0 ? 'warning-action' : 'ghost'}" data-course-bookings="${escapeHtml(row.CourseID)}">Review${Number(row.PendingRequests || 0) > 0 ? ` (${escapeHtml(row.PendingRequests)})` : ''}</button>` : '',
       can('MANAGE_COURSES') ? `<button class="mini" data-edit-course="${escapeHtml(row.CourseID)}">Edit</button>` : '',
     ].join(''),
+  });
+}
+
+function renderCourseBookingsTable(courseId = state.selectedCourseId) {
+  const selectedCourse = state.courses.find((row) => row.CourseID === courseId);
+  const bookings = (state.courseBookings || []).filter((row) => !courseId || row.CourseID === courseId);
+  const panelTitle = document.querySelector('#courseBookingsTitle');
+  if (panelTitle) {
+    panelTitle.textContent = selectedCourse
+      ? `Bookings / ${selectedCourse.Title}${Number(selectedCourse.PendingRequests || 0) > 0 ? ` / ${selectedCourse.PendingRequests} waiting` : ''}`
+      : 'Bookings';
+  }
+  renderTable('#courseBookingsTable', bookings, ['Course', 'Officer', 'Rank', 'Status', 'Outcome', 'RequestedAt'], {
+    emptyMessage: selectedCourse ? 'No bookings for this course yet.' : 'Select Review on a course, or wait for bookings to appear.',
+    actions: (row) => {
+      if (!can('MANAGE_COURSES')) return '';
+      return [
+        ['Approved', 'Approve'],
+        ['Waitlist', 'Waitlist'],
+        ['Denied', 'Deny'],
+        ['Completed', 'Complete'],
+        ['Cancelled', 'Cancel'],
+      ].map(([status, label]) => `<button class="mini ${row.Status === status ? 'success-action' : ''}" data-quick-booking-status="${escapeHtml(status)}" data-booking-id="${escapeHtml(row.BookingID)}">${label}</button>`).join('')
+        + `<button class="mini ghost" data-review-booking="${escapeHtml(row.BookingID)}">Full review</button>`;
+    },
   });
 }
 
@@ -1033,9 +1068,8 @@ function renderSearchableView(view) {
   }
   if (view === 'courses') {
     renderCoursesTable(rows);
-    renderTable('#courseBookingsTable', state.courseBookings || [], ['Course', 'Officer', 'Rank', 'Status', 'Outcome', 'RequestedAt'], {
-      actions: (row) => can('MANAGE_COURSES') ? `<button class="mini" data-review-booking="${escapeHtml(row.BookingID)}">Review</button>` : '',
-    });
+    if (state.selectedCourseId && !rows.some((row) => row.CourseID === state.selectedCourseId)) state.selectedCourseId = '';
+    renderCourseBookingsTable();
   }
   if (view === 'rankChanges') {
     renderTable('#rankChangesTable', rows, ['ChangedAt', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName']);
@@ -1766,6 +1800,33 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const courseBookings = event.target.closest('[data-course-bookings]');
+  if (courseBookings) {
+    state.selectedCourseId = courseBookings.dataset.courseBookings;
+    renderCourseBookingsTable();
+    document.querySelector('#courseBookingsTable')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  const quickBookingStatus = event.target.closest('[data-quick-booking-status]');
+  if (quickBookingStatus) {
+    quickBookingStatus.disabled = true;
+    quickBookingStatus.textContent = 'Saving...';
+    const response = await api('reviewCourseBooking', {
+      BookingID: quickBookingStatus.dataset.bookingId,
+      Status: quickBookingStatus.dataset.quickBookingStatus,
+    });
+    if (!response.ok) {
+      showInfo('Booking update failed', `<p>${escapeHtml(response.error || 'Could not update this booking.')}</p>`);
+      quickBookingStatus.disabled = false;
+      return;
+    }
+    invalidateCache('listTrainingCourses');
+    invalidateCache('dashboard');
+    await loadCourses();
+    return;
+  }
+
   const reviewBooking = event.target.closest('[data-review-booking]');
   if (reviewBooking) {
     const booking = state.courseBookings.find((row) => row.BookingID === reviewBooking.dataset.reviewBooking);
@@ -2295,10 +2356,10 @@ function formatCell(value, column = '') {
   if (['On Duty'].includes(text)) {
     return `<span class="pill success">${escapeHtml(text)}</span>`;
   }
-  if (['LOA', 'On LOA', 'Pending', 'In Progress', 'Draft', 'Not Started', 'Needs acknowledgement'].includes(text)) {
+  if (['LOA', 'On LOA', 'Pending', 'Requested', 'Waitlist', 'In Progress', 'Draft', 'Not Started', 'Needs acknowledgement'].includes(text)) {
     return `<span class="pill warning">${escapeHtml(text)}</span>`;
   }
-  if (['Off Duty', 'Suspended', 'Archived', 'Failed', 'Denied', 'Expired', 'Removed', 'Low activity', 'No activity'].includes(text)) {
+  if (['Off Duty', 'Suspended', 'Archived', 'Failed', 'Denied', 'Cancelled', 'Expired', 'Removed', 'Low activity', 'No activity'].includes(text)) {
     return `<span class="pill danger">${escapeHtml(text)}</span>`;
   }
   return escapeHtml(text);

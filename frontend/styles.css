@@ -115,6 +115,18 @@ a.mini {
   text-decoration: none;
 }
 
+button.warning-action {
+  color: #4c2b00;
+  background: #ffe8aa;
+  border-color: #d59719;
+}
+
+button.success-action {
+  color: #063d27;
+  background: #c9f4dc;
+  border-color: #55b27d;
+}
+
 a {
   color: var(--blue);
   font-weight: 850;
@@ -1808,24 +1820,4 @@ body.is-authenticated .profile-actions button.ghost {
   color: #9d241b;
   background: #fff0ee;
   border-color: #e1aaa4;
-}
-
-body.is-officer-portal .terminal-window {
-  grid-template-columns: 142px minmax(0, 1fr);
-}
-
-body.is-officer-portal .dock-label {
-  text-align: left;
-}
-
-body.is-officer-portal .topbar .eyebrow {
-  color: #9fd5ff;
-}
-
-body.is-officer-portal .nav-group > span {
-  display: none;
-}
-
-body.is-officer-portal .nav {
-  gap: 8px;
 }

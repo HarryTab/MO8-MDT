@@ -387,6 +387,7 @@ function dashboard_(auth) {
   const discipline = getTable_(CONFIG.sheets.discipline).rows;
   const loa = getTable_(CONFIG.sheets.loa).rows;
   const documents = getTable_(CONFIG.sheets.documents).rows;
+  const currentOfficer = findOfficerForUser_(auth.user);
   const appeals = decorateAppealRows_(getTable_(CONFIG.sheets.appeals).rows);
   const announcements = visibleAnnouncements_(auth);
   const audit = getTable_(CONFIG.sheets.audit).rows.slice(-8).reverse();
@@ -406,6 +407,7 @@ function dashboard_(auth) {
     const start = parseDateTime_(row.StartedAt);
     return start && start >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   }), officers).filter((row) => row.ActivityFlag !== 'Active').slice(0, 8);
+  const upcomingTraining = upcomingTrainingForOfficer_(currentOfficer).slice(0, 5);
   return ok_({
     widgets: dashboardWidgetKeys_(auth.user.UserID),
     counts: {
@@ -421,6 +423,7 @@ function dashboard_(auth) {
       pendingAppeals: appeals.filter((appeal) => appeal.Status === 'Pending').length,
       unassignedOfficers: unassignedOfficers.length,
       pendingAcknowledgements: acknowledgementRows.filter((row) => row.RequiresAcknowledgement === 'TRUE' && row.Acknowledged !== 'TRUE').length,
+      upcomingTraining: upcomingTraining.length,
     },
     recentAudit: audit,
     recentDocuments: documents.slice(-5).reverse(),
@@ -432,11 +435,12 @@ function dashboard_(auth) {
     unassignedOfficers: unassignedOfficers.slice(0, 5),
     lowActivity,
     documentAcknowledgements: acknowledgementRows.filter((row) => row.RequiresAcknowledgement === 'TRUE' && row.Acknowledged !== 'TRUE').slice(0, 5),
+    upcomingTraining,
   });
 }
 
 function dashboardWidgetKeys_(userId) {
-  const defaults = ['activeLoa', 'pendingLoa', 'announcements', 'trainingReviews', 'recentDocuments', 'recentActivity', 'pendingAppeals', 'unassignedOfficers', 'lowActivity', 'documentAcknowledgements'];
+  const defaults = ['activeLoa', 'pendingLoa', 'announcements', 'upcomingTraining', 'trainingReviews', 'recentDocuments', 'recentActivity', 'pendingAppeals', 'unassignedOfficers', 'lowActivity', 'documentAcknowledgements'];
   const rows = getTable_(CONFIG.sheets.dashboardWidgets).rows.filter((row) => row.UserID === userId);
   if (!rows.length) return defaults;
   const enabled = rows.filter((row) => truthy_(row.Enabled)).map((row) => row.WidgetKey);
@@ -445,7 +449,7 @@ function dashboardWidgetKeys_(userId) {
 
 function saveDashboardWidgets_(auth, payload) {
   const selected = splitTags_(payload.Widgets || '');
-  const allowed = ['activeLoa', 'pendingLoa', 'announcements', 'trainingReviews', 'recentDocuments', 'recentActivity', 'pendingAppeals', 'unassignedOfficers', 'lowActivity', 'documentAcknowledgements'];
+  const allowed = ['activeLoa', 'pendingLoa', 'announcements', 'upcomingTraining', 'trainingReviews', 'recentDocuments', 'recentActivity', 'pendingAppeals', 'unassignedOfficers', 'lowActivity', 'documentAcknowledgements'];
   allowed.forEach((widgetKey) => {
     upsertPermissionRow_(CONFIG.sheets.dashboardWidgets, ['UserID', 'WidgetKey'], { UserID: auth.user.UserID, WidgetKey: widgetKey }, {
       UserID: auth.user.UserID,
@@ -564,11 +568,12 @@ function getMyProfile_(auth) {
   const announcements = listAnnouncements_(auth).rows || [];
   const notifications = listNotifications_(auth).rows || [];
   const shiftStatus = shiftStatus_(auth);
-  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], discipline: [], loa: [], transfers: [], supervisorRequests: [], appeals: [], checkins: [], developmentPlans: [], shifts: [], shiftStatus, rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
+  if (!officer) return ok_({ user: publicUser_(auth.user), officer: null, training: [], upcomingTraining: [], discipline: [], loa: [], transfers: [], supervisorRequests: [], appeals: [], checkins: [], developmentPlans: [], shifts: [], shiftStatus, rankChanges: rankChangesForMember_(auth.user.MemberID), documents, announcements, notifications });
   return ok_({
     user: publicUser_(auth.user),
     officer: decorateOfficer_(officer),
     training: getTrainingForOfficer_(officer),
+    upcomingTraining: upcomingTrainingForOfficer_(officer),
     discipline: decorateDisciplineRows_(getTable_(CONFIG.sheets.discipline).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     loa: decorateLoaRows_(getTable_(CONFIG.sheets.loa).rows.filter((row) => row.OfficerID === officer.OfficerID)),
     transfers: decorateTransferRows_(getTable_(CONFIG.sheets.transferRequests).rows.filter((row) => row.OfficerID === officer.OfficerID)),
@@ -779,6 +784,7 @@ function listTrainingCourses_(auth) {
       return Object.assign({}, course, {
         Trainer: trainerName_(course.TrainerUserID),
         BookedSeats: courseBookings.filter((booking) => ['Approved', 'Requested', 'Completed'].includes(booking.Status)).length,
+        PendingRequests: courseBookings.filter((booking) => booking.Status === 'Requested').length,
         Waitlist: courseBookings.filter((booking) => booking.Status === 'Waitlist').length,
         MyBookingStatus: myBooking ? myBooking.Status : '',
       });
@@ -2120,6 +2126,32 @@ function decorateCourseBookingRows_(rows) {
       CourseDate: course.CourseDate || '',
     });
   });
+}
+
+function upcomingTrainingForOfficer_(officer) {
+  if (!officer) return [];
+  const today = new Date(today_());
+  const courses = getTable_(CONFIG.sheets.trainingCourses).rows;
+  return decorateCourseBookingRows_(getTable_(CONFIG.sheets.courseBookings).rows)
+    .filter((booking) => booking.OfficerID === officer.OfficerID)
+    .filter((booking) => ['Approved', 'Requested', 'Waitlist'].includes(booking.Status))
+    .filter((booking) => {
+      const course = courses.find((row) => row.CourseID === booking.CourseID) || {};
+      const date = parseDateOnly_(course.CourseDate || booking.CourseDate);
+      return course.Status !== 'Archived' && course.Status !== 'Cancelled' && (!date || date >= today);
+    })
+    .map((booking) => {
+      const course = courses.find((row) => row.CourseID === booking.CourseID) || {};
+      return {
+        Title: booking.Course,
+        Standard: booking.Standard,
+        CourseDate: booking.CourseDate,
+        Status: booking.Status,
+        Trainer: trainerName_(course.TrainerUserID),
+        Location: course.Location || '',
+      };
+    })
+    .sort((a, b) => String(a.CourseDate || '').localeCompare(String(b.CourseDate || '')));
 }
 
 function trainerName_(userId) {
