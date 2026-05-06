@@ -2171,7 +2171,8 @@ function normalizeDiscordId_(value) {
 
 function sendDiscordDm_(discordId, title, message) {
   const token = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
-  if (!token || !discordId) return;
+  if (!token) throw new Error('DISCORD_BOT_TOKEN script property is missing.');
+  if (!discordId) throw new Error('Discord ID is missing.');
 
   const channelResponse = discordApiRequest_('/users/@me/channels', 'post', {
     recipient_id: String(discordId),
@@ -2222,8 +2223,24 @@ function markNotificationsRead_(auth) {
 }
 
 function testDiscordAlert_(auth) {
-  notifyMember_(auth.user.MemberID, 'MO8 MDT Discord test', 'If you received this DM, Discord alerts are connected correctly.', auth.user.UserID);
-  return ok_({ sent: true });
+  const memberId = auth.user.MemberID || '';
+  const discordId = discordIdForMember_(memberId);
+  const token = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
+  const diagnostic = {
+    memberId,
+    discordIdFound: Boolean(discordId),
+    discordIdLast4: discordId ? String(discordId).slice(-4) : '',
+    tokenFound: Boolean(token),
+  };
+
+  try {
+    sendDiscordDm_(discordId, 'MO8 MDT Discord test', 'If you received this DM, Discord alerts are connected correctly.');
+    notifyMember_(memberId, 'MO8 MDT Discord test', 'A Discord test alert was sent to your account.', auth.user.UserID);
+    return ok_(Object.assign(diagnostic, { sent: true }));
+  } catch (err) {
+    audit_('system', 'DISCORD_TEST_FAILED', 'Member', memberId, Object.assign(diagnostic, { error: err.message || String(err) }));
+    return fail_(`Discord test failed: ${err.message || String(err)}`);
+  }
 }
 
 function id_(prefix) {
