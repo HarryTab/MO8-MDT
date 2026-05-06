@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-06-1">
+    <link rel="stylesheet" href="styles.css?v=2026-05-06-2">
   </head>
   <body>
     <main class="terminal-shell">
@@ -44,6 +44,7 @@
             </section>
             <section class="nav-group">
               <span>Records</span>
+              <button class="nav-item" data-view="courses" data-permission="VIEW_COURSES">Courses</button>
               <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
               <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
               <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
@@ -241,12 +242,36 @@
           <section class="data-view" id="trainingView" hidden>
             <div class="section-head">
               <h2>Training</h2>
+              <button id="newTrainingOptionButton" data-permission="MANAGE_TRAINING_OPTIONS">Add option</button>
             </div>
             <input class="search-input" data-search-view="training" placeholder="Search training">
             <div id="trainingMatrix" class="matrix-block"></div>
+            <div id="trainingOptionsPanel" class="matrix-block"></div>
             <div class="table-wrap">
               <table id="trainingTable"></table>
             </div>
+          </section>
+
+          <section class="data-view" id="coursesView" hidden>
+            <div class="section-head">
+              <h2>Training Courses</h2>
+              <button id="newCourseButton" data-permission="MANAGE_COURSES">Create course</button>
+            </div>
+            <input class="search-input" data-search-view="courses" placeholder="Search courses">
+            <section class="dashboard-grid">
+              <article class="dashboard-panel supervisor-wide">
+                <h3>Courses</h3>
+                <div class="table-wrap compact">
+                  <table id="coursesTable"></table>
+                </div>
+              </article>
+              <article class="dashboard-panel supervisor-wide" data-permission="MANAGE_COURSES">
+                <h3>Bookings</h3>
+                <div class="table-wrap compact">
+                  <table id="courseBookingsTable"></table>
+                </div>
+              </article>
+            </section>
           </section>
 
           <section class="data-view" id="disciplineView" hidden>
@@ -354,6 +379,6 @@
       </div>
     </dialog>
 
-    <script src="app.js?v=2026-05-06-1"></script>
+    <script src="app.js?v=2026-05-06-2"></script>
   </body>
 </html>

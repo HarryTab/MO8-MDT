@@ -1,6 +1,6 @@
 const CONFIG = {
   sessionHours: 12,
-  roles: ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'],
+  roles: ['Constable', 'Trainer', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'],
   ranks: [
     'Police Constable',
     'Sergeant',
@@ -23,6 +23,9 @@ const CONFIG = {
     officers: 'Officers',
     training: 'TrainingRecords',
     trainingMatrix: 'TrainingMatrix',
+    trainingOptions: 'TrainingOptions',
+    trainingCourses: 'TrainingCourses',
+    courseBookings: 'CourseBookings',
     discipline: 'DisciplinaryActions',
     loa: 'LOARequests',
     transferRequests: 'TransferRequests',
@@ -49,6 +52,9 @@ const HEADERS = {
   Officers: ['OfficerID', 'MemberID', 'RobloxUsername', 'DiscordID', 'Callsign', 'Rank', 'Status', 'JoinDate', 'SupervisorUserID', 'Tags', 'Notes', 'CreatedAt', 'UpdatedAt'],
   TrainingRecords: ['TrainingID', 'OfficerID', 'Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate', 'Notes', 'UpdatedAt'],
   TrainingMatrix: ['OfficerID', 'MemberID', 'RobloxUsername', 'Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'DrivingStandard', 'ReviewDate', 'UpdatedAt', 'UpdatedBy'],
+  TrainingOptions: ['OptionID', 'Name', 'Type', 'Status', 'SortOrder', 'UpdatedBy', 'UpdatedAt'],
+  TrainingCourses: ['CourseID', 'Title', 'Standard', 'TrainerUserID', 'CourseDate', 'Location', 'Capacity', 'Status', 'Notes', 'CreatedBy', 'CreatedAt', 'UpdatedAt'],
+  CourseBookings: ['BookingID', 'CourseID', 'OfficerID', 'Status', 'Outcome', 'Notes', 'RequestedAt', 'ReviewedBy', 'ReviewedAt'],
   DisciplinaryActions: ['ActionID', 'OfficerID', 'Type', 'Summary', 'Details', 'IssuedBy', 'IssuedAt', 'Status'],
   LOARequests: ['RequestID', 'OfficerID', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
   TransferRequests: ['RequestID', 'OfficerID', 'CurrentDivision', 'TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Notes', 'Status', 'ReviewReason', 'ReviewedBy', 'ReviewedAt', 'CreatedAt'],
@@ -71,10 +77,11 @@ const HEADERS = {
 let TABLE_CACHE = {};
 
 const DEFAULT_PERMISSIONS = {
-  Constable: ['VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
-  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
+  Constable: ['VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'VIEW_COURSES', 'CHANGE_OWN_PASSWORD'],
+  Trainer: ['VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'VIEW_TRAINING', 'VIEW_COURSES', 'MANAGE_COURSES', 'CHANGE_OWN_PASSWORD'],
+  Sergeant: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_COURSES', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  Inspector: ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_COURSES', 'MANAGE_COURSES', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'CHANGE_OWN_PASSWORD'],
+  'Chief Inspector': ['VIEW_DASHBOARD', 'VIEW_TASKS', 'VIEW_OFFICERS', 'VIEW_RANK_LOG', 'ASSIGN_SUPERVISORS', 'EDIT_OFFICERS', 'ADD_OFFICERS', 'ARCHIVE_OFFICERS', 'VIEW_TRAINING', 'MANAGE_TRAINING', 'VIEW_COURSES', 'MANAGE_COURSES', 'VIEW_DISCIPLINE', 'ADD_DISCIPLINE', 'VIEW_LOA', 'CREATE_LOA', 'APPROVE_LOA', 'VIEW_DOCUMENTS', 'MANAGE_DOCUMENTS', 'VIEW_ANNOUNCEMENTS', 'MANAGE_ANNOUNCEMENTS', 'VIEW_AUDIT_LOG', 'CHANGE_OWN_PASSWORD'],
   Command: ['FULL_ACCESS'],
 };
 
@@ -89,6 +96,9 @@ const ALL_PERMISSIONS = [
   'ASSIGN_SUPERVISORS',
   'VIEW_TRAINING',
   'MANAGE_TRAINING',
+  'VIEW_COURSES',
+  'MANAGE_COURSES',
+  'MANAGE_TRAINING_OPTIONS',
   'VIEW_DISCIPLINE',
   'ADD_DISCIPLINE',
   'VIEW_LOA',
@@ -203,6 +213,13 @@ function handleRequest_(e) {
       supervisorOptions: () => requirePermission_(auth, 'VIEW_OFFICERS', () => supervisorOptions_()),
       deleteOfficer: () => requirePermission_(auth, 'ARCHIVE_OFFICERS', () => deleteOfficer_(auth, payload)),
       listTraining: () => requirePermission_(auth, 'VIEW_TRAINING', () => listTrainingCertifications_()),
+      listTrainingOptions: () => requirePermission_(auth, 'VIEW_TRAINING', () => listTrainingOptions_()),
+      saveTrainingOption: () => requirePermission_(auth, 'MANAGE_TRAINING_OPTIONS', () => saveTrainingOption_(auth, payload)),
+      listTrainingCourses: () => requirePermission_(auth, 'VIEW_COURSES', () => listTrainingCourses_(auth)),
+      courseTrainers: () => requirePermission_(auth, 'MANAGE_COURSES', () => courseTrainers_()),
+      saveTrainingCourse: () => requirePermission_(auth, 'MANAGE_COURSES', () => saveTrainingCourse_(auth, payload)),
+      requestCourseSeat: () => requirePermission_(auth, 'VIEW_COURSES', () => requestCourseSeat_(auth, payload)),
+      reviewCourseBooking: () => requirePermission_(auth, 'MANAGE_COURSES', () => reviewCourseBooking_(auth, payload)),
       saveTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => saveTraining_(auth, payload)),
       setOfficerTraining: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setOfficerTraining_(auth, payload)),
       setDrivingStandard: () => requirePermission_(auth, 'MANAGE_TRAINING', () => setDrivingStandard_(auth, payload)),
@@ -277,6 +294,10 @@ function isWriteAction_(action) {
     'setOfficerSupervisor',
     'deleteOfficer',
     'saveTraining',
+    'saveTrainingOption',
+    'saveTrainingCourse',
+    'requestCourseSeat',
+    'reviewCourseBooking',
     'setOfficerTraining',
     'setDrivingStandard',
     'setTrainingReviewDate',
@@ -726,23 +747,151 @@ function saveTraining_(auth, payload) {
   return ok_({ TrainingID: record.TrainingID });
 }
 
+function upsertTrainingRecord_(auth, officerId, standard, status, notes) {
+  const existing = getTable_(CONFIG.sheets.training).rows.find((row) => row.OfficerID === officerId && row.Standard === standard);
+  const record = {
+    OfficerID: officerId,
+    Standard: standard,
+    Status: status || 'Not Started',
+    Assessor: auth.user.RobloxUsername,
+    DateCompleted: status === 'Passed' ? today_() : '',
+    ExpiryDate: '',
+    Notes: notes || '',
+    UpdatedAt: now_(),
+  };
+  if (existing) {
+    updateRow_(CONFIG.sheets.training, 'TrainingID', existing.TrainingID, record);
+    return existing.TrainingID;
+  }
+  record.TrainingID = id_('TRN');
+  appendObject_(CONFIG.sheets.training, record);
+  return record.TrainingID;
+}
+
+function listTrainingCourses_(auth) {
+  const officer = findOfficerForUser_(auth.user);
+  const bookings = decorateCourseBookingRows_(getTable_(CONFIG.sheets.courseBookings).rows);
+  const rows = getTable_(CONFIG.sheets.trainingCourses).rows
+    .filter((row) => row.Status !== 'Archived')
+    .map((course) => {
+      const courseBookings = bookings.filter((booking) => booking.CourseID === course.CourseID);
+      const myBooking = officer ? courseBookings.find((booking) => booking.OfficerID === officer.OfficerID) : null;
+      return Object.assign({}, course, {
+        Trainer: trainerName_(course.TrainerUserID),
+        BookedSeats: courseBookings.filter((booking) => ['Approved', 'Requested', 'Completed'].includes(booking.Status)).length,
+        Waitlist: courseBookings.filter((booking) => booking.Status === 'Waitlist').length,
+        MyBookingStatus: myBooking ? myBooking.Status : '',
+      });
+    })
+    .sort((a, b) => String(a.CourseDate || '').localeCompare(String(b.CourseDate || '')));
+  return ok_({ rows, bookings });
+}
+
+function courseTrainers_() {
+  const rows = getTable_(CONFIG.sheets.users).rows
+    .filter((user) => user.Status === 'Active')
+    .filter((user) => user.Role === 'Trainer' || hasPermission_(user, 'MANAGE_COURSES') || CONFIG.ranks.indexOf(user.Rank || '') >= CONFIG.ranks.indexOf('Inspector'))
+    .map(publicUser_);
+  return ok_({ rows });
+}
+
+function saveTrainingCourse_(auth, payload) {
+  const now = now_();
+  const course = {
+    Title: payload.Title || '',
+    Standard: payload.Standard || '',
+    TrainerUserID: payload.TrainerUserID || auth.user.UserID,
+    CourseDate: payload.CourseDate || '',
+    Location: payload.Location || '',
+    Capacity: payload.Capacity || '0',
+    Status: payload.Status || 'Scheduled',
+    Notes: payload.Notes || '',
+    UpdatedAt: now,
+  };
+  if (!course.Title || !course.Standard) return fail_('Course title and standard are required.');
+  if (payload.CourseID) {
+    updateRow_(CONFIG.sheets.trainingCourses, 'CourseID', payload.CourseID, course);
+    audit_(auth.user.UserID, 'UPDATE_TRAINING_COURSE', 'TrainingCourse', payload.CourseID, course);
+    return ok_({ CourseID: payload.CourseID });
+  }
+  course.CourseID = id_('CRS');
+  course.CreatedBy = auth.user.UserID;
+  course.CreatedAt = now;
+  appendObject_(CONFIG.sheets.trainingCourses, course);
+  audit_(auth.user.UserID, 'CREATE_TRAINING_COURSE', 'TrainingCourse', course.CourseID, course);
+  return ok_({ CourseID: course.CourseID });
+}
+
+function requestCourseSeat_(auth, payload) {
+  const courseId = payload.CourseID || '';
+  const officer = ensureOfficerForAuth_(auth);
+  const course = getTable_(CONFIG.sheets.trainingCourses).rows.find((row) => row.CourseID === courseId);
+  if (!course) return fail_('Course not found.');
+  const bookings = getTable_(CONFIG.sheets.courseBookings).rows.filter((row) => row.CourseID === courseId);
+  if (bookings.some((row) => row.OfficerID === officer.OfficerID && !['Cancelled', 'Denied'].includes(row.Status))) return fail_('You already have a booking for this course.');
+  const capacity = Number(course.Capacity || 0);
+  const approved = bookings.filter((row) => ['Approved', 'Completed'].includes(row.Status)).length;
+  const booking = {
+    BookingID: id_('CBK'),
+    CourseID: courseId,
+    OfficerID: officer.OfficerID,
+    Status: capacity && approved >= capacity ? 'Waitlist' : 'Requested',
+    Outcome: '',
+    Notes: payload.Notes || '',
+    RequestedAt: now_(),
+    ReviewedBy: '',
+    ReviewedAt: '',
+  };
+  appendObject_(CONFIG.sheets.courseBookings, booking);
+  notifyOfficer_(officer.OfficerID, 'Training course requested', `Your request for ${course.Title} was submitted as ${booking.Status}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'REQUEST_COURSE_SEAT', 'TrainingCourse', courseId, booking);
+  return ok_({ BookingID: booking.BookingID, Status: booking.Status });
+}
+
+function reviewCourseBooking_(auth, payload) {
+  const bookingId = payload.BookingID || '';
+  const existing = getTable_(CONFIG.sheets.courseBookings).rows.find((row) => row.BookingID === bookingId);
+  if (!existing) return fail_('Booking not found.');
+  const course = getTable_(CONFIG.sheets.trainingCourses).rows.find((row) => row.CourseID === existing.CourseID);
+  const update = {
+    Status: payload.Status || existing.Status || 'Approved',
+    Outcome: payload.Outcome || existing.Outcome || '',
+    Notes: payload.Notes || existing.Notes || '',
+    ReviewedBy: auth.user.UserID,
+    ReviewedAt: now_(),
+  };
+  updateRow_(CONFIG.sheets.courseBookings, 'BookingID', bookingId, update);
+  if (course && update.Outcome === 'Passed') {
+    upsertTrainingRecord_(auth, existing.OfficerID, course.Standard, 'Passed', `Passed via course ${course.Title}`);
+    if (CONFIG.drivingStandards.includes(course.Standard)) setDrivingStandard_(auth, { OfficerID: existing.OfficerID, Standard: course.Standard });
+    if (CONFIG.specialistTraining.includes(course.Standard)) setOfficerTraining_(auth, { OfficerID: existing.OfficerID, Standard: course.Standard, Enabled: true });
+  }
+  notifyOfficer_(existing.OfficerID, 'Training course updated', `Your booking for ${course ? course.Title : 'a course'} is now ${update.Status}${update.Outcome ? ` (${update.Outcome})` : ''}.`, auth.user.UserID);
+  audit_(auth.user.UserID, 'REVIEW_COURSE_BOOKING', 'CourseBooking', bookingId, update);
+  return ok_({ BookingID: bookingId });
+}
+
 function setOfficerTraining_(auth, payload) {
   const officerId = payload.OfficerID || '';
   const standard = payload.Standard || '';
   const enabled = String(payload.Enabled).toLowerCase() === 'true' || payload.Enabled === true;
   if (!officerId || !standard) return fail_('OfficerID and Standard are required.');
-  if (!CONFIG.specialistTraining.includes(standard)) return fail_('Unknown training standard.');
+  if (!trainingOptionsByType_('Specialist').some((option) => option.Name === standard)) return fail_('Unknown training standard.');
 
   const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
   if (!officer) return fail_('Officer not found.');
   const matrixRow = ensureTrainingMatrixRow_(officer);
-  updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
-    MemberID: officer.MemberID || '',
-    RobloxUsername: officer.RobloxUsername || '',
-    [standard]: enabled ? 'TRUE' : 'FALSE',
-    UpdatedAt: now_(),
-    UpdatedBy: auth.user.RobloxUsername,
-  });
+  if (CONFIG.specialistTraining.includes(standard)) {
+    updateRow_(CONFIG.sheets.trainingMatrix, 'OfficerID', officerId, {
+      MemberID: officer.MemberID || '',
+      RobloxUsername: officer.RobloxUsername || '',
+      [standard]: enabled ? 'TRUE' : 'FALSE',
+      UpdatedAt: now_(),
+      UpdatedBy: auth.user.RobloxUsername,
+    });
+  } else {
+    upsertTrainingRecord_(auth, officerId, standard, enabled ? 'Passed' : 'Not Started', 'Configurable training option');
+  }
 
   const details = { OfficerID: officerId, Standard: standard, Enabled: enabled, MatrixRow: matrixRow._rowNumber };
   notifyMember_(officer.MemberID, 'Training certification updated', `${standard} was ${enabled ? 'assigned' : 'removed'} on your profile.`, auth.user.UserID);
@@ -754,7 +903,7 @@ function setDrivingStandard_(auth, payload) {
   const officerId = payload.OfficerID || '';
   const selectedStandard = payload.Standard || '';
   if (!officerId) return fail_('OfficerID is required.');
-  if (selectedStandard && !CONFIG.drivingStandards.includes(selectedStandard)) return fail_('Unknown driving standard.');
+  if (selectedStandard && !trainingOptionsByType_('Driving').some((option) => option.Name === selectedStandard)) return fail_('Unknown driving standard.');
 
   const officer = getTable_(CONFIG.sheets.officers).rows.find((row) => row.OfficerID === officerId);
   if (!officer) return fail_('Officer not found.');
@@ -1325,14 +1474,86 @@ function listTrainingCertifications_() {
   return ok_({ rows });
 }
 
+function listTrainingOptions_() {
+  return ok_({ rows: trainingOptions_() });
+}
+
+function trainingOptions_() {
+  const existing = getTable_(CONFIG.sheets.trainingOptions).rows;
+  if (!existing.length) {
+    seedTrainingOptions_();
+    return getTable_(CONFIG.sheets.trainingOptions).rows.filter((row) => row.Status !== 'Archived').sort(trainingOptionSort_);
+  }
+  return existing.filter((row) => row.Status !== 'Archived').sort(trainingOptionSort_);
+}
+
+function trainingOptionsByType_(type) {
+  return trainingOptions_().filter((option) => option.Type === type);
+}
+
+function trainingOptionSort_(a, b) {
+  return Number(a.SortOrder || 0) - Number(b.SortOrder || 0) || String(a.Name || '').localeCompare(String(b.Name || ''));
+}
+
+function seedTrainingOptions_() {
+  const now = now_();
+  CONFIG.specialistTraining.forEach((name, index) => appendObject_(CONFIG.sheets.trainingOptions, {
+    OptionID: id_('TOP'),
+    Name: name,
+    Type: 'Specialist',
+    Status: 'Active',
+    SortOrder: index + 1,
+    UpdatedBy: 'system',
+    UpdatedAt: now,
+  }));
+  CONFIG.drivingStandards.forEach((name, index) => appendObject_(CONFIG.sheets.trainingOptions, {
+    OptionID: id_('TOP'),
+    Name: name,
+    Type: 'Driving',
+    Status: 'Active',
+    SortOrder: index + 1,
+    UpdatedBy: 'system',
+    UpdatedAt: now,
+  }));
+}
+
+function saveTrainingOption_(auth, payload) {
+  const option = {
+    Name: payload.Name || '',
+    Type: payload.Type || 'Specialist',
+    Status: payload.Status || 'Active',
+    SortOrder: payload.SortOrder || '',
+    UpdatedBy: auth.user.UserID,
+    UpdatedAt: now_(),
+  };
+  if (!option.Name) return fail_('Training option name is required.');
+  if (!['Specialist', 'Driving'].includes(option.Type)) return fail_('Training option type must be Specialist or Driving.');
+  if (payload.OptionID) {
+    updateRow_(CONFIG.sheets.trainingOptions, 'OptionID', payload.OptionID, option);
+    audit_(auth.user.UserID, 'UPDATE_TRAINING_OPTION', 'TrainingOption', payload.OptionID, option);
+    return ok_({ OptionID: payload.OptionID });
+  }
+  option.OptionID = id_('TOP');
+  appendObject_(CONFIG.sheets.trainingOptions, option);
+  audit_(auth.user.UserID, 'CREATE_TRAINING_OPTION', 'TrainingOption', option.OptionID, option);
+  return ok_({ OptionID: option.OptionID });
+}
+
 function getTrainingForOfficer_(officer) {
   const matrix = ensureTrainingMatrixRow_(officer);
   const rows = [];
-  CONFIG.specialistTraining.forEach((standard) => {
+  const legacy = getTable_(CONFIG.sheets.training).rows.filter((row) => String(row.OfficerID) === String(officer.OfficerID));
+  trainingOptionsByType_('Specialist').forEach((option) => {
+    const standard = option.Name;
     rows.push(trainingObject_(officer, standard, truthy_(matrix[standard]) ? 'Passed' : 'Not Started', matrix));
   });
-  CONFIG.drivingStandards.forEach((standard) => {
+  trainingOptionsByType_('Driving').forEach((option) => {
+    const standard = option.Name;
     rows.push(trainingObject_(officer, standard, matrix.DrivingStandard === standard ? 'Passed' : 'Not Started', matrix));
+  });
+  legacy.filter((row) => !CONFIG.specialistTraining.includes(row.Standard) && !CONFIG.drivingStandards.includes(row.Standard)).forEach((row) => {
+    const existing = rows.find((item) => item.Standard === row.Standard);
+    if (existing) Object.assign(existing, row);
   });
   return rows;
 }
@@ -1463,7 +1684,7 @@ function setRolePermission_(auth, payload) {
   if (!ALL_PERMISSIONS.includes(permission)) return fail_('Unknown permission.');
   if (role === 'Command' && permission === 'FULL_ACCESS' && !allowed) return fail_('Command FULL_ACCESS cannot be disabled.');
   upsertPermissionRow_(CONFIG.sheets.permissions, ['Role', 'Permission'], { Role: role, Permission: permission }, {
-    Role: role,
+    Role: existing && existing.Role === 'Trainer' ? 'Trainer' : role,
     Permission: permission,
     Allowed: allowed ? 'TRUE' : 'FALSE',
   });
@@ -1883,6 +2104,27 @@ function decorateAppealRows_(rows) {
       Subject: `${row.SourceType || 'Request'} ${row.SourceID || ''}`.trim(),
     });
   });
+}
+
+function decorateCourseBookingRows_(rows) {
+  const officers = getTable_(CONFIG.sheets.officers).rows;
+  const courses = getTable_(CONFIG.sheets.trainingCourses).rows;
+  return rows.map((row) => {
+    const officer = officers.find((entry) => entry.OfficerID === row.OfficerID) || {};
+    const course = courses.find((entry) => entry.CourseID === row.CourseID) || {};
+    return Object.assign({}, row, {
+      Officer: officer.RobloxUsername || row.OfficerID,
+      Rank: officer.Rank || '',
+      Course: course.Title || row.CourseID,
+      Standard: course.Standard || '',
+      CourseDate: course.CourseDate || '',
+    });
+  });
+}
+
+function trainerName_(userId) {
+  const user = getTable_(CONFIG.sheets.users).rows.find((row) => row.UserID === userId);
+  return user ? user.RobloxUsername : userId || '';
 }
 
 function officerTimeline_(officer, data) {

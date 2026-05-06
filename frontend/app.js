@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-06-1';
+const APP_VERSION = '2026-05-06-2';
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -15,7 +15,7 @@ const OFFICER_RANKS = [
   'Commissioner',
 ];
 
-const SYSTEM_ROLES = ['Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
+const SYSTEM_ROLES = ['Constable', 'Trainer', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
 const ACCESS_LEVELS = [...OFFICER_RANKS];
 const OFFICER_TAGS = ['Roads Crime Team', 'MO8 Command', 'Roads and Traffic Policing Team', 'Bronze Command', 'Silver Command', 'Gold Command'];
 const SPECIALIST_TRAINING = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'];
@@ -57,6 +57,9 @@ const state = {
   officers: [],
   training: [],
   trainingSummary: [],
+  trainingOptions: [],
+  courses: [],
+  courseBookings: [],
   discipline: [],
   loa: [],
   tasks: [],
@@ -186,6 +189,8 @@ document.querySelectorAll('.nav-item').forEach((button) => {
 document.querySelector('#newOfficerButton').addEventListener('click', () => openOfficerEditor());
 document.querySelector('#bulkOfficerButton').addEventListener('click', () => openBulkOfficerEditor());
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
+document.querySelector('#newTrainingOptionButton').addEventListener('click', () => openTrainingOptionEditor());
+document.querySelector('#newCourseButton').addEventListener('click', () => openCourseEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
 document.querySelector('#startShiftButton').addEventListener('click', startShift);
@@ -288,6 +293,7 @@ function bootTasks() {
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
+  if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
 }
@@ -328,6 +334,7 @@ function backgroundPreload() {
   const actions = [
     can('VIEW_OFFICERS') ? ['listOfficers', {}] : null,
     can('VIEW_TRAINING') ? ['listTraining', {}] : null,
+    can('VIEW_COURSES') ? ['listTrainingCourses', {}] : null,
     can('VIEW_LOA') ? ['listLoa', {}] : null,
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
     ['teamShifts', { Period: 'week' }],
@@ -358,6 +365,7 @@ function showLogin() {
 function showApp() {
   document.body.classList.remove('is-booting');
   document.body.classList.add('is-authenticated');
+  document.body.classList.toggle('is-officer-portal', isOfficerPortal());
   elements.loginView.hidden = true;
   elements.bootView.hidden = true;
   elements.appView.hidden = false;
@@ -368,6 +376,10 @@ function showApp() {
     <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
   `;
   applyPermissions();
+}
+
+function isOfficerPortal() {
+  return !can('VIEW_DASHBOARD') && !can('VIEW_OFFICERS') && !can('VIEW_TASKS');
 }
 
 function applyPermissions() {
@@ -409,6 +421,7 @@ async function showView(view) {
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
     rankChanges: ['Rank Change Log', 'Promotion and rank movement history'],
     training: ['Training', 'Training standards and status'],
+    courses: ['Training Courses', 'Course bookings, waitlists and trainer outcomes'],
     discipline: ['Discipline', 'Internal roleplay administration records'],
     loa: ['Leave of Absence', 'Requests and reviews'],
     documents: ['Documents', 'Training guides and policy links'],
@@ -439,6 +452,7 @@ async function showView(view) {
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
     rankChanges: loadRankChanges,
     training: loadTraining,
+    courses: loadCourses,
     discipline: loadDiscipline,
     loa: loadLoa,
     documents: loadDocuments,
@@ -468,6 +482,11 @@ function renderViewLoading(view) {
     return;
   }
   if (view === 'training') document.querySelector('#trainingMatrix').innerHTML = '';
+  if (view === 'courses') {
+    document.querySelector('#coursesTable').innerHTML = `<tbody><tr><td>${loadingBlock('Loading training courses...')}</td></tr></tbody>`;
+    document.querySelector('#courseBookingsTable').innerHTML = '';
+    return;
+  }
   if (view === 'documents') {
     document.querySelector('#documentExplorer').innerHTML = loadingBlock('Loading documents...');
     return;
@@ -522,6 +541,7 @@ function loaderActionForView(view) {
     officers: 'listOfficers',
     rankChanges: 'rankChangeLog',
     training: 'listTraining',
+    courses: 'listTrainingCourses',
     discipline: 'listDiscipline',
     loa: 'listLoa',
     documents: 'listDocuments',
@@ -579,7 +599,11 @@ async function loadDashboard() {
 
 async function loadMyProfile() {
   await showViewOnly('myProfile');
-  const response = await apiCached('myProfile', {});
+  const [response, optionsResponse] = await Promise.all([
+    apiCached('myProfile', {}),
+    apiCached('listTrainingOptions', {}),
+  ]);
+  if (optionsResponse.ok) state.trainingOptions = optionsResponse.rows || [];
   const container = document.querySelector('#myProfileView');
   if (!response.ok) {
     container.innerHTML = emptyState(response.error || 'Could not load profile.');
@@ -765,7 +789,11 @@ async function loadOfficerProfile(officerId) {
 
   const requestOfficerId = officerId;
   container.innerHTML = loadingBlock('Loading officer profile...');
-  const response = await apiCached('getOfficerProfile', { OfficerID: officerId });
+  const [response, optionsResponse] = await Promise.all([
+    apiCached('getOfficerProfile', { OfficerID: officerId }),
+    apiCached('listTrainingOptions', {}),
+  ]);
+  if (optionsResponse.ok) state.trainingOptions = optionsResponse.rows || [];
   if (state.selectedOfficerId !== requestOfficerId) return;
   if (!response.ok) {
     container.innerHTML = emptyState(response.error || 'Officer not found.');
@@ -777,16 +805,32 @@ async function loadOfficerProfile(officerId) {
 
 async function loadTraining() {
   await showViewOnly('training');
-  const [trainingResponse, officersResponse] = await Promise.all([
+  const [trainingResponse, officersResponse, optionsResponse] = await Promise.all([
     apiCached('listTraining', {}),
     apiCached('listOfficers', {}),
+    apiCached('listTrainingOptions', {}),
   ]);
   const trainingRows = trainingResponse.rows || [];
   const officerRows = officersResponse.rows || [];
   state.training = trainingRows;
+  state.trainingOptions = optionsResponse.rows || [];
   state.trainingSummary = summarizeTraining(officerRows, trainingRows);
   renderTrainingOverview(state.trainingSummary);
+  renderTrainingOptionsPanel();
   renderSearchableView('training');
+}
+
+async function loadCourses() {
+  await showViewOnly('courses');
+  const response = await apiCached('listTrainingCourses', {});
+  if (!response.ok) {
+    state.courses = [];
+    state.courseBookings = [];
+    return renderTable('#coursesTable', [], ['Error'], { emptyMessage: response.error || 'Could not load courses.' });
+  }
+  state.courses = response.rows || [];
+  state.courseBookings = response.bookings || [];
+  renderSearchableView('courses');
 }
 
 async function loadRankChanges() {
@@ -963,6 +1007,15 @@ function renderAnnouncementsTable(rows) {
   });
 }
 
+function renderCoursesTable(rows) {
+  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'Waitlist', 'Status', 'MyBookingStatus'], {
+    actions: (row) => [
+      can('VIEW_COURSES') && !row.MyBookingStatus ? `<button class="mini" data-request-course="${escapeHtml(row.CourseID)}">Request seat</button>` : '',
+      can('MANAGE_COURSES') ? `<button class="mini" data-edit-course="${escapeHtml(row.CourseID)}">Edit</button>` : '',
+    ].join(''),
+  });
+}
+
 function renderSearchableView(view) {
   const input = document.querySelector(`[data-search-view="${view}"]`);
   const query = input ? input.value.toLowerCase() : '';
@@ -977,6 +1030,12 @@ function renderSearchableView(view) {
       return Object.values(row).some((value) => String(value || '').toLowerCase().includes(query));
     });
     renderTable('#trainingTable', summaryRows, ['RobloxUsername', 'Callsign', 'Rank', 'DrivingStandard', 'SpecialistTickets', 'MissingTraining', 'ReviewDate']);
+  }
+  if (view === 'courses') {
+    renderCoursesTable(rows);
+    renderTable('#courseBookingsTable', state.courseBookings || [], ['Course', 'Officer', 'Rank', 'Status', 'Outcome', 'RequestedAt'], {
+      actions: (row) => can('MANAGE_COURSES') ? `<button class="mini" data-review-booking="${escapeHtml(row.BookingID)}">Review</button>` : '',
+    });
   }
   if (view === 'rankChanges') {
     renderTable('#rankChangesTable', rows, ['ChangedAt', 'RobloxUsername', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName']);
@@ -1204,6 +1263,50 @@ function openTrainingEditor(officerId) {
     field('ExpiryDate', 'Expiry date', 'date'),
     field('Notes', 'Notes', 'textarea', true),
   ], async (values) => api('saveTraining', values));
+}
+
+function openTrainingOptionEditor(option = {}) {
+  openEditor(option.OptionID ? 'Edit training option' : 'Add training option', [
+    hiddenField('OptionID', option.OptionID),
+    field('Name', 'Name', 'text', false, option.Name),
+    selectField('Type', 'Type', ['Specialist', 'Driving'], option.Type || 'Specialist'),
+    selectField('Status', 'Status', ['Active', 'Archived'], option.Status || 'Active'),
+    field('SortOrder', 'Sort order', 'number', false, option.SortOrder),
+  ], async (values) => api('saveTrainingOption', values), {
+    successMessage: 'Training option saved.',
+  });
+}
+
+async function openCourseEditor(course = {}) {
+  const optionsResponse = await apiCached('listTrainingOptions', {});
+  const standards = (optionsResponse.rows || []).map((option) => option.Name);
+  const trainers = await loadTrainerOptions();
+  openEditor(course.CourseID ? 'Edit training course' : 'Create training course', [
+    hiddenField('CourseID', course.CourseID),
+    field('Title', 'Title', 'text', false, course.Title),
+    selectField('Standard', 'Training standard', standards, course.Standard),
+    trainerSelectField('TrainerUserID', 'Trainer', trainers, course.TrainerUserID || state.user.UserID),
+    field('CourseDate', 'Course date/time', 'datetime-local', false, localDateTimeValue(course.CourseDate)),
+    field('Location', 'Location', 'text', false, course.Location),
+    field('Capacity', 'Capacity', 'number', false, course.Capacity || '4'),
+    selectField('Status', 'Status', ['Scheduled', 'Completed', 'Cancelled', 'Archived'], course.Status || 'Scheduled'),
+    field('Notes', 'Notes', 'textarea', true, course.Notes),
+  ], async (values) => api('saveTrainingCourse', values), {
+    successMessage: 'Training course saved.',
+  });
+}
+
+function openCourseBookingReviewEditor(record) {
+  openEditor('Review course booking', [
+    hiddenField('BookingID', record.BookingID),
+    field('Course', 'Course', 'text', false, record.Course),
+    field('Officer', 'Officer', 'text', false, record.Officer),
+    selectField('Status', 'Booking status', ['Approved', 'Waitlist', 'Denied', 'Completed', 'Cancelled'], record.Status || 'Approved'),
+    selectField('Outcome', 'Outcome', ['', 'Passed', 'Failed', 'Did Not Attend'], record.Outcome || ''),
+    field('Notes', 'Notes', 'textarea', true, record.Notes),
+  ], async (values) => api('reviewCourseBooking', values), {
+    successMessage: 'Course booking updated.',
+  });
 }
 
 function openDisciplineEditor(officerIdOrRecord) {
@@ -1637,6 +1740,39 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const editTrainingOption = event.target.closest('[data-edit-training-option]');
+  if (editTrainingOption) {
+    const option = state.trainingOptions.find((row) => row.OptionID === editTrainingOption.dataset.editTrainingOption);
+    if (option) openTrainingOptionEditor(option);
+    return;
+  }
+
+  const editCourse = event.target.closest('[data-edit-course]');
+  if (editCourse) {
+    const course = state.courses.find((row) => row.CourseID === editCourse.dataset.editCourse);
+    if (course) openCourseEditor(course);
+    return;
+  }
+
+  const requestCourse = event.target.closest('[data-request-course]');
+  if (requestCourse) {
+    const response = await api('requestCourseSeat', { CourseID: requestCourse.dataset.requestCourse });
+    if (!response.ok) {
+      showInfo('Course request failed', `<p>${escapeHtml(response.error || 'Could not request this course.')}</p>`);
+      return;
+    }
+    invalidateCache('listTrainingCourses');
+    await loadCourses();
+    return;
+  }
+
+  const reviewBooking = event.target.closest('[data-review-booking]');
+  if (reviewBooking) {
+    const booking = state.courseBookings.find((row) => row.BookingID === reviewBooking.dataset.reviewBooking);
+    if (booking) openCourseBookingReviewEditor(booking);
+    return;
+  }
+
   const editAnnouncement = event.target.closest('[data-edit-announcement]');
   if (editAnnouncement) {
     const announcement = state.announcements.find((row) => row.AnnouncementID === editAnnouncement.dataset.editAnnouncement);
@@ -1892,7 +2028,9 @@ function tagList(title, value) {
 }
 
 function trainingChecklist(officerId, trainingRows) {
-  const rows = SPECIALIST_TRAINING.map((standard) => {
+  const specialistOptions = trainingOptionNames('Specialist');
+  const drivingStandards = trainingOptionNames('Driving');
+  const rows = specialistOptions.map((standard) => {
     const record = trainingRows.find((item) => item.Standard === standard && String(item.Status) === 'Passed');
     const checked = record ? ' checked' : '';
     const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
@@ -1903,10 +2041,10 @@ function trainingChecklist(officerId, trainingRows) {
       </label>
     `;
   }).join('');
-  const drivingRecord = DRIVING_STANDARDS.find((standard) => {
+  const drivingRecord = drivingStandards.find((standard) => {
     return trainingRows.some((item) => item.Standard === standard && String(item.Status) === 'Passed');
   }) || '';
-  const drivingOptions = [''].concat(DRIVING_STANDARDS).map((standard) => {
+  const drivingOptions = [''].concat(drivingStandards).map((standard) => {
     const label = standard || 'No driving standard';
     const selected = standard === drivingRecord ? ' selected' : '';
     return `<option value="${escapeHtml(standard)}"${selected}>${escapeHtml(label)}</option>`;
@@ -1935,14 +2073,27 @@ function trainingChecklist(officerId, trainingRows) {
   `;
 }
 
+function trainingOptionNames(type) {
+  const options = state.trainingOptions.length ? state.trainingOptions : [
+    ...SPECIALIST_TRAINING.map((name, index) => ({ Name: name, Type: 'Specialist', SortOrder: index + 1 })),
+    ...DRIVING_STANDARDS.map((name, index) => ({ Name: name, Type: 'Driving', SortOrder: index + 1 })),
+  ];
+  return options
+    .filter((option) => option.Type === type && option.Status !== 'Archived')
+    .sort((a, b) => Number(a.SortOrder || 0) - Number(b.SortOrder || 0) || String(a.Name).localeCompare(String(b.Name)))
+    .map((option) => option.Name);
+}
+
 function summarizeTraining(officers, trainingRows) {
+  const specialistOptions = trainingOptionNames('Specialist');
+  const drivingStandards = trainingOptionNames('Driving');
   return officers.map((officer) => {
     const records = trainingRows.filter((item) => item.OfficerID === officer.OfficerID);
     const passed = (standard) => records.some((item) => item.Standard === standard && item.Status === 'Passed');
-    const specialistTickets = SPECIALIST_TRAINING.filter(passed);
-    const drivingStandard = DRIVING_STANDARDS.find(passed) || 'Not set';
+    const specialistTickets = specialistOptions.filter(passed);
+    const drivingStandard = drivingStandards.find(passed) || 'Not set';
     const missing = [
-      ...SPECIALIST_TRAINING.filter((standard) => !passed(standard)),
+      ...specialistOptions.filter((standard) => !passed(standard)),
       drivingStandard === 'Not set' ? 'Driving standard' : '',
     ].filter(Boolean);
     const reviewDate = records.find((item) => item.ReviewDate)?.ReviewDate || '';
@@ -1957,6 +2108,24 @@ function summarizeTraining(officers, trainingRows) {
       MissingDetails: missing.join(', '),
       ReviewDate: reviewDate,
     };
+  });
+}
+
+function renderTrainingOptionsPanel() {
+  const container = document.querySelector('#trainingOptionsPanel');
+  const rows = state.trainingOptions || [];
+  if (!can('MANAGE_TRAINING_OPTIONS')) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <h3>Training Options</h3>
+    <div class="table-wrap compact">
+      <table id="trainingOptionsTable"></table>
+    </div>
+  `;
+  renderTable('#trainingOptionsTable', rows, ['Name', 'Type', 'Status', 'SortOrder', 'UpdatedAt'], {
+    actions: (row) => `<button class="mini" data-edit-training-option="${escapeHtml(row.OptionID)}">Edit</button>`,
   });
 }
 
@@ -2140,7 +2309,7 @@ function isDateColumn(column) {
 }
 
 function isDateTimeColumn(column) {
-  return ['UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift'].includes(column);
+  return ['UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift', 'CourseDate', 'RequestedAt'].includes(column);
 }
 
 function formatDisplayDate(value) {
@@ -2277,6 +2446,19 @@ async function loadSupervisorOptions() {
   const response = await apiCached('supervisorOptions', {});
   state.supervisorOptions = response.ok ? response.rows || [] : [];
   return state.supervisorOptions;
+}
+
+async function loadTrainerOptions() {
+  const response = await apiCached('courseTrainers', {});
+  return response.ok ? response.rows || [] : [state.user].filter(Boolean);
+}
+
+function trainerSelectField(name, label, options, selected = '') {
+  const optionHtml = options.map((option) => {
+    const isSelected = option.UserID === selected ? ' selected' : '';
+    return `<option value="${escapeHtml(option.UserID)}"${isSelected}>${escapeHtml(option.RobloxUsername)} - ${escapeHtml(option.Rank || option.Role || '')}</option>`;
+  }).join('');
+  return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
 }
 
 function checkboxGroupField(name, label, options, selected = '') {
