@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-07-5">
+    <link rel="stylesheet" href="styles.css?v=2026-05-07-6">
   </head>
   <body>
     <main class="terminal-shell">
@@ -297,17 +297,14 @@
           <section class="data-view" id="documentsView" hidden>
             <div class="section-head">
               <h2>Documents</h2>
-              <button id="newDocumentButton" data-permission="MANAGE_DOCUMENTS">Add document</button>
+              <div class="section-actions">
+                <button class="ghost" id="newFolderButton" data-permission="MANAGE_DOCUMENTS">New folder</button>
+                <button id="newDocumentButton" data-permission="MANAGE_DOCUMENTS">Add document</button>
+              </div>
             </div>
             <div class="filter-row">
               <input class="search-input" id="documentSearch" placeholder="Search documents">
-              <select id="documentCategoryFilter">
-                <option value="">All categories</option>
-                <option value="Training">Training</option>
-                <option value="Policy">Policy</option>
-                <option value="SOP">SOP</option>
-                <option value="Form">Form</option>
-              </select>
+              <select id="documentCategoryFilter"></select>
             </div>
             <div id="documentExplorer" class="document-explorer"></div>
           </section>
@@ -380,7 +377,7 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="supabase-config.js?v=2026-05-07-5"></script>
-    <script src="app.js?v=2026-05-07-5"></script>
+    <script src="supabase-config.js?v=2026-05-07-6"></script>
+    <script src="app.js?v=2026-05-07-6"></script>
   </body>
 </html>

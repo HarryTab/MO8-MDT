@@ -841,6 +841,12 @@ textarea {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.explorer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -885,6 +891,7 @@ textarea {
   background: rgba(255, 255, 255, 0.82);
   box-shadow: none;
   text-align: left;
+  cursor: pointer;
 }
 
 .folder-tile:hover {
@@ -1041,6 +1048,12 @@ tbody tr.supervisor-task:hover {
 
 tr[data-open-officer] {
   cursor: pointer;
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .actions {

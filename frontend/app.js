@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-5';
+const APP_VERSION = '2026-05-07-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -226,6 +226,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
 document.querySelector('#newOfficerButton').addEventListener('click', () => openOfficerEditor());
 document.querySelector('#bulkOfficerButton').addEventListener('click', () => openBulkOfficerEditor());
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
+document.querySelector('#newFolderButton').addEventListener('click', () => openFolderEditor());
 document.querySelector('#newTrainingOptionButton').addEventListener('click', () => openTrainingOptionEditor());
 document.querySelector('#newCourseButton').addEventListener('click', () => openCourseEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
@@ -940,29 +941,30 @@ async function loadAnnouncements() {
 
 function renderDocumentTable() {
   const query = document.querySelector('#documentSearch').value.toLowerCase();
-  const category = state.documentFolder || document.querySelector('#documentCategoryFilter').value;
-  syncDocumentCategoryFilter(category);
+  const currentPath = normalizeFolderPath(state.documentFolder || document.querySelector('#documentCategoryFilter').value);
+  syncDocumentCategoryFilter(currentPath);
   const rows = state.documents.filter((document) => {
-    const matchesQuery = ['Title', 'Category', 'RequiredRole', 'RequiredTags', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
-    const matchesCategory = !category || documentFolderName(document) === category;
-    return matchesQuery && matchesCategory;
+    const matchesQuery = ['Title', 'Category', 'FolderPath', 'FileName', 'RequiredRole', 'RequiredTags', 'Status'].some((field) => String(document[field] || '').toLowerCase().includes(query));
+    if (query) return matchesQuery;
+    return documentParentPath(documentFolderName(document)) === currentPath;
   });
-  renderDocumentExplorer(rows, query, category);
+  renderDocumentExplorer(rows, query, currentPath);
 }
 
-function renderDocumentExplorer(rows, query, category) {
+function renderDocumentExplorer(rows, query, currentPath) {
   const container = document.querySelector('#documentExplorer');
-  const folders = documentFolders();
-  const folderTiles = !category && !query ? folders.map((folder) => {
-    const count = state.documents.filter((document) => documentFolderName(document) === folder).length;
+  const folders = query ? [] : childFolders(currentPath);
+  const folderTiles = folders.map((folder) => {
+    const path = currentPath ? `${currentPath}/${folder}` : folder;
+    const count = state.documents.filter((document) => documentFolderName(document) === path || documentFolderName(document).startsWith(`${path}/`)).length;
     return `
-      <button class="folder-tile" data-doc-folder="${escapeHtml(folder)}">
+      <button class="folder-tile" data-doc-folder="${escapeHtml(path)}">
         <span class="folder-icon"></span>
         <strong>${escapeHtml(folder)}</strong>
         <small>${count} ${count === 1 ? 'file' : 'files'}</small>
       </button>
     `;
-  }).join('') : '';
+  }).join('');
 
   const files = rows.map((document) => `
     <article class="file-row">
@@ -987,15 +989,18 @@ function renderDocumentExplorer(rows, query, category) {
     <div class="explorer-bar">
       <div class="breadcrumb">
         <button data-doc-folder="">Documents</button>
-        ${category ? `<span>/</span><strong>${escapeHtml(category)}</strong>` : ''}
+        ${folderBreadcrumb(currentPath)}
         ${query ? `<span>/</span><strong>Search results</strong>` : ''}
       </div>
-      ${category || query ? `<button class="ghost mini" data-doc-folder="">All folders</button>` : ''}
+      <div class="explorer-actions">
+        ${currentPath || query ? `<button class="ghost mini" data-doc-folder="">All folders</button>` : ''}
+        ${currentPath ? `<button class="ghost mini" data-doc-folder="${escapeHtml(documentParentPath(currentPath))}">Up one level</button>` : ''}
+      </div>
     </div>
     ${folderTiles ? `<section class="folder-grid">${folderTiles}</section>` : ''}
     <section class="file-list">
       <div class="file-list-head">
-        <strong>${category ? escapeHtml(category) : query ? 'Matching documents' : 'All documents'}</strong>
+        <strong>${query ? 'Matching documents' : currentPath ? escapeHtml(folderBaseName(currentPath)) : 'All documents'}</strong>
         <span>${rows.length} ${rows.length === 1 ? 'file' : 'files'}</span>
       </div>
       ${files || `<p class="empty">No documents found.</p>`}
@@ -1004,12 +1009,12 @@ function renderDocumentExplorer(rows, query, category) {
 }
 
 function documentFolders() {
-  const folders = state.documents.map(documentFolderName).filter(Boolean);
+  const folders = state.documents.flatMap((document) => folderAncestors(documentFolderName(document))).filter(Boolean);
   return [...new Set(folders)].sort((a, b) => a.localeCompare(b));
 }
 
 function documentFolderName(document) {
-  return document.Category || 'Unfiled';
+  return normalizeFolderPath(document.FolderPath || document.Category || 'Unfiled');
 }
 
 function fileInitial(document) {
@@ -1024,6 +1029,47 @@ function syncDocumentCategoryFilter(category) {
     ...folders.map((folder) => `<option value="${escapeHtml(folder)}">${escapeHtml(folder)}</option>`),
   ].join('');
   filter.value = category || '';
+}
+
+function childFolders(parentPath = '') {
+  const children = new Set();
+  documentFolders().forEach((folder) => {
+    if (documentParentPath(folder) === parentPath) children.add(folderBaseName(folder));
+  });
+  return [...children].sort((a, b) => a.localeCompare(b));
+}
+
+function folderAncestors(path = '') {
+  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
+  return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
+}
+
+function folderBreadcrumb(path = '') {
+  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
+  return parts.map((part, index) => {
+    const crumbPath = parts.slice(0, index + 1).join('/');
+    const isLast = index === parts.length - 1;
+    return `<span>/</span>${isLast ? `<strong>${escapeHtml(part)}</strong>` : `<button data-doc-folder="${escapeHtml(crumbPath)}">${escapeHtml(part)}</button>`}`;
+  }).join('');
+}
+
+function normalizeFolderPath(path = '') {
+  return String(path || '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('/');
+}
+
+function documentParentPath(path = '') {
+  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
+}
+
+function folderBaseName(path = '') {
+  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
+  return parts[parts.length - 1] || 'Documents';
 }
 
 function renderAnnouncementCards(rows) {
@@ -1532,7 +1578,7 @@ function openDocumentEditor(document = {}) {
   openEditor(document.DocumentID ? 'Edit document' : 'Add document', [
     hiddenField('DocumentID', document.DocumentID),
     field('Title', 'Title', 'text', false, document.Title),
-    selectField('Category', 'Category', ['Training', 'Policy', 'SOP', 'Form'], document.Category),
+    field('Category', 'Folder path', 'text', false, documentFolderName(document) || state.documentFolder || 'General'),
     fileField('DocumentFile', document.FileName ? `Replace uploaded file (${document.FileName})` : 'Upload file'),
     field('DriveURL', 'External URL', 'url', false, document.StoragePath ? '' : document.DriveURL),
     selectField('RequiredRole', 'Minimum rank', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
@@ -1540,6 +1586,21 @@ function openDocumentEditor(document = {}) {
     selectField('RequiresAcknowledgement', 'Requires acknowledgement', ['FALSE', 'TRUE'], truthy(document.RequiresAcknowledgement) ? 'TRUE' : 'FALSE'),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived'], document.Status),
   ], async (values) => api('saveDocument', values));
+}
+
+function openFolderEditor() {
+  openEditor('New folder', [
+    field('ParentPath', 'Parent folder', 'text', false, state.documentFolder || ''),
+    field('FolderName', 'Folder name', 'text', false),
+  ], async (values) => {
+    const folderPath = normalizeFolderPath([values.ParentPath, values.FolderName].filter(Boolean).join('/'));
+    if (!folderPath) return { ok: false, error: 'Folder name is required.' };
+    state.documentFolder = folderPath;
+    renderDocumentTable();
+    return { ok: true };
+  }, {
+    successMessage: 'Folder created. Add a document to store files in it.',
+  });
 }
 
 async function openBulkOfficerEditor() {
@@ -1780,7 +1841,8 @@ async function handleDocumentClick(event) {
 
   const documentFolder = event.target.closest('[data-doc-folder]');
   if (documentFolder) {
-    state.documentFolder = documentFolder.dataset.docFolder || '';
+    state.documentFolder = normalizeFolderPath(documentFolder.dataset.docFolder || '');
+    document.querySelector('#documentSearch').value = '';
     renderDocumentTable();
     return;
   }
@@ -3510,7 +3572,7 @@ async function supabaseSaveDocument(data) {
   const record = {
     document_id: documentId,
     title: data.Title || '',
-    category: data.Category || 'General',
+    category: normalizeFolderPath(data.Category || state.documentFolder || 'General') || 'General',
     drive_url: uploadedFile ? '' : data.DriveURL || existing?.drive_url || '',
     storage_path: storagePath,
     file_name: fileName,
@@ -3984,6 +4046,7 @@ function supabaseDocument(row) {
     DocumentID: row.document_id,
     Title: row.title,
     Category: row.category,
+    FolderPath: row.category,
     DriveURL: row.signed_url || row.drive_url,
     ExternalURL: row.drive_url || '',
     StoragePath: row.storage_path || '',
