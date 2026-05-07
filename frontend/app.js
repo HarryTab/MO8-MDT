@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-7';
+const APP_VERSION = '2026-05-07-8';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3449,7 +3449,8 @@ async function supabaseTasks() {
     const course = (courses || []).find((row) => row.course_id === booking.course_id) || {};
     const officer = (officers || []).find((row) => row.officer_id === booking.officer_id) || {};
     const trainerIds = [course.trainer_user_id, ...(course.co_trainer_user_ids || [])].filter(Boolean);
-    if (!trainerIds.includes(state.user?.UserID)) return null;
+    const assignedToMe = trainerIds.includes(state.user?.UserID);
+    if (!assignedToMe && !can('MANAGE_COURSES')) return null;
     return {
       TaskType: 'Course Booking',
       BookingID: booking.booking_id,
@@ -3463,7 +3464,7 @@ async function supabaseTasks() {
       SourceType: 'Training Course',
       Reason: booking.notes || '',
       Status: booking.status || '',
-      MySupervisee: false,
+      MySupervisee: assignedToMe,
       RequestedAt: booking.requested_at || '',
     };
   }).filter(Boolean);
