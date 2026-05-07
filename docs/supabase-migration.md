@@ -85,6 +85,26 @@ If you want to avoid real emails, use roleplay/admin email aliases such as:
 
 Supabase requires email-shaped values for email/password auth, but the officer-facing MDT can still display Roblox usernames.
 
+## Step 4A: Create Your First Admin Login
+
+Before the frontend can log into Supabase, create one Command user.
+
+1. In Supabase, go to `Authentication`.
+2. Open `Users`.
+3. Click `Add user`.
+4. Use an email-shaped login, for example `yourrobloxusername@mo8.local`.
+5. Set a password.
+6. Confirm/create the user.
+7. Open the new user and copy their UUID.
+8. Open `supabase/create-admin-profile.sql`.
+9. Replace:
+   - `PASTE_AUTH_USER_UUID_HERE`
+   - `YourRobloxUsername`
+   - `YourDiscordID`
+10. Run the edited SQL in Supabase SQL Editor.
+
+This links the Supabase Auth login to an MDT Command profile and officer record.
+
 ## Step 5: Data Migration
 
 Export each Google Sheet tab as CSV, then import into the matching Supabase table.
