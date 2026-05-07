@@ -1,5 +1,8 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-06-3';
+const APP_VERSION = '2026-05-07-1';
+const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
+const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
+const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
 
 const OFFICER_RANKS = [
   'Police Constable',
@@ -139,6 +142,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
   state.token = response.token;
   state.user = response.user;
   state.permissions = response.permissions || [];
+  localStorage.setItem('mo8_auth_provider', response.provider || (USE_SUPABASE ? 'supabase' : 'apps-script'));
   localStorage.setItem('mo8_token', state.token);
   storeSessionAuth(state.user, state.permissions);
   await initializeSession();
@@ -147,6 +151,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
 elements.logoutButton.addEventListener('click', async () => {
   await api('logout', {});
   localStorage.removeItem('mo8_token');
+  localStorage.removeItem('mo8_auth_provider');
   sessionStorage.removeItem(CACHE_STORAGE_KEY);
   sessionStorage.removeItem(BOOT_STORAGE_KEY);
   sessionStorage.removeItem(SESSION_STORAGE_KEY);
@@ -2537,6 +2542,10 @@ function checkboxGroupField(name, label, options, selected = '') {
 }
 
 async function api(action, data = {}, includeToken = true) {
+  if (USE_SUPABASE || localStorage.getItem('mo8_auth_provider') === 'supabase') {
+    return supabaseApi(action, data, includeToken);
+  }
+
   const payload = Object.assign({}, data, { action });
   if (includeToken) payload.token = state.token;
 
@@ -2549,6 +2558,422 @@ async function api(action, data = {}, includeToken = true) {
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}
+
+async function supabaseApi(action, data = {}, includeToken = true) {
+  try {
+    if (!supabaseClient) return { ok: false, error: 'Supabase is not configured.' };
+
+    if (action === 'login') {
+      const email = supabaseEmailForLogin(data.username);
+      const { data: authData, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password: data.password,
+      });
+      if (error) return { ok: false, error: error.message };
+      const session = authData.session;
+      const profileResponse = await supabaseCurrentProfile();
+      if (!profileResponse.ok) return profileResponse;
+      return {
+        ok: true,
+        provider: 'supabase',
+        token: session.access_token,
+        user: profileResponse.user,
+        permissions: profileResponse.permissions,
+        expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : '',
+      };
+    }
+
+    if (action === 'logout') {
+      await supabaseClient.auth.signOut();
+      return { ok: true, loggedOut: true };
+    }
+
+    if (includeToken) {
+      const { data: sessionData } = await supabaseClient.auth.getSession();
+      if (!sessionData.session) return { ok: false, error: 'Session expired. Please sign in again.' };
+      state.token = sessionData.session.access_token;
+      localStorage.setItem('mo8_token', state.token);
+    }
+
+    const handlers = {
+      me: supabaseCurrentProfile,
+      myProfile: supabaseMyProfile,
+      listNotifications: supabaseListNotifications,
+      markNotificationsRead: supabaseMarkNotificationsRead,
+      dashboard: supabaseDashboard,
+      listDocuments: supabaseListDocuments,
+      listAnnouncements: supabaseListAnnouncements,
+      shiftStatus: supabaseShiftStatus,
+    };
+
+    if (!handlers[action]) {
+      return {
+        ok: false,
+        error: `${action} has not been migrated to Supabase yet. The migration is currently covering login, dashboard basics, documents, notices, notifications and profile startup.`,
+      };
+    }
+    return await handlers[action](data);
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
+  }
+}
+
+function supabaseEmailForLogin(username) {
+  const raw = String(username || '').trim();
+  if (raw.includes('@')) return raw;
+  return `${raw.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@mo8.local`;
+}
+
+async function supabaseCurrentProfile() {
+  const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+  if (authError || !authData.user) return { ok: false, error: authError?.message || 'Not signed in.' };
+
+  const { data: profile, error } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .eq('auth_user_id', authData.user.id)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!profile) return { ok: false, error: 'This Supabase login is not linked to an MDT profile yet.' };
+
+  const permissions = await supabasePermissions(profile);
+  return { ok: true, user: supabaseUser(profile), permissions };
+}
+
+async function supabasePermissions(profile) {
+  const checks = await Promise.all(ALL_PERMISSIONS.map(async (permission) => {
+    const { data, error } = await supabaseClient.rpc('has_permission', { permission_name: permission });
+    if (error) throw new Error(error.message);
+    return data ? permission : '';
+  }));
+  return checks.filter(Boolean);
+}
+
+async function supabaseMyProfile() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  const [training, discipline, loa, shifts, rankChanges, notifications, documents, announcements] = await Promise.all([
+    officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseRows('loa_requests', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseRows('shift_logs', 'officer_id', officer.officer_id, 'started_at') : [],
+    supabaseRows('rank_changes', 'member_id', profile.member_id, 'changed_at'),
+    supabaseNotificationRows(profile.member_id),
+    supabaseVisibleDocuments(),
+    supabaseVisibleAnnouncements(),
+  ]);
+  return {
+    ok: true,
+    user: me.user,
+    officer: officer ? supabaseOfficer(officer) : null,
+    training: training.map(supabaseTrainingRecord),
+    discipline: discipline.map(supabaseDiscipline),
+    loa: loa.map(supabaseLoa),
+    transfers: [],
+    supervisorRequests: [],
+    appeals: [],
+    checkins: [],
+    developmentPlans: [],
+    shifts: shifts.map(supabaseShift),
+    shiftStatus: await supabaseShiftStatus(),
+    rankChanges: rankChanges.map(supabaseRankChange),
+    documents: documents.rows || [],
+    announcements: announcements.rows || [],
+    notifications,
+  };
+}
+
+async function supabaseDashboard() {
+  const [officers, loa, documents, announcements] = await Promise.all([
+    supabaseClient.from('officers').select('*'),
+    supabaseClient.from('loa_requests').select('*'),
+    supabaseVisibleDocuments(),
+    supabaseVisibleAnnouncements(),
+  ]);
+  if (officers.error) return { ok: false, error: officers.error.message };
+  if (loa.error) return { ok: false, error: loa.error.message };
+  const activeLoa = (loa.data || []).filter((row) => row.status === 'Approved' && isTodayInRange(row.start_date, row.end_date));
+  const pendingLoa = (loa.data || []).filter((row) => row.status === 'Pending');
+  return {
+    ok: true,
+    widgets: DASHBOARD_WIDGETS.map(([key]) => key),
+    counts: {
+      activeOfficers: (officers.data || []).filter((row) => row.status === 'Active').length,
+      currentlyOnLoa: activeLoa.length,
+      loaPending: pendingLoa.length,
+      pendingAppeals: 0,
+      trainingReviewsDue: 0,
+      pendingAcknowledgements: 0,
+      upcomingTraining: 0,
+    },
+    activeLoa: activeLoa.map(supabaseLoa).slice(0, 5),
+    pendingLoa: pendingLoa.map(supabaseLoa).slice(0, 5),
+    announcements: announcements.rows || [],
+    recentDocuments: documents.rows || [],
+    trainingReviewsDue: [],
+    recentAudit: [],
+    pendingAppeals: [],
+    unassignedOfficers: (officers.data || []).filter((row) => row.status !== 'Archived' && !row.supervisor_user_id).map(supabaseOfficer).slice(0, 5),
+    lowActivity: [],
+    documentAcknowledgements: [],
+    upcomingTraining: [],
+  };
+}
+
+async function supabaseListNotifications() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const rows = await supabaseNotificationRows(profile.member_id);
+  return { ok: true, rows, unread: rows.filter((row) => !row.ReadAt).length };
+}
+
+async function supabaseMarkNotificationsRead() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const { error } = await supabaseClient
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('member_id', profile.member_id)
+    .is('read_at', null);
+  return error ? { ok: false, error: error.message } : { ok: true, read: true };
+}
+
+async function supabaseListDocuments() {
+  return supabaseVisibleDocuments();
+}
+
+async function supabaseListAnnouncements() {
+  return supabaseVisibleAnnouncements();
+}
+
+async function supabaseShiftStatus() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: true, onDuty: false, activeShift: null };
+  const { data, error } = await supabaseClient
+    .from('shift_logs')
+    .select('*')
+    .eq('officer_id', officer.officer_id)
+    .eq('status', 'On Duty')
+    .is('ended_at', null)
+    .order('started_at', { ascending: false })
+    .limit(1);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, onDuty: Boolean(data && data.length), activeShift: data && data.length ? supabaseShift(data[0]) : null };
+}
+
+async function supabaseVisibleDocuments() {
+  const { data, error } = await supabaseClient
+    .from('documents')
+    .select('*')
+    .order('category', { ascending: true })
+    .order('title', { ascending: true });
+  if (error) return { ok: false, error: error.message, rows: [] };
+  return { ok: true, rows: (data || []).map(supabaseDocument) };
+}
+
+async function supabaseVisibleAnnouncements() {
+  const { data, error } = await supabaseClient
+    .from('announcements')
+    .select('*')
+    .order('pinned', { ascending: false })
+    .order('updated_at', { ascending: false });
+  if (error) return { ok: false, error: error.message, rows: [] };
+  return { ok: true, rows: (data || []).map(supabaseAnnouncement) };
+}
+
+async function supabaseProfileByUserId(userId) {
+  const { data, error } = await supabaseClient.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function supabaseOfficerForMember(memberId) {
+  if (!memberId) return null;
+  const { data, error } = await supabaseClient.from('officers').select('*').eq('member_id', memberId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function supabaseRows(table, column, value, orderColumn = '') {
+  let query = supabaseClient.from(table).select('*').eq(column, value);
+  if (orderColumn) query = query.order(orderColumn, { ascending: false });
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+async function supabaseNotificationRows(memberId) {
+  const { data, error } = await supabaseClient
+    .from('notifications')
+    .select('*')
+    .eq('member_id', memberId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+  return (data || []).map(supabaseNotification);
+}
+
+function supabaseUser(row) {
+  return {
+    UserID: row.user_id,
+    MemberID: row.member_id,
+    RobloxUsername: row.roblox_username,
+    DiscordID: row.discord_id || '',
+    Rank: row.rank,
+    Role: row.role,
+    Status: row.status,
+    LastLogin: row.last_login || '',
+    CreatedAt: row.created_at || '',
+    CreatedBy: row.created_by || '',
+  };
+}
+
+function supabaseOfficer(row) {
+  return {
+    OfficerID: row.officer_id,
+    MemberID: row.member_id,
+    RobloxUsername: row.roblox_username,
+    DiscordID: row.discord_id || '',
+    Callsign: row.callsign || '',
+    Rank: row.rank || '',
+    Status: row.status || '',
+    EffectiveStatus: row.status || '',
+    JoinDate: row.join_date || '',
+    SupervisorUserID: row.supervisor_user_id || '',
+    Tags: (row.tags || []).join(', '),
+    Notes: row.notes || '',
+    CreatedAt: row.created_at || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseDocument(row) {
+  return {
+    DocumentID: row.document_id,
+    Title: row.title,
+    Category: row.category,
+    DriveURL: row.drive_url,
+    RequiredRole: row.required_role || '',
+    RequiredTags: (row.required_tags || []).join(', '),
+    RequiresAcknowledgement: row.requires_acknowledgement ? 'TRUE' : 'FALSE',
+    Status: row.status,
+    UpdatedBy: row.updated_by || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseAnnouncement(row) {
+  return {
+    AnnouncementID: row.announcement_id,
+    Title: row.title,
+    Body: row.body || '',
+    Audience: row.audience || '',
+    Status: row.status,
+    Pinned: row.pinned ? 'TRUE' : 'FALSE',
+    ExpiresAt: row.expires_at || '',
+    UpdatedBy: row.updated_by || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseNotification(row) {
+  return {
+    NotificationID: row.notification_id,
+    MemberID: row.member_id,
+    Title: row.title,
+    Message: row.message || '',
+    CreatedAt: row.created_at || '',
+    ReadAt: row.read_at || '',
+    ActorUserID: row.actor_user_id || '',
+  };
+}
+
+function supabaseTrainingRecord(row) {
+  return {
+    TrainingID: row.training_id,
+    OfficerID: row.officer_id,
+    Standard: row.standard,
+    Status: row.status,
+    Assessor: row.assessor || '',
+    DateCompleted: row.date_completed || '',
+    ExpiryDate: row.expiry_date || '',
+    Notes: row.notes || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseDiscipline(row) {
+  return {
+    ActionID: row.action_id,
+    OfficerID: row.officer_id,
+    Type: row.type,
+    Summary: row.summary,
+    Details: row.details || '',
+    IssuedBy: row.issued_by || '',
+    IssuedAt: row.issued_at || '',
+    Status: row.status,
+  };
+}
+
+function supabaseLoa(row) {
+  return {
+    RequestID: row.request_id,
+    OfficerID: row.officer_id,
+    StartDate: row.start_date || '',
+    EndDate: row.end_date || '',
+    Reason: row.reason || '',
+    Status: row.status,
+    ReviewReason: row.review_reason || '',
+    ReviewedBy: row.reviewed_by || '',
+    ReviewedAt: row.reviewed_at || '',
+    CreatedAt: row.created_at || '',
+  };
+}
+
+function supabaseShift(row) {
+  return {
+    ShiftID: row.shift_id,
+    OfficerID: row.officer_id,
+    MemberID: row.member_id || '',
+    RobloxUsername: row.roblox_username || '',
+    Callsign: row.callsign || '',
+    Rank: row.rank || '',
+    StartedAt: row.started_at || '',
+    EndedAt: row.ended_at || '',
+    Summary: row.summary || '',
+    Status: row.status || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseRankChange(row) {
+  return {
+    ChangeID: row.change_id,
+    MemberID: row.member_id || '',
+    OfficerID: row.officer_id || '',
+    UserID: row.user_id || '',
+    RobloxUsername: row.roblox_username || '',
+    PreviousRank: row.previous_rank || '',
+    NewRank: row.new_rank || '',
+    Reason: row.reason || '',
+    ChangedBy: row.changed_by || '',
+    ChangedAt: row.changed_at || '',
+  };
+}
+
+function isTodayInRange(start, end) {
+  const today = new Date();
+  const startDate = start ? new Date(start) : null;
+  const endDate = end ? new Date(end) : null;
+  return Boolean(startDate && endDate && startDate <= today && endDate >= today);
 }
 
 async function apiCached(action, data = {}, includeToken = true) {
