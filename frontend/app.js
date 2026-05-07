@@ -3550,9 +3550,32 @@ async function supabaseChangePassword(data) {
 }
 
 async function supabaseInvokeAdminUsers(payload) {
-  const { data, error } = await supabaseClient.functions.invoke('admin-users', { body: payload });
-  if (error) return { ok: false, error: error.message };
-  return data || { ok: false, error: 'No response from admin-users function.' };
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) return { ok: false, error: 'Session expired. Please sign in again.' };
+
+  const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_CONFIG.anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await response.text();
+  let body = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch (error) {
+    body = { error: text || response.statusText };
+  }
+
+  if (!response.ok) {
+    return { ok: false, error: body.error || `Admin function failed with HTTP ${response.status}.` };
+  }
+  return body || { ok: false, error: 'No response from admin-users function.' };
 }
 
 async function supabaseAuditLog() {
