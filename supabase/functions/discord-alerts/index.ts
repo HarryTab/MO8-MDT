@@ -191,7 +191,8 @@ function shouldInlineField(name: string) {
 function embedColour(title: string, message: string) {
   const text = `${title || ''} ${message || ''}`.toLowerCase();
   if (['denied', 'cancelled', 'canceled', 'failed', 'discipline', 'disciplinary', 'removed', 'suspended'].some((word) => text.includes(word))) return 0xd93025;
-  if (['approved', 'passed', 'completed', 'assigned', 'added'].some((word) => text.includes(word))) return 0x188038;
+  if (['supervisor updated', 'new supervisee assigned', 'supervisee reassigned', 'assigned as your supervisor'].some((word) => text.includes(word))) return 0x1267d8;
+  if (['approved', 'passed', 'completed', 'added'].some((word) => text.includes(word))) return 0x188038;
   if (['waitlist', 'waitlisted', 'deferred', 'on hold'].some((word) => text.includes(word))) return 0xf9ab00;
   return 0x1267d8;
 }
