@@ -234,6 +234,7 @@ Add the bot token as a Supabase secret. If you already use `supabase-secrets.env
 
 ```env
 DISCORD_BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE
+MDT_URL=https://harrytab.github.io/MO8-MDT/
 ```
 
 Then run:

@@ -132,9 +132,12 @@ function discordFetch(botToken: string, url: string, init: RequestInit = {}) {
 }
 
 function formatDiscordMessage(title: string, message: string) {
+  const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
   const lines = [
     `**${String(title || 'MO8 MDT notification').slice(0, 180)}**`,
     String(message || '').slice(0, 1700),
+    '',
+    `[Open MO8 MDT](${mdtUrl})`,
     '',
     '_Sent by MO8 MDT_',
   ];
