@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-2';
+const APP_VERSION = '2026-05-07-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -2874,7 +2874,9 @@ async function supabaseSaveOfficer(data) {
   if (!me.ok) return me;
   const existing = data.OfficerID ? await supabaseById('officers', 'officer_id', data.OfficerID) : null;
   const memberId = existing?.member_id || data.MemberID || `MBR_${crypto.randomUUID().replaceAll('-', '')}`;
+  const officerId = data.OfficerID || idForSupabase('OFF');
   const record = {
+    officer_id: officerId,
     member_id: memberId,
     roblox_username: data.RobloxUsername || '',
     discord_id: data.DiscordID || '',
@@ -2886,15 +2888,15 @@ async function supabaseSaveOfficer(data) {
     notes: data.Notes || '',
   };
   const result = data.OfficerID
-    ? await supabaseClient.from('officers').update(record).eq('officer_id', data.OfficerID).select().single()
-    : await supabaseClient.from('officers').insert(record).select().single();
+    ? await supabaseClient.from('officers').update(record).eq('officer_id', data.OfficerID)
+    : await supabaseClient.from('officers').insert(record);
   if (result.error) return { ok: false, error: result.error.message };
 
-  await supabaseUpsertProfileForOfficer(result.data, data.Role || rankToRole(record.rank), me.user.UserID);
+  await supabaseUpsertProfileForOfficer(record, data.Role || rankToRole(record.rank), me.user.UserID);
   if (existing && existing.rank !== record.rank) {
     await supabaseInsert('rank_changes', {
       member_id: memberId,
-      officer_id: result.data.officer_id,
+      officer_id: officerId,
       roblox_username: record.roblox_username,
       previous_rank: existing.rank || '',
       new_rank: record.rank,
@@ -2903,8 +2905,8 @@ async function supabaseSaveOfficer(data) {
     });
     await supabaseNotify(memberId, 'Rank updated', `Your rank changed from ${existing.rank || 'No rank'} to ${record.rank}.`, me.user.UserID);
   }
-  await supabaseAudit(me.user.UserID, data.OfficerID ? 'UPDATE_OFFICER' : 'CREATE_OFFICER', 'Officer', result.data.officer_id, record);
-  return { ok: true, OfficerID: result.data.officer_id };
+  await supabaseAudit(me.user.UserID, data.OfficerID ? 'UPDATE_OFFICER' : 'CREATE_OFFICER', 'Officer', officerId, record);
+  return { ok: true, OfficerID: officerId };
 }
 
 async function supabaseSetOfficerSupervisor(data) {
@@ -2999,14 +3001,16 @@ async function supabaseRequestCourseSeat(data) {
   const bookings = await supabaseRows('course_bookings', 'course_id', data.CourseID);
   const approved = bookings.filter((booking) => ['Approved', 'Completed'].includes(booking.status)).length;
   const status = Number(course.capacity || 0) && approved >= Number(course.capacity || 0) ? 'Waitlist' : 'Requested';
+  const bookingId = idForSupabase('CBK');
   const result = await supabaseClient.from('course_bookings').insert({
+    booking_id: bookingId,
     course_id: data.CourseID,
     officer_id: officer.officer_id,
     status,
     notes: data.Notes || '',
-  }).select().single();
+  });
   if (result.error) return { ok: false, error: result.error.message };
-  return { ok: true, BookingID: result.data.booking_id, Status: status };
+  return { ok: true, BookingID: bookingId, Status: status };
 }
 
 async function supabaseReviewCourseBooking(data) {
@@ -3671,7 +3675,7 @@ async function supabaseVisibleAnnouncements() {
 }
 
 async function supabaseProfileByUserId(userId) {
-  const { data, error } = await supabaseClient.from('profiles').select('*').eq('user_id', userId).maybeSingle();
+  const { data, error } = await supabaseClient.from('profiles').select('*').eq('user_id', userId).limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
@@ -3684,20 +3688,20 @@ async function supabaseAll(table) {
 
 async function supabaseById(table, column, value) {
   if (!value) return null;
-  const { data, error } = await supabaseClient.from(table).select('*').eq(column, value).maybeSingle();
+  const { data, error } = await supabaseClient.from(table).select('*').eq(column, value).limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
 
 async function supabaseInsert(table, record) {
-  const { data, error } = await supabaseClient.from(table).insert(record).select().single();
+  const { data, error } = await supabaseClient.from(table).insert(record).select().limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
 
 async function supabaseOfficerForMember(memberId) {
   if (!memberId) return null;
-  const { data, error } = await supabaseClient.from('officers').select('*').eq('member_id', memberId).maybeSingle();
+  const { data, error } = await supabaseClient.from('officers').select('*').eq('member_id', memberId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
@@ -3711,7 +3715,7 @@ async function supabaseRows(table, column, value, orderColumn = '') {
 }
 
 async function supabaseOfficerProfile(memberId) {
-  const { data, error } = await supabaseClient.from('profiles').select('*').eq('member_id', memberId).maybeSingle();
+  const { data, error } = await supabaseClient.from('profiles').select('*').eq('member_id', memberId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
@@ -3782,6 +3786,10 @@ function rankToRole(rank = '') {
   if (rank === 'Inspector') return 'Inspector';
   if (rank === 'Sergeant') return 'Sergeant';
   return 'Constable';
+}
+
+function idForSupabase(prefix) {
+  return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`;
 }
 
 async function supabaseNotificationRows(memberId) {
