@@ -54,6 +54,8 @@ The MO8 roleplay use case should normally sit comfortably inside the free allowa
 
 This creates the tables, indexes, starter permissions, training options, and first-pass row-level security rules.
 
+If the schema fails with an error such as `relation "profiles" already exists`, the first run probably created some tables before stopping. On a brand-new/empty MDT project only, run `supabase/reset-dev.sql` in the SQL Editor first, then run `supabase/schema.sql` again.
+
 ## Step 3: Get Frontend Connection Details
 
 In Supabase:
@@ -167,4 +169,3 @@ Then move the heavier admin workflows:
 - Only commit the project URL and anon public key.
 - Keep row-level security enabled.
 - Test with a Constable account and a Command account before making the Supabase version live.
-
