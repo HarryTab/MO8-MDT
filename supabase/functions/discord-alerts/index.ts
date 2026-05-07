@@ -78,8 +78,7 @@ async function sendNotificationDm(adminClient: ReturnType<typeof createClient>, 
   const discordId = digitsOnly(recipient?.discord_id || '');
   if (!discordId) return json({ ok: true, sent: false, skipped: 'No Discord ID is stored for this officer.' });
 
-  const content = formatDiscordMessage(notification.title || 'MO8 MDT notification', notification.message || '');
-  const result = await sendDiscordDm(botToken, discordId, content);
+  const result = await sendDiscordDm(botToken, discordId, notification.title || 'MO8 MDT notification', notification.message || '');
   return json({ ok: result.ok, sent: result.ok, error: result.error || '', discordId });
 }
 
@@ -99,11 +98,11 @@ async function testIdentity(botToken: string) {
 async function testDm(botToken: string, payload: DiscordAlertPayload, actorDiscordId: string) {
   const discordId = digitsOnly(payload.discordId || actorDiscordId || '');
   if (!discordId) return json({ ok: false, error: 'No Discord ID supplied or stored on your profile.' }, 400);
-  const result = await sendDiscordDm(botToken, discordId, formatDiscordMessage(payload.title || 'MO8 MDT test', payload.message || 'Discord DM alerts are connected.'));
+  const result = await sendDiscordDm(botToken, discordId, payload.title || 'MO8 MDT test', payload.message || 'Discord DM alerts are connected.');
   return json({ ok: result.ok, sent: result.ok, error: result.error || '', discordId }, result.ok ? 200 : 400);
 }
 
-async function sendDiscordDm(botToken: string, discordId: string, content: string) {
+async function sendDiscordDm(botToken: string, discordId: string, title: string, message: string) {
   const channelResponse = await discordFetch(botToken, 'https://discord.com/api/v10/users/@me/channels', {
     method: 'POST',
     body: JSON.stringify({ recipient_id: discordId }),
@@ -113,7 +112,9 @@ async function sendDiscordDm(botToken: string, discordId: string, content: strin
 
   const messageResponse = await discordFetch(botToken, `https://discord.com/api/v10/channels/${channelBody.id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      embeds: [formatDiscordEmbed(title, message)],
+    }),
   });
   const messageBody = await messageResponse.json().catch(() => ({}));
   if (!messageResponse.ok) return { ok: false, error: discordError(messageResponse, messageBody) };
@@ -131,17 +132,24 @@ function discordFetch(botToken: string, url: string, init: RequestInit = {}) {
   });
 }
 
-function formatDiscordMessage(title: string, message: string) {
+function formatDiscordEmbed(title: string, message: string) {
   const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
-  const lines = [
-    `**${String(title || 'MO8 MDT notification').slice(0, 180)}**`,
-    String(message || '').slice(0, 1700),
-    '',
-    `[Open MO8 MDT](${mdtUrl})`,
-    '',
-    '_Sent by MO8 MDT_',
-  ];
-  return lines.join('\n').trim().slice(0, 1900);
+  return {
+    title: String(title || 'MO8 MDT notification').slice(0, 256),
+    description: String(message || '').slice(0, 3900) || 'You have a new MDT notification.',
+    color: 0x1267d8,
+    timestamp: new Date().toISOString(),
+    fields: [
+      {
+        name: 'Open MDT',
+        value: `[Launch MO8 MDT](${mdtUrl})`,
+        inline: false,
+      },
+    ],
+    footer: {
+      text: 'MO8 MDT Alerts',
+    },
+  };
 }
 
 function discordError(response: Response, body: Record<string, unknown>) {
