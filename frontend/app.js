@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-9';
+const APP_VERSION = '2026-05-07-10';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3022,10 +3022,18 @@ async function supabaseSetOfficerSupervisor(data) {
   const supervisor = data.SupervisorUserID ? await supabaseById('profiles', 'user_id', data.SupervisorUserID) : null;
   const previousSupervisor = previousSupervisorId ? await supabaseById('profiles', 'user_id', previousSupervisorId) : null;
   if (officer) {
-    await supabaseNotify(officer.member_id, 'Supervisor updated', supervisor ? `${supervisor.roblox_username} has been assigned as your supervisor.` : 'Your supervisor assignment has been removed.', state.user?.UserID);
+    await supabaseNotify(officer.member_id, 'Supervisor updated', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Supervisor', supervisor ? supervisor.roblox_username : 'Not assigned'),
+      detailLine('Updated by', state.user?.RobloxUsername),
+    ]), state.user?.UserID);
   }
   if (supervisor && officer) {
-    await supabaseNotify(supervisor.member_id, 'New supervisee assigned', `${officer.roblox_username} has been assigned to you as a supervisee.`, state.user?.UserID);
+    await supabaseNotify(supervisor.member_id, 'New supervisee assigned', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Assigned by', state.user?.RobloxUsername),
+    ]), state.user?.UserID);
   }
   if (previousSupervisor && previousSupervisor.user_id !== supervisor?.user_id && officer) {
     await supabaseNotify(previousSupervisor.member_id, 'Supervisee reassigned', `${officer.roblox_username} is no longer assigned to you.`, state.user?.UserID);
@@ -3129,7 +3137,13 @@ async function supabaseDeleteTrainingCourse(data) {
   await Promise.all(affectedBookings.map(async (booking) => {
     const officer = (officers || []).find((row) => row.officer_id === booking.officer_id);
     if (!officer) return null;
-    return supabaseNotify(officer.member_id, 'Training course cancelled', `${course.title} is no longer happening.`, state.user?.UserID);
+    return supabaseNotify(officer.member_id, 'Training course cancelled', notificationDetails([
+      detailLine('Course', course.title),
+      detailLine('Standard', course.standard),
+      detailLine('Date', formatDisplayDateTime(course.course_date)),
+      detailLine('Location', course.location),
+      detailLine('Status', 'Cancelled'),
+    ]), state.user?.UserID);
   }));
   return { ok: true };
 }
@@ -3151,15 +3165,34 @@ async function supabaseRequestCourseSeat(data) {
     notes: data.Notes || '',
   });
   if (result.error) return { ok: false, error: result.error.message };
-  await supabaseNotify(officer.member_id, 'Training course requested', `Your request for ${course.title} was submitted as ${status}.`, state.user?.UserID);
+  await supabaseNotify(officer.member_id, 'Training course requested', notificationDetails([
+    detailLine('Course', course.title),
+    detailLine('Standard', course.standard),
+    detailLine('Date', formatDisplayDateTime(course.course_date)),
+    detailLine('Location', course.location),
+    detailLine('Status', status),
+    detailLine('Decision', status === 'Requested' ? 'Awaiting trainer review' : 'Added to waitlist'),
+  ]), state.user?.UserID);
   if (course.trainer_user_id) {
     const trainer = await supabaseById('profiles', 'user_id', course.trainer_user_id);
-    if (trainer) await supabaseNotify(trainer.member_id, 'Course booking requested', `${officer.roblox_username} requested a space on ${course.title}.`, state.user?.UserID);
+    if (trainer) await supabaseNotify(trainer.member_id, 'Course booking requested', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Course', course.title),
+      detailLine('Date', formatDisplayDateTime(course.course_date)),
+      detailLine('Status', status),
+    ]), state.user?.UserID);
   }
   await Promise.all((course.co_trainer_user_ids || []).map(async (userId) => {
     const coTrainer = await supabaseById('profiles', 'user_id', userId);
     if (!coTrainer) return null;
-    return supabaseNotify(coTrainer.member_id, 'Course booking requested', `${officer.roblox_username} requested a space on ${course.title}.`, state.user?.UserID);
+    return supabaseNotify(coTrainer.member_id, 'Course booking requested', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Course', course.title),
+      detailLine('Date', formatDisplayDateTime(course.course_date)),
+      detailLine('Status', status),
+    ]), state.user?.UserID);
   }));
   return { ok: true, BookingID: bookingId, Status: status };
 }
@@ -3181,7 +3214,15 @@ async function supabaseReviewCourseBooking(data) {
     await supabaseSaveTraining({ OfficerID: existing.officer_id, Standard: course.standard, Status: 'Passed', Assessor: state.user?.RobloxUsername || '', Notes: `Passed via course ${course.title}` });
   }
   if (officer && course) {
-    await supabaseNotify(officer.member_id, 'Training course updated', `Your booking for ${course.title} is now ${update.status}${update.outcome ? ` (${update.outcome})` : ''}.`, state.user?.UserID);
+    await supabaseNotify(officer.member_id, 'Training course updated', notificationDetails([
+      detailLine('Course', course.title),
+      detailLine('Standard', course.standard),
+      detailLine('Date', formatDisplayDateTime(course.course_date)),
+      detailLine('Status', update.status),
+      detailLine('Outcome', update.outcome),
+      detailLine('Reviewed by', state.user?.RobloxUsername),
+      detailLine('Notes', update.notes),
+    ]), state.user?.UserID);
   }
   return { ok: true, BookingID: data.BookingID };
 }
@@ -3215,7 +3256,13 @@ async function supabaseSaveTraining(data) {
     : await supabaseClient.from('training_records').insert(record).select().single();
   if (result.error) return { ok: false, error: result.error.message };
   const officer = await supabaseById('officers', 'officer_id', record.officer_id);
-  if (officer) await supabaseNotify(officer.member_id, 'Training record updated', `${record.standard} is now marked as ${record.status}.`, state.user?.UserID);
+  if (officer) await supabaseNotify(officer.member_id, 'Training record updated', notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Training', record.standard),
+    detailLine('Status', record.status),
+    detailLine('Assessor', record.assessor),
+    detailLine('Date completed', formatDisplayDate(record.date_completed)),
+  ]), state.user?.UserID);
   return { ok: true, TrainingID: result.data.training_id };
 }
 
@@ -3234,7 +3281,11 @@ async function supabaseSetOfficerTraining(data) {
   };
   const { error } = await supabaseClient.from('training_matrix').upsert(row, { onConflict: 'officer_id' });
   if (error) return { ok: false, error: error.message };
-  await supabaseNotify(officer.member_id, 'Training updated', `${data.Standard} has been ${truthy(data.Enabled) ? 'added to' : 'removed from'} your training record.`, state.user?.UserID);
+  await supabaseNotify(officer.member_id, 'Training updated', notificationDetails([
+    detailLine('Training', data.Standard),
+    detailLine('Status', truthy(data.Enabled) ? 'Added' : 'Removed'),
+    detailLine('Updated by', state.user?.RobloxUsername),
+  ]), state.user?.UserID);
   return { ok: true };
 }
 
@@ -3249,7 +3300,10 @@ async function supabaseSetDrivingStandard(data) {
     updated_by: state.user?.RobloxUsername || '',
   }, { onConflict: 'officer_id' });
   if (error) return { ok: false, error: error.message };
-  await supabaseNotify(officer.member_id, 'Driving standard updated', `Your driving standard is now ${data.Standard || 'not set'}.`, state.user?.UserID);
+  await supabaseNotify(officer.member_id, 'Driving standard updated', notificationDetails([
+    detailLine('Driving standard', data.Standard || 'Not set'),
+    detailLine('Updated by', state.user?.RobloxUsername),
+  ]), state.user?.UserID);
   return { ok: true };
 }
 
@@ -3285,7 +3339,13 @@ async function supabaseSaveDiscipline(data) {
     : await supabaseClient.from('disciplinary_actions').insert(record).select().single();
   if (result.error) return { ok: false, error: result.error.message };
   const officer = await supabaseById('officers', 'officer_id', record.officer_id);
-  if (officer) await supabaseNotify(officer.member_id, 'Discipline record updated', `${record.type}: ${record.summary}`, state.user?.UserID);
+  if (officer) await supabaseNotify(officer.member_id, 'Discipline record updated', notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Type', record.type),
+    detailLine('Summary', record.summary),
+    detailLine('Status', record.status),
+    detailLine('Issued by', state.user?.RobloxUsername),
+  ]), state.user?.UserID);
   return { ok: true, ActionID: result.data.action_id };
 }
 
@@ -3303,7 +3363,22 @@ async function supabaseRequestOwnLoa(data) {
   const profile = await supabaseProfileByUserId(state.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
   if (!officer) return { ok: false, error: 'No linked officer profile.' };
-  return supabaseSaveLoa(Object.assign({}, data, { OfficerID: officer.officer_id, Status: 'Pending' }));
+  const response = await supabaseSaveLoa(Object.assign({}, data, { OfficerID: officer.officer_id, Status: 'Pending' }));
+  if (!response.ok) return response;
+  const message = notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Rank', officer.rank),
+    detailLine('Start date', formatDisplayDate(data.StartDate)),
+    detailLine('End date', formatDisplayDate(data.EndDate)),
+    detailLine('Status', 'Pending'),
+    detailLine('Reason', data.Reason),
+  ]);
+  await supabaseNotify(officer.member_id, 'LOA request submitted', message, state.user?.UserID);
+  if (officer.supervisor_user_id) {
+    const supervisor = await supabaseById('profiles', 'user_id', officer.supervisor_user_id);
+    if (supervisor) await supabaseNotify(supervisor.member_id, 'Supervisee LOA request submitted', message, state.user?.UserID);
+  }
+  return response;
 }
 
 async function supabaseSaveLoa(data) {
@@ -3332,7 +3407,14 @@ async function supabaseReviewLoa(data) {
   if (error) return { ok: false, error: error.message };
   const loa = await supabaseById('loa_requests', 'request_id', data.RequestID);
   const officer = loa ? await supabaseById('officers', 'officer_id', loa.officer_id) : null;
-  if (officer) await supabaseNotify(officer.member_id, `LOA ${update.status}`, `Your LOA request has been ${update.status.toLowerCase()}.`, state.user?.UserID);
+  if (officer) await supabaseNotify(officer.member_id, `LOA ${update.status}`, notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Start date', formatDisplayDate(loa.start_date)),
+    detailLine('End date', formatDisplayDate(loa.end_date)),
+    detailLine('Status', update.status),
+    detailLine('Reviewed by', state.user?.RobloxUsername),
+    detailLine('Decision reason', update.review_reason),
+  ]), state.user?.UserID);
   return { ok: true };
 }
 
@@ -3356,10 +3438,21 @@ async function supabaseRequestTransfer(data) {
     status: 'Pending',
   }).select().single();
   if (result.error) return { ok: false, error: result.error.message };
-  await supabaseNotify(officer.member_id, 'Transfer request submitted', `Your transfer request to ${data.TargetDivision || 'another division'} was submitted for review.`, state.user?.UserID);
+  await supabaseNotify(officer.member_id, 'Transfer request submitted', notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Target division', data.TargetDivision || 'Another division'),
+    detailLine('Time in MO8', data.TimeInMO8),
+    detailLine('Status', 'Pending'),
+    detailLine('Reason', data.Reason),
+  ]), state.user?.UserID);
   if (officer.supervisor_user_id) {
     const supervisor = await supabaseById('profiles', 'user_id', officer.supervisor_user_id);
-    if (supervisor) await supabaseNotify(supervisor.member_id, 'Supervisee transfer request', `${officer.roblox_username} submitted a transfer request.`, state.user?.UserID);
+    if (supervisor) await supabaseNotify(supervisor.member_id, 'Supervisee transfer request', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Target division', data.TargetDivision),
+      detailLine('Status', 'Pending'),
+    ]), state.user?.UserID);
   }
   return { ok: true, RequestID: result.data.request_id };
 }
@@ -3374,7 +3467,13 @@ async function supabaseReviewTransfer(data) {
   if (error) return { ok: false, error: error.message };
   const transfer = await supabaseById('transfer_requests', 'request_id', data.RequestID);
   const officer = transfer ? await supabaseById('officers', 'officer_id', transfer.officer_id) : null;
-  if (officer) await supabaseNotify(officer.member_id, 'Transfer request updated', `Your transfer request is now ${data.Status || 'reviewed'}.`, state.user?.UserID);
+  if (officer) await supabaseNotify(officer.member_id, 'Transfer request updated', notificationDetails([
+    detailLine('Officer', officer.roblox_username),
+    detailLine('Target division', transfer.target_division),
+    detailLine('Status', data.Status || 'Reviewed'),
+    detailLine('Reviewed by', state.user?.RobloxUsername),
+    detailLine('Decision reason', data.ReviewReason),
+  ]), state.user?.UserID);
   return { ok: true };
 }
 
@@ -3546,10 +3645,21 @@ async function supabaseRequestSupervisorSupport(data) {
     status: 'Pending',
   }).select().single();
   if (result.error) return { ok: false, error: result.error.message };
-  await supabaseNotify(officer.member_id, 'Supervisor request submitted', `Your supervisor request "${data.Subject || 'Request'}" was submitted.`, state.user?.UserID);
+  await supabaseNotify(officer.member_id, 'Supervisor request submitted', notificationDetails([
+    detailLine('Subject', data.Subject || 'Request'),
+    detailLine('Category', data.Category || 'General'),
+    detailLine('Status', 'Pending'),
+    detailLine('Details', data.Details),
+  ]), state.user?.UserID);
   if (officer.supervisor_user_id) {
     const supervisor = await supabaseById('profiles', 'user_id', officer.supervisor_user_id);
-    if (supervisor) await supabaseNotify(supervisor.member_id, 'Supervisee request submitted', `${officer.roblox_username} submitted a supervisor request: ${data.Subject || 'Request'}.`, state.user?.UserID);
+    if (supervisor) await supabaseNotify(supervisor.member_id, 'Supervisee request submitted', notificationDetails([
+      detailLine('Officer', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Subject', data.Subject || 'Request'),
+      detailLine('Category', data.Category || 'General'),
+      detailLine('Status', 'Pending'),
+    ]), state.user?.UserID);
   }
   return { ok: true, RequestID: result.data.request_id };
 }
@@ -3564,7 +3674,13 @@ async function supabaseReviewSupervisorRequest(data) {
   if (error) return { ok: false, error: error.message };
   const request = await supabaseById('supervisor_requests', 'request_id', data.RequestID);
   const officer = request ? await supabaseById('officers', 'officer_id', request.officer_id) : null;
-  if (officer) await supabaseNotify(officer.member_id, 'Supervisor request updated', `Your supervisor request "${request.subject || 'Request'}" is now ${data.Status || 'updated'}.`, state.user?.UserID);
+  if (officer) await supabaseNotify(officer.member_id, 'Supervisor request updated', notificationDetails([
+    detailLine('Subject', request.subject || 'Request'),
+    detailLine('Category', request.category || 'General'),
+    detailLine('Status', data.Status || 'Updated'),
+    detailLine('Reviewed by', state.user?.RobloxUsername),
+    detailLine('Decision reason', data.ReviewReason),
+  ]), state.user?.UserID);
   return { ok: true };
 }
 
@@ -4568,6 +4684,15 @@ function canManageCourse(course = {}) {
   if (can('MANAGE_COURSES')) return true;
   const coTrainerIds = splitTags(course.CoTrainerUserIDs || '');
   return course.TrainerUserID === state.user?.UserID || coTrainerIds.includes(state.user?.UserID);
+}
+
+function notificationDetails(lines) {
+  return lines.filter(Boolean).join('\n');
+}
+
+function detailLine(label, value) {
+  const text = value === undefined || value === null ? '' : String(value).trim();
+  return text ? `${label}: ${text}` : '';
 }
 
 function truthy(value) {

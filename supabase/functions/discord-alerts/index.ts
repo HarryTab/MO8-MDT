@@ -134,12 +134,15 @@ function discordFetch(botToken: string, url: string, init: RequestInit = {}) {
 
 function formatDiscordEmbed(title: string, message: string) {
   const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
+  const parsed = parseDiscordDetails(message);
+  const description = parsed.description || 'You have a new MDT notification.';
   return {
     title: String(title || 'MO8 MDT notification').slice(0, 256),
-    description: String(message || '').slice(0, 3900) || 'You have a new MDT notification.',
-    color: 0x1267d8,
+    description: description.slice(0, 3900),
+    color: embedColour(title, message),
     timestamp: new Date().toISOString(),
     fields: [
+      ...parsed.fields,
       {
         name: 'Open MDT',
         value: `[Launch MO8 MDT](${mdtUrl})`,
@@ -150,6 +153,47 @@ function formatDiscordEmbed(title: string, message: string) {
       text: 'MO8 MDT Alerts',
     },
   };
+}
+
+function parseDiscordDetails(message: string) {
+  const fields: Array<{ name: string; value: string; inline: boolean }> = [];
+  const descriptionLines: string[] = [];
+
+  String(message || '').split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const separator = trimmed.indexOf(':');
+    if (separator > 0 && fields.length < 12) {
+      const name = trimmed.slice(0, separator).trim();
+      const value = trimmed.slice(separator + 1).trim();
+      if (name && value) {
+        fields.push({
+          name: name.slice(0, 256),
+          value: value.slice(0, 1024),
+          inline: shouldInlineField(name),
+        });
+        return;
+      }
+    }
+    descriptionLines.push(trimmed);
+  });
+
+  return {
+    description: descriptionLines.join('\n'),
+    fields,
+  };
+}
+
+function shouldInlineField(name: string) {
+  return ['Officer', 'Rank', 'Status', 'Outcome', 'Start date', 'End date', 'Date', 'Location', 'Supervisor', 'Reviewed by', 'Updated by', 'Training', 'Course', 'Standard'].includes(name);
+}
+
+function embedColour(title: string, message: string) {
+  const text = `${title || ''} ${message || ''}`.toLowerCase();
+  if (['denied', 'cancelled', 'canceled', 'failed', 'discipline', 'disciplinary', 'removed', 'suspended'].some((word) => text.includes(word))) return 0xd93025;
+  if (['approved', 'passed', 'completed', 'assigned', 'added'].some((word) => text.includes(word))) return 0x188038;
+  if (['pending', 'requested', 'submitted', 'awaiting', 'waitlist', 'review'].some((word) => text.includes(word))) return 0xf9ab00;
+  return 0x1267d8;
 }
 
 function discordError(response: Response, body: Record<string, unknown>) {
