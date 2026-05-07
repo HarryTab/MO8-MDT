@@ -80,14 +80,27 @@ async function saveUser(adminClient: ReturnType<typeof createClient>, payload: S
 
   let authUserId = existingProfile?.auth_user_id || null;
   if (!authUserId) {
-    const { data, error } = await adminClient.auth.admin.createUser({
-      email,
-      password: temporaryPassword,
-      email_confirm: true,
-      user_metadata: { roblox_username: username },
-    });
-    if (error) return json({ ok: false, error: error.message }, 400);
-    authUserId = data.user?.id || null;
+    const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+    if (existingAuthUser) {
+      authUserId = existingAuthUser.id;
+      if (!payload.UserID || payload.TemporaryPassword) {
+        const { error } = await adminClient.auth.admin.updateUserById(authUserId, {
+          password: temporaryPassword,
+          email_confirm: true,
+          user_metadata: { roblox_username: username },
+        });
+        if (error) return json({ ok: false, error: error.message }, 400);
+      }
+    } else {
+      const { data, error } = await adminClient.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true,
+        user_metadata: { roblox_username: username },
+      });
+      if (error) return json({ ok: false, error: error.message }, 400);
+      authUserId = data.user?.id || null;
+    }
   } else if (payload.TemporaryPassword) {
     const { error } = await adminClient.auth.admin.updateUserById(authUserId, {
       password: payload.TemporaryPassword,
@@ -133,6 +146,7 @@ async function saveUser(adminClient: ReturnType<typeof createClient>, payload: S
     authUserId,
     email,
     temporaryPassword: payload.TemporaryPassword ? '' : temporaryPassword,
+    reusedExistingLogin: Boolean(!existingProfile?.auth_user_id && authUserId),
   });
 }
 
@@ -168,14 +182,37 @@ async function resetPassword(adminClient: ReturnType<typeof createClient>, paylo
 async function deleteUser(adminClient: ReturnType<typeof createClient>, payload: SaveUserPayload) {
   if (!payload.UserID) return json({ ok: false, error: 'UserID is required.' }, 400);
   const profile = await byId(adminClient, 'profiles', 'user_id', payload.UserID);
+  const email = profile?.roblox_username
+    ? `${String(profile.roblox_username || '').toLowerCase().replace(/[^a-z0-9._-]/g, '')}@mo8.local`
+    : '';
   if (profile?.auth_user_id) {
     const { error } = await adminClient.auth.admin.deleteUser(profile.auth_user_id);
     if (error) return json({ ok: false, error: error.message }, 400);
+  } else if (email) {
+    const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+    if (existingAuthUser) {
+      const { error } = await adminClient.auth.admin.deleteUser(existingAuthUser.id);
+      if (error) return json({ ok: false, error: error.message }, 400);
+    }
   }
   if (profile?.member_id) await adminClient.from('officers').delete().eq('member_id', profile.member_id);
+  if (profile?.roblox_username) await adminClient.from('officers').delete().eq('roblox_username', profile.roblox_username);
   const { error } = await adminClient.from('profiles').delete().eq('user_id', payload.UserID);
   if (error) return json({ ok: false, error: error.message }, 400);
   return json({ ok: true });
+}
+
+async function findAuthUserByEmail(adminClient: ReturnType<typeof createClient>, email: string) {
+  const target = String(email || '').toLowerCase();
+  if (!target) return null;
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+    const match = data.users.find((user) => String(user.email || '').toLowerCase() === target);
+    if (match) return match;
+    if (data.users.length < 1000) return null;
+  }
+  return null;
 }
 
 async function byId(adminClient: ReturnType<typeof createClient>, table: string, column: string, value: string) {
