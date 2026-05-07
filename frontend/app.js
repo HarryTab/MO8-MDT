@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-4';
+const APP_VERSION = '2026-05-07-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -970,7 +970,7 @@ function renderDocumentExplorer(rows, query, category) {
         <span class="file-icon">${escapeHtml(fileInitial(document))}</span>
         <span>
           <strong>${escapeHtml(document.Title || 'Untitled document')}</strong>
-          <small>${escapeHtml(document.Category || 'Unfiled')} / ${escapeHtml(document.RequiredRole || 'Constable+')}</small>
+          <small>${escapeHtml(document.Category || 'Unfiled')} / ${escapeHtml(document.FileName || document.RequiredRole || 'Constable+')}</small>
         </span>
       </a>
       <span class="file-meta">${formatCell(document.UpdatedAt || '', 'UpdatedAt')}</span>
@@ -1533,7 +1533,8 @@ function openDocumentEditor(document = {}) {
     hiddenField('DocumentID', document.DocumentID),
     field('Title', 'Title', 'text', false, document.Title),
     selectField('Category', 'Category', ['Training', 'Policy', 'SOP', 'Form'], document.Category),
-    field('DriveURL', 'Drive URL', 'url', false, document.DriveURL),
+    fileField('DocumentFile', document.FileName ? `Replace uploaded file (${document.FileName})` : 'Upload file'),
+    field('DriveURL', 'External URL', 'url', false, document.StoragePath ? '' : document.DriveURL),
     selectField('RequiredRole', 'Minimum rank', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
     checkboxGroupField('RequiredTags', 'Required tags', OFFICER_TAGS, document.RequiredTags),
     selectField('RequiresAcknowledgement', 'Requires acknowledgement', ['FALSE', 'TRUE'], truthy(document.RequiresAcknowledgement) ? 'TRUE' : 'FALSE'),
@@ -2488,6 +2489,10 @@ function formValues(form) {
   const data = new FormData(form);
   const values = {};
   data.forEach((value, key) => {
+    if (value instanceof File) {
+      if (value.size > 0) values[key] = value;
+      return;
+    }
     if (values[key]) {
       values[key] = `${values[key]}, ${value}`;
     } else {
@@ -2507,6 +2512,10 @@ function field(name, label, type = 'text', wide = false, value = '') {
     return { html: `<label${className}>${escapeHtml(label)}<textarea name="${escapeHtml(name)}">${escapeHtml(value || '')}</textarea></label>` };
   }
   return { html: `<label${className}>${escapeHtml(label)}<input type="${escapeHtml(type)}" name="${escapeHtml(name)}" value="${escapeHtml(value || '')}"></label>` };
+}
+
+function fileField(name, label) {
+  return { html: `<label>${escapeHtml(label)}<input type="file" name="${escapeHtml(name)}"></label>` };
 }
 
 function selectField(name, label, options, selected = '') {
@@ -3471,10 +3480,42 @@ async function supabaseListDocuments() {
 }
 
 async function supabaseSaveDocument(data) {
+  const existing = data.DocumentID ? await supabaseById('documents', 'document_id', data.DocumentID) : null;
+  const documentId = data.DocumentID || idForSupabase('DOC');
+  const uploadedFile = data.DocumentFile instanceof File && data.DocumentFile.size > 0 ? data.DocumentFile : null;
+  let storagePath = existing?.storage_path || null;
+  let fileName = existing?.file_name || null;
+  let fileSize = existing?.file_size || null;
+  let fileType = existing?.file_type || null;
+
+  if (uploadedFile) {
+    const path = `${documentId}/${Date.now()}-${safeStorageFileName(uploadedFile.name)}`;
+    const upload = await supabaseClient.storage
+      .from('mo8-documents')
+      .upload(path, uploadedFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: uploadedFile.type || 'application/octet-stream',
+      });
+    if (upload.error) return { ok: false, error: upload.error.message };
+    if (existing?.storage_path) {
+      await supabaseClient.storage.from('mo8-documents').remove([existing.storage_path]);
+    }
+    storagePath = path;
+    fileName = uploadedFile.name;
+    fileSize = uploadedFile.size;
+    fileType = uploadedFile.type || '';
+  }
+
   const record = {
+    document_id: documentId,
     title: data.Title || '',
     category: data.Category || 'General',
-    drive_url: data.DriveURL || '',
+    drive_url: uploadedFile ? '' : data.DriveURL || existing?.drive_url || '',
+    storage_path: storagePath,
+    file_name: fileName,
+    file_size: fileSize,
+    file_type: fileType,
     required_role: data.RequiredRole || 'Police Constable',
     required_tags: splitTags(data.RequiredTags || ''),
     requires_acknowledgement: truthy(data.RequiresAcknowledgement),
@@ -3482,12 +3523,16 @@ async function supabaseSaveDocument(data) {
     updated_by: state.user?.UserID || null,
   };
   const result = data.DocumentID
-    ? await supabaseClient.from('documents').update(record).eq('document_id', data.DocumentID).select().single()
-    : await supabaseClient.from('documents').insert(record).select().single();
-  return result.error ? { ok: false, error: result.error.message } : { ok: true, DocumentID: result.data.document_id };
+    ? await supabaseClient.from('documents').update(record).eq('document_id', data.DocumentID)
+    : await supabaseClient.from('documents').insert(record);
+  return result.error ? { ok: false, error: result.error.message } : { ok: true, DocumentID: documentId };
 }
 
 async function supabaseDeleteDocument(data) {
+  const existing = await supabaseById('documents', 'document_id', data.DocumentID);
+  if (existing?.storage_path) {
+    await supabaseClient.storage.from('mo8-documents').remove([existing.storage_path]);
+  }
   const { error } = await supabaseClient.from('documents').delete().eq('document_id', data.DocumentID);
   return error ? { ok: false, error: error.message } : { ok: true };
 }
@@ -3731,7 +3776,14 @@ async function supabaseVisibleDocuments() {
     .order('category', { ascending: true })
     .order('title', { ascending: true });
   if (error) return { ok: false, error: error.message, rows: [] };
-  return { ok: true, rows: (data || []).map(supabaseDocument) };
+  const rows = await Promise.all((data || []).map(async (row) => {
+    if (!row.storage_path) return supabaseDocument(row);
+    const { data: signed } = await supabaseClient.storage
+      .from('mo8-documents')
+      .createSignedUrl(row.storage_path, 60 * 60);
+    return supabaseDocument(Object.assign({}, row, { signed_url: signed?.signedUrl || '' }));
+  }));
+  return { ok: true, rows };
 }
 
 async function supabaseVisibleAnnouncements() {
@@ -3862,6 +3914,13 @@ function idForSupabase(prefix) {
   return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`;
 }
 
+function safeStorageFileName(name) {
+  return String(name || 'document')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || 'document';
+}
+
 async function supabaseNotificationRows(memberId) {
   const { data, error } = await supabaseClient
     .from('notifications')
@@ -3925,7 +3984,12 @@ function supabaseDocument(row) {
     DocumentID: row.document_id,
     Title: row.title,
     Category: row.category,
-    DriveURL: row.drive_url,
+    DriveURL: row.signed_url || row.drive_url,
+    ExternalURL: row.drive_url || '',
+    StoragePath: row.storage_path || '',
+    FileName: row.file_name || '',
+    FileSize: row.file_size || '',
+    FileType: row.file_type || '',
     RequiredRole: row.required_role || '',
     RequiredTags: (row.required_tags || []).join(', '),
     RequiresAcknowledgement: row.requires_acknowledgement ? 'TRUE' : 'FALSE',

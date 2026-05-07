@@ -2,3 +2,5 @@
 Thumbs.db
 *.log
 node_modules/
+supabase/.temp/
+supabase-secrets.env
