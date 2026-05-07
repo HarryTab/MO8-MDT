@@ -1834,3 +1834,129 @@ body.is-authenticated .profile-actions button.ghost {
   background: #fff0ee;
   border-color: #e1aaa4;
 }
+
+@media (max-width: 760px) {
+  body.is-authenticated {
+    background: linear-gradient(180deg, #08172b 0%, #102746 180px, #edf3fa 180px, #edf3fa 100%);
+  }
+
+  body.is-authenticated .terminal-shell,
+  .terminal-shell {
+    min-height: 100dvh;
+    padding: 0;
+  }
+
+  body.is-authenticated .terminal-window,
+  .terminal-window {
+    min-height: 100dvh;
+    grid-template-columns: 1fr;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  body.is-authenticated .module-dock,
+  .module-dock {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 10px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(184, 197, 212, 0.5);
+  }
+
+  .dock-label,
+  .nav-group > span {
+    display: none;
+  }
+
+  .nav,
+  .nav-group {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .nav {
+    padding-bottom: 4px;
+  }
+
+  .nav-group {
+    min-width: max-content;
+  }
+
+  .nav-item {
+    min-width: 118px;
+    min-height: 42px;
+    white-space: nowrap;
+  }
+
+  .workspace {
+    padding: 12px;
+  }
+
+  .topbar {
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .topbar,
+  .identity,
+  .section-head,
+  .explorer-bar {
+    flex-direction: column;
+  }
+
+  .identity {
+    align-items: stretch;
+  }
+
+  #currentUser {
+    justify-items: start;
+  }
+
+  .dashboard-grid,
+  .stats-grid,
+  .stat-row,
+  .filter-row,
+  .form-grid,
+  .profile-grid,
+  .profile-head,
+  .notice-board,
+  .cert-grid,
+  .file-list-head,
+  .file-row {
+    grid-template-columns: 1fr;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+  }
+
+  table {
+    min-width: 720px;
+  }
+
+  #tasksTable,
+  #coursesTable,
+  #courseBookingsTable,
+  #documentsTable,
+  #officersTable,
+  #loaTable {
+    min-width: 780px;
+  }
+
+  .modal-card {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .editor-grid {
+    grid-template-columns: 1fr;
+  }
+}

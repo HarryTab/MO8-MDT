@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-6';
+const APP_VERSION = '2026-05-07-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -707,6 +707,7 @@ async function loadTasks() {
     ...(response.pendingLoa || []),
     ...(response.pendingTransfers || []),
     ...(response.pendingSupervisorRequests || []),
+    ...(response.pendingCourseBookings || []),
     ...(response.pendingAppeals || []),
   ];
   const counts = response.counts || {};
@@ -714,11 +715,12 @@ async function loadTasks() {
     stat('Pending LOA', counts.pendingLoa || 0),
     stat('Transfer Requests', counts.pendingTransfers || 0),
     stat('Supervisor Requests', counts.pendingSupervisorRequests || 0),
+    stat('Course Requests', counts.pendingCourseBookings || 0),
     stat('Appeals', counts.pendingAppeals || 0),
     stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
+  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Course', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
     rowAction: (row) => `${row.MySupervisee ? 'class="supervisor-task"' : ''} ${taskOpenAttr(row)}`,
     actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Review</button>`,
   });
@@ -728,6 +730,7 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Appeal / Review') return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
+  if (row.TaskType === 'Course Booking') return `data-task-course-bookings="${escapeHtml(row.CourseID)}"`;
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
@@ -1098,11 +1101,12 @@ function renderAnnouncementsTable(rows) {
 }
 
 function renderCoursesTable(rows) {
-  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'PendingRequests', 'Waitlist', 'Status', 'MyBookingStatus'], {
+  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CoTrainers', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'PendingRequests', 'Waitlist', 'Status', 'MyBookingStatus'], {
     actions: (row) => [
       can('VIEW_COURSES') && !row.MyBookingStatus ? `<button class="mini" data-request-course="${escapeHtml(row.CourseID)}">Request seat</button>` : '',
-      can('MANAGE_COURSES') ? `<button class="mini ${Number(row.PendingRequests || 0) > 0 ? 'warning-action' : 'ghost'}" data-course-bookings="${escapeHtml(row.CourseID)}">Review${Number(row.PendingRequests || 0) > 0 ? ` (${escapeHtml(row.PendingRequests)})` : ''}</button>` : '',
+      canManageCourse(row) ? `<button class="mini ${Number(row.PendingRequests || 0) > 0 ? 'warning-action' : 'ghost'}" data-course-bookings="${escapeHtml(row.CourseID)}">Review${Number(row.PendingRequests || 0) > 0 ? ` (${escapeHtml(row.PendingRequests)})` : ''}</button>` : '',
       can('MANAGE_COURSES') ? `<button class="mini" data-edit-course="${escapeHtml(row.CourseID)}">Edit</button>` : '',
+      can('MANAGE_COURSES') ? `<button class="mini ghost" data-delete-course="${escapeHtml(row.CourseID)}">Delete</button>` : '',
     ].join(''),
   });
 }
@@ -1119,7 +1123,7 @@ function renderCourseBookingsTable(courseId = state.selectedCourseId) {
   renderTable('#courseBookingsTable', bookings, ['Course', 'Officer', 'Rank', 'Status', 'Outcome', 'RequestedAt'], {
     emptyMessage: selectedCourse ? 'No bookings for this course yet.' : 'Select Review on a course, or wait for bookings to appear.',
     actions: (row) => {
-      if (!can('MANAGE_COURSES')) return '';
+      if (!canManageCourse(selectedCourse)) return '';
       return [
         ['Approved', 'Approve'],
         ['Waitlist', 'Waitlist'],
@@ -1401,10 +1405,11 @@ async function openCourseEditor(course = {}) {
     field('Title', 'Title', 'text', false, course.Title),
     selectField('Standard', 'Training standard', standards, course.Standard),
     trainerSelectField('TrainerUserID', 'Trainer', trainers, course.TrainerUserID || state.user.UserID),
+    userCheckboxGroupField('CoTrainerUserIDs', 'Co-trainers', trainers, course.CoTrainerUserIDs),
     field('CourseDate', 'Course date/time', 'datetime-local', false, localDateTimeValue(course.CourseDate)),
     field('Location', 'Location', 'text', false, course.Location),
     field('Capacity', 'Capacity', 'number', false, course.Capacity || '4'),
-    selectField('Status', 'Status', ['Scheduled', 'Completed', 'Cancelled', 'Archived'], course.Status || 'Scheduled'),
+    selectField('Status', 'Status', ['Scheduled', 'Completed', 'Cancelled'], course.Status || 'Scheduled'),
     field('Notes', 'Notes', 'textarea', true, course.Notes),
   ], async (values) => api('saveTrainingCourse', values), {
     successMessage: 'Training course saved.',
@@ -1886,6 +1891,12 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const deleteCourse = event.target.closest('[data-delete-course]');
+  if (deleteCourse) {
+    await confirmDelete('Delete this training course and notify affected attendees?', 'deleteTrainingCourse', { CourseID: deleteCourse.dataset.deleteCourse }, loadCourses);
+    return;
+  }
+
   const requestCourse = event.target.closest('[data-request-course]');
   if (requestCourse) {
     const response = await api('requestCourseSeat', { CourseID: requestCourse.dataset.requestCourse });
@@ -1902,6 +1913,14 @@ async function handleDocumentClick(event) {
   if (courseBookings) {
     state.selectedCourseId = courseBookings.dataset.courseBookings;
     renderCourseBookingsTable();
+    document.querySelector('#courseBookingsTable')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  const taskCourseBookings = event.target.closest('[data-task-course-bookings]');
+  if (taskCourseBookings) {
+    state.selectedCourseId = taskCourseBookings.dataset.taskCourseBookings;
+    await showView('courses');
     document.querySelector('#courseBookingsTable')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
@@ -2642,6 +2661,20 @@ function checkboxGroupField(name, label, options, selected = '') {
   return { html: `<fieldset class="wide checkbox-group"><legend>${escapeHtml(label)}</legend>${checkboxes}</fieldset>` };
 }
 
+function userCheckboxGroupField(name, label, options, selected = '') {
+  const selectedIds = splitTags(selected);
+  const checkboxes = options.map((option) => {
+    const checked = selectedIds.includes(option.UserID) ? ' checked' : '';
+    return `
+      <label class="training-check">
+        <input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(option.UserID)}"${checked}>
+        <span>${escapeHtml(option.RobloxUsername)} - ${escapeHtml(option.Rank || option.Role || '')}</span>
+      </label>
+    `;
+  }).join('');
+  return { html: `<fieldset class="wide checkbox-group"><legend>${escapeHtml(label)}</legend>${checkboxes}</fieldset>` };
+}
+
 async function api(action, data = {}, includeToken = true) {
   if (USE_SUPABASE || localStorage.getItem('mo8_auth_provider') === 'supabase') {
     return supabaseApi(action, data, includeToken);
@@ -2718,6 +2751,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       listTrainingCourses: supabaseListTrainingCourses,
       courseTrainers: supabaseCourseTrainers,
       saveTrainingCourse: supabaseSaveTrainingCourse,
+      deleteTrainingCourse: supabaseDeleteTrainingCourse,
       requestCourseSeat: supabaseRequestCourseSeat,
       reviewCourseBooking: supabaseReviewCourseBooking,
       saveTraining: supabaseSaveTraining,
@@ -3038,8 +3072,9 @@ async function supabaseListTrainingCourses() {
     rows: (courses || []).filter((row) => row.status !== 'Archived').map((course) => {
       const courseBookings = (bookings || []).filter((booking) => booking.course_id === course.course_id);
       const trainer = (profiles || []).find((profile) => profile.user_id === course.trainer_user_id);
+      const coTrainers = (profiles || []).filter((profile) => (course.co_trainer_user_ids || []).includes(profile.user_id));
       const myBooking = myOfficer ? courseBookings.find((booking) => booking.officer_id === myOfficer.officer_id) : null;
-      return Object.assign(supabaseCourse(course, trainer), {
+      return Object.assign(supabaseCourse(course, trainer, coTrainers), {
         BookedSeats: courseBookings.filter((booking) => ['Approved', 'Requested', 'Completed'].includes(booking.status)).length,
         PendingRequests: courseBookings.filter((booking) => booking.status === 'Requested').length,
         Waitlist: courseBookings.filter((booking) => booking.status === 'Waitlist').length,
@@ -3065,6 +3100,7 @@ async function supabaseSaveTrainingCourse(data) {
     title: data.Title || '',
     standard: data.Standard || '',
     trainer_user_id: data.TrainerUserID || state.user?.UserID || null,
+    co_trainer_user_ids: splitTags(data.CoTrainerUserIDs || '').filter((id) => id !== (data.TrainerUserID || state.user?.UserID || '')),
     course_date: data.CourseDate || null,
     location: data.Location || '',
     capacity: Number(data.Capacity || 0),
@@ -3076,6 +3112,26 @@ async function supabaseSaveTrainingCourse(data) {
     ? await supabaseClient.from('training_courses').update(record).eq('course_id', data.CourseID).select().single()
     : await supabaseClient.from('training_courses').insert(record).select().single();
   return result.error ? { ok: false, error: result.error.message } : { ok: true, CourseID: result.data.course_id };
+}
+
+async function supabaseDeleteTrainingCourse(data) {
+  const [course, bookings, officers] = await Promise.all([
+    supabaseById('training_courses', 'course_id', data.CourseID),
+    supabaseRows('course_bookings', 'course_id', data.CourseID),
+    supabaseAll('officers'),
+  ]);
+  if (!course) return { ok: false, error: 'Course not found.' };
+
+  const affectedBookings = (bookings || []).filter((booking) => booking.outcome !== 'Passed');
+  const { error } = await supabaseClient.from('training_courses').delete().eq('course_id', data.CourseID);
+  if (error) return { ok: false, error: error.message };
+
+  await Promise.all(affectedBookings.map(async (booking) => {
+    const officer = (officers || []).find((row) => row.officer_id === booking.officer_id);
+    if (!officer) return null;
+    return supabaseNotify(officer.member_id, 'Training course cancelled', `${course.title} is no longer happening.`, state.user?.UserID);
+  }));
+  return { ok: true };
 }
 
 async function supabaseRequestCourseSeat(data) {
@@ -3100,6 +3156,11 @@ async function supabaseRequestCourseSeat(data) {
     const trainer = await supabaseById('profiles', 'user_id', course.trainer_user_id);
     if (trainer) await supabaseNotify(trainer.member_id, 'Course booking requested', `${officer.roblox_username} requested a space on ${course.title}.`, state.user?.UserID);
   }
+  await Promise.all((course.co_trainer_user_ids || []).map(async (userId) => {
+    const coTrainer = await supabaseById('profiles', 'user_id', userId);
+    if (!coTrainer) return null;
+    return supabaseNotify(coTrainer.member_id, 'Course booking requested', `${officer.roblox_username} requested a space on ${course.title}.`, state.user?.UserID);
+  }));
   return { ok: true, BookingID: bookingId, Status: status };
 }
 
@@ -3342,13 +3403,15 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
     supabaseAll('supervisor_requests'),
     supabaseAll('appeals'),
     supabaseAll('profiles'),
+    supabaseAll('training_courses'),
+    supabaseAll('course_bookings'),
   ]);
   const decorate = (row, type) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
@@ -3382,17 +3445,41 @@ async function supabaseTasks() {
   const pendingTransfers = (transfers || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Transfer Request'));
   const pendingSupervisorRequests = (supervisorRequests || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Supervisor Request'));
   const pendingAppeals = (appeals || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Appeal / Review'));
-  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals];
+  const pendingCourseBookings = (courseBookings || []).filter((row) => row.status === 'Requested').map((booking) => {
+    const course = (courses || []).find((row) => row.course_id === booking.course_id) || {};
+    const officer = (officers || []).find((row) => row.officer_id === booking.officer_id) || {};
+    const trainerIds = [course.trainer_user_id, ...(course.co_trainer_user_ids || [])].filter(Boolean);
+    if (!trainerIds.includes(state.user?.UserID)) return null;
+    return {
+      TaskType: 'Course Booking',
+      BookingID: booking.booking_id,
+      CourseID: booking.course_id,
+      Course: course.title || booking.course_id,
+      OfficerID: officer.officer_id || booking.officer_id,
+      Officer: officer.roblox_username || booking.officer_id,
+      Rank: officer.rank || '',
+      Supervisor: '',
+      Subject: course.standard || '',
+      SourceType: 'Training Course',
+      Reason: booking.notes || '',
+      Status: booking.status || '',
+      MySupervisee: false,
+      RequestedAt: booking.requested_at || '',
+    };
+  }).filter(Boolean);
+  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals];
   return {
     ok: true,
     pendingLoa,
     pendingTransfers,
     pendingSupervisorRequests,
+    pendingCourseBookings,
     pendingAppeals,
     counts: {
       pendingLoa: pendingLoa.length,
       pendingTransfers: pendingTransfers.length,
       pendingSupervisorRequests: pendingSupervisorRequests.length,
+      pendingCourseBookings: pendingCourseBookings.length,
       pendingAppeals: pendingAppeals.length,
       mySuperviseeTasks: all.filter((row) => row.MySupervisee).length,
       total: all.length,
@@ -4088,13 +4175,15 @@ function supabaseTrainingOption(row) {
   };
 }
 
-function supabaseCourse(row, trainer = {}) {
+function supabaseCourse(row, trainer = {}, coTrainers = []) {
   return {
     CourseID: row.course_id,
     Title: row.title,
     Standard: row.standard,
     TrainerUserID: row.trainer_user_id || '',
     Trainer: trainer.roblox_username || row.trainer_user_id || '',
+    CoTrainerUserIDs: (row.co_trainer_user_ids || []).join(', '),
+    CoTrainers: coTrainers.map((profile) => profile.roblox_username).filter(Boolean).join(', '),
     CourseDate: row.course_date || '',
     Location: row.location || '',
     Capacity: row.capacity || 0,
@@ -4457,6 +4546,12 @@ function invalidateCache(action = '') {
 
 function can(permission) {
   return state.permissions.includes('FULL_ACCESS') || state.permissions.includes(permission);
+}
+
+function canManageCourse(course = {}) {
+  if (can('MANAGE_COURSES')) return true;
+  const coTrainerIds = splitTags(course.CoTrainerUserIDs || '');
+  return course.TrainerUserID === state.user?.UserID || coTrainerIds.includes(state.user?.UserID);
 }
 
 function truthy(value) {

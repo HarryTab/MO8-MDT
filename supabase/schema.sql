@@ -74,6 +74,7 @@ create table public.training_courses (
   title text not null,
   standard text not null,
   trainer_user_id text references public.profiles(user_id) on delete set null,
+  co_trainer_user_ids text[] not null default '{}',
   course_date timestamptz,
   location text,
   capacity integer not null default 0,
@@ -446,14 +447,36 @@ using (public.has_permission('MANAGE_COURSES'))
 with check (public.has_permission('MANAGE_COURSES'));
 
 create policy "course bookings read" on public.course_bookings for select
-using (public.has_permission('MANAGE_COURSES') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id()));
+using (
+  public.has_permission('MANAGE_COURSES')
+  or officer_id in (select officer_id from public.officers where member_id = public.current_member_id())
+  or exists (
+    select 1 from public.training_courses course
+    where course.course_id = course_bookings.course_id
+    and (course.trainer_user_id = public.current_user_id() or public.current_user_id() = any(course.co_trainer_user_ids))
+  )
+);
 
 create policy "course bookings insert own or managers" on public.course_bookings for insert
 with check (public.has_permission('MANAGE_COURSES') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id()));
 
 create policy "course bookings update managers" on public.course_bookings for update
-using (public.has_permission('MANAGE_COURSES'))
-with check (public.has_permission('MANAGE_COURSES'));
+using (
+  public.has_permission('MANAGE_COURSES')
+  or exists (
+    select 1 from public.training_courses course
+    where course.course_id = course_bookings.course_id
+    and (course.trainer_user_id = public.current_user_id() or public.current_user_id() = any(course.co_trainer_user_ids))
+  )
+)
+with check (
+  public.has_permission('MANAGE_COURSES')
+  or exists (
+    select 1 from public.training_courses course
+    where course.course_id = course_bookings.course_id
+    and (course.trainer_user_id = public.current_user_id() or public.current_user_id() = any(course.co_trainer_user_ids))
+  )
+);
 
 create policy "discipline read" on public.disciplinary_actions for select
 using (public.has_permission('VIEW_DISCIPLINE') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id()));
@@ -471,6 +494,9 @@ with check (public.has_permission('CREATE_LOA') or officer_id in (select officer
 create policy "loa update approvers" on public.loa_requests for update
 using (public.has_permission('APPROVE_LOA') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id() and status = 'Pending'))
 with check (public.has_permission('APPROVE_LOA') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id()));
+
+create policy "loa delete approvers" on public.loa_requests for delete
+using (public.has_permission('APPROVE_LOA'));
 
 create policy "documents read" on public.documents for select
 using (public.has_permission('VIEW_DOCUMENTS') and status = 'Published' or public.has_permission('MANAGE_DOCUMENTS'));
