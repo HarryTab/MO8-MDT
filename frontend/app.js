@@ -3480,27 +3480,12 @@ async function supabaseListUsers() {
 }
 
 async function supabaseSaveUser(data) {
-  const record = {
-    roblox_username: data.RobloxUsername || '',
-    discord_id: data.DiscordID || '',
-    rank: data.Rank || 'Police Constable',
-    role: data.Role || rankToRole(data.Rank),
-    status: data.Status || 'Active',
-  };
-  if (!data.UserID) record.member_id = `MBR_${crypto.randomUUID().replaceAll('-', '')}`;
-  const result = data.UserID
-    ? await supabaseClient.from('profiles').update(record).eq('user_id', data.UserID).select().single()
-    : await supabaseClient.from('profiles').insert(record).select().single();
-  if (result.error) return { ok: false, error: result.error.message };
-  await supabaseUpsertOfficerForProfile(result.data);
-  return { ok: true, UserID: result.data.user_id, temporaryPassword: data.UserID ? '' : 'Create this person in Supabase Authentication and link auth_user_id.' };
+  const response = await supabaseInvokeAdminUsers(Object.assign({ action: 'saveUser' }, data));
+  return response;
 }
 
 async function supabaseDeleteUser(data) {
-  const profile = await supabaseById('profiles', 'user_id', data.UserID);
-  if (profile) await supabaseClient.from('officers').delete().eq('member_id', profile.member_id);
-  const { error } = await supabaseClient.from('profiles').delete().eq('user_id', data.UserID);
-  return error ? { ok: false, error: error.message } : { ok: true };
+  return supabaseInvokeAdminUsers({ action: 'deleteUser', UserID: data.UserID });
 }
 
 async function supabaseBulkUpdateOfficers(data) {
@@ -3555,13 +3540,19 @@ async function supabaseSetUserPermission(data) {
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-async function supabaseResetUserPassword() {
-  return { ok: false, error: 'Password resets need a Supabase Edge Function or must be done in Supabase Authentication for now.' };
+async function supabaseResetUserPassword(data) {
+  return supabaseInvokeAdminUsers({ action: 'resetPassword', UserID: data.UserID || '' });
 }
 
 async function supabaseChangePassword(data) {
   const { error } = await supabaseClient.auth.updateUser({ password: data.NewPassword });
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseInvokeAdminUsers(payload) {
+  const { data, error } = await supabaseClient.functions.invoke('admin-users', { body: payload });
+  if (error) return { ok: false, error: error.message };
+  return data || { ok: false, error: 'No response from admin-users function.' };
 }
 
 async function supabaseAuditLog() {

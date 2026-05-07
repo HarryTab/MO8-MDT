@@ -189,3 +189,33 @@ Then move the heavier admin workflows:
 - Only commit the project URL and anon public key.
 - Keep row-level security enabled.
 - Test with a Constable account and a Command account before making the Supabase version live.
+
+## Admin User Edge Function
+
+The MDT can create/reset Supabase Auth login accounts through the `admin-users` Edge Function.
+
+This is needed because creating and resetting other users' passwords requires the Supabase service role key, which must stay server-side and must never be placed in GitHub Pages/frontend code.
+
+Deploy from a terminal with the Supabase CLI:
+
+```powershell
+supabase login
+supabase link --project-ref zvmkcaqscsgeuhpqvgxm
+supabase functions deploy admin-users
+```
+
+Then set the required secrets:
+
+```powershell
+supabase secrets set SUPABASE_URL=https://zvmkcaqscsgeuhpqvgxm.supabase.co
+supabase secrets set SUPABASE_ANON_KEY=your-anon-key
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+After deployment:
+
+- `Users > Add user` creates the MDT profile, linked officer record and Supabase Auth login.
+- `Reset password` generates a temporary password.
+- `Delete user` removes the Auth user and linked MDT profile/officer records.
+
+The service role key is found in Supabase `Project Settings > API`, but it must only be used as an Edge Function secret.
