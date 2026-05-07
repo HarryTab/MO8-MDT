@@ -29,6 +29,36 @@ const TRAINING_STATUSES = ['Not Started', 'In Progress', 'Passed', 'Failed'];
 const DISCIPLINE_TYPES = ['Note', 'Warning', 'Suspension', 'Removal'];
 const DISCIPLINE_STATUSES = ['Active', 'Expired', 'Appealed', 'Removed'];
 const LOA_STATUSES = ['Pending', 'Approved', 'Denied', 'Cancelled'];
+const ALL_PERMISSIONS = [
+  'VIEW_DASHBOARD',
+  'VIEW_TASKS',
+  'VIEW_OFFICERS',
+  'VIEW_RANK_LOG',
+  'ADD_OFFICERS',
+  'EDIT_OFFICERS',
+  'ARCHIVE_OFFICERS',
+  'ASSIGN_SUPERVISORS',
+  'VIEW_TRAINING',
+  'MANAGE_TRAINING',
+  'VIEW_COURSES',
+  'MANAGE_COURSES',
+  'MANAGE_TRAINING_OPTIONS',
+  'VIEW_DISCIPLINE',
+  'ADD_DISCIPLINE',
+  'VIEW_LOA',
+  'CREATE_LOA',
+  'APPROVE_LOA',
+  'VIEW_DOCUMENTS',
+  'MANAGE_DOCUMENTS',
+  'VIEW_ANNOUNCEMENTS',
+  'MANAGE_ANNOUNCEMENTS',
+  'MANAGE_USERS',
+  'RESET_PASSWORDS',
+  'VIEW_AUDIT_LOG',
+  'MANAGE_PERMISSIONS',
+  'CHANGE_OWN_PASSWORD',
+  'FULL_ACCESS',
+];
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_STORAGE_KEY = 'mo8_api_cache';
 const BOOT_STORAGE_KEY = 'mo8_boot_ready';
