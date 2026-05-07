@@ -219,3 +219,27 @@ After deployment:
 - `Delete user` removes the Auth user and linked MDT profile/officer records.
 
 The service role key is found in Supabase `Project Settings > API`, but it must only be used as an Edge Function secret.
+
+## Discord DM Edge Function
+
+The MDT can send best-effort Discord DMs whenever an in-app notification is created. This uses the `discord-alerts` Edge Function so the Discord bot token stays private.
+
+Deploy from the linked Supabase CLI folder:
+
+```powershell
+supabase functions deploy discord-alerts
+```
+
+Add the bot token as a Supabase secret. If you already use `supabase-secrets.env`, add this line:
+
+```env
+DISCORD_BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE
+```
+
+Then run:
+
+```powershell
+supabase secrets set --env-file .\supabase-secrets.env
+```
+
+Discord DMs can still be blocked by a user's privacy settings, server membership, or Discord API restrictions. In-app MDT notifications remain the reliable source of truth.

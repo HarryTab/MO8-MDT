@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-8';
+const APP_VERSION = '2026-05-07-9';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -4041,14 +4041,29 @@ async function supabaseAudit(actorUserId, action, targetType, targetId, details 
 async function supabaseNotify(memberId, title, message, actorUserId) {
   if (!memberId) return;
   try {
-    await supabaseClient.from('notifications').insert({
+    const { data } = await supabaseClient.from('notifications').insert({
       member_id: memberId,
       title,
       message,
       actor_user_id: actorUserId || null,
-    });
+    }).select('notification_id').maybeSingle();
+    if (data?.notification_id) sendDiscordNotification(data.notification_id);
   } catch (error) {
     // Notification failure should not block the user action.
+  }
+}
+
+async function sendDiscordNotification(notificationId) {
+  if (!USE_SUPABASE || !notificationId) return;
+  try {
+    await supabaseClient.functions.invoke('discord-alerts', {
+      body: {
+        action: 'sendNotification',
+        notificationId,
+      },
+    });
+  } catch (error) {
+    // Discord delivery is best-effort. In-app notifications remain the source of truth.
   }
 }
 
