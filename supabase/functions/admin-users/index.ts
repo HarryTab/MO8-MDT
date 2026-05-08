@@ -49,7 +49,7 @@ Deno.serve(async (request) => {
       .maybeSingle();
 
     if (payload.action === 'changePassword') {
-      return await changeOwnPassword(userClient, payload, actorProfile);
+      return await changeOwnPassword(adminClient, authData.user.id, payload, actorProfile);
     }
 
     const requiredPermission = payload.action === 'resetPassword' ? 'RESET_PASSWORDS' : 'MANAGE_USERS';
@@ -203,11 +203,14 @@ async function resetPassword(adminClient: ReturnType<typeof createClient>, paylo
   return json({ ok: true, temporaryPassword });
 }
 
-async function changeOwnPassword(userClient: ReturnType<typeof createClient>, payload: SaveUserPayload, actorProfile: Record<string, unknown> | null) {
+async function changeOwnPassword(adminClient: ReturnType<typeof createClient>, authUserId: string, payload: SaveUserPayload, actorProfile: Record<string, unknown> | null) {
   const newPassword = String(payload.NewPassword || payload.TemporaryPassword || '').trim();
   if (!newPassword) return json({ ok: false, error: 'New password is required.' }, 400);
 
-  const { error } = await userClient.auth.updateUser({ password: newPassword });
+  const { error } = await adminClient.auth.admin.updateUserById(authUserId, {
+    password: newPassword,
+    email_confirm: true,
+  });
   if (error) return json({ ok: false, error: error.message }, 400);
 
   await sendCredentialDm({
