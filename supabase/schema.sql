@@ -432,6 +432,13 @@ create policy "training write" on public.training_records for all
 using (public.has_permission('MANAGE_TRAINING'))
 with check (public.has_permission('MANAGE_TRAINING'));
 
+create policy "training matrix read" on public.training_matrix for select
+using (public.has_permission('VIEW_TRAINING') or officer_id in (select officer_id from public.officers where member_id = public.current_member_id()));
+
+create policy "training matrix write" on public.training_matrix for all
+using (public.has_permission('MANAGE_TRAINING'))
+with check (public.has_permission('MANAGE_TRAINING'));
+
 create policy "training options read" on public.training_options for select
 using (public.has_permission('VIEW_TRAINING') or public.has_permission('VIEW_COURSES'));
 
