@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-4';
+const APP_VERSION = '2026-05-08-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3931,10 +3931,19 @@ async function supabaseSetRolePermission(data) {
 }
 
 async function supabaseSetUserPermission(data) {
+  const mode = data.Mode || 'Inherit';
+  if (mode === 'Inherit') {
+    const { error } = await supabaseClient
+      .from('user_permissions')
+      .delete()
+      .eq('user_id', data.UserID)
+      .eq('permission', data.Permission);
+    return error ? { ok: false, error: error.message } : { ok: true };
+  }
   const { error } = await supabaseClient.from('user_permissions').upsert({
     user_id: data.UserID,
     permission: data.Permission,
-    allowed: data.Allowed || 'Inherit',
+    allowed: mode,
     updated_by: state.user?.UserID || null,
   }, { onConflict: 'user_id,permission' });
   return error ? { ok: false, error: error.message } : { ok: true };
