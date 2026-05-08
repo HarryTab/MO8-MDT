@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 type SaveUserPayload = {
-  action: 'saveUser' | 'resetPassword' | 'deleteUser';
+  action: 'saveUser' | 'resetPassword' | 'deleteUser' | 'changePassword';
   UserID?: string;
   RobloxUsername?: string;
   DiscordID?: string;
@@ -15,6 +15,7 @@ type SaveUserPayload = {
   Role?: string;
   Status?: string;
   TemporaryPassword?: string;
+  NewPassword?: string;
 };
 
 Deno.serve(async (request) => {
@@ -40,19 +41,23 @@ Deno.serve(async (request) => {
     if (authError || !authData.user) return json({ ok: false, error: 'Not signed in.' }, 401);
 
     const payload = await request.json() as SaveUserPayload;
-    const requiredPermission = payload.action === 'resetPassword' ? 'RESET_PASSWORDS' : 'MANAGE_USERS';
-    const { data: allowed, error: permissionError } = await userClient.rpc('has_permission', {
-      permission_name: requiredPermission,
-    });
-    if (permissionError) return json({ ok: false, error: permissionError.message }, 500);
-    if (!allowed) return json({ ok: false, error: 'You do not have permission to manage login accounts.' }, 403);
-
     const { data: actorProfile } = await adminClient
       .from('profiles')
       .select('*')
       .eq('auth_user_id', authData.user.id)
       .limit(1)
       .maybeSingle();
+
+    if (payload.action === 'changePassword') {
+      return await changeOwnPassword(userClient, payload, actorProfile);
+    }
+
+    const requiredPermission = payload.action === 'resetPassword' ? 'RESET_PASSWORDS' : 'MANAGE_USERS';
+    const { data: allowed, error: permissionError } = await userClient.rpc('has_permission', {
+      permission_name: requiredPermission,
+    });
+    if (permissionError) return json({ ok: false, error: permissionError.message }, 500);
+    if (!allowed) return json({ ok: false, error: 'You do not have permission to manage login accounts.' }, 403);
 
     if (payload.action === 'resetPassword') {
       return await resetPassword(adminClient, payload);
@@ -140,6 +145,17 @@ async function saveUser(adminClient: ReturnType<typeof createClient>, payload: S
     : await adminClient.from('officers').insert(officerRecord);
   if (officerResult.error) return json({ ok: false, error: officerResult.error.message }, 400);
 
+  const passwordForMessage = payload.TemporaryPassword ? payload.TemporaryPassword : !existingProfile ? temporaryPassword : '';
+  if (passwordForMessage) {
+    await sendCredentialDm({
+      discordId: profileRecord.discord_id,
+      title: existingProfile ? 'MO8 MDT password changed' : 'MO8 MDT account created',
+      username,
+      password: passwordForMessage,
+      note: existingProfile ? 'Your MDT login password has been changed.' : 'Your MDT login account has been created.',
+    });
+  }
+
   return json({
     ok: true,
     UserID: existingProfile?.user_id || userId,
@@ -176,7 +192,33 @@ async function resetPassword(adminClient: ReturnType<typeof createClient>, paylo
     if (error) return json({ ok: false, error: error.message }, 400);
   }
 
+  await sendCredentialDm({
+    discordId: profile.discord_id || '',
+    title: 'MO8 MDT password reset',
+    username: profile.roblox_username || '',
+    password: temporaryPassword,
+    note: 'Your MDT password has been reset.',
+  });
+
   return json({ ok: true, temporaryPassword });
+}
+
+async function changeOwnPassword(userClient: ReturnType<typeof createClient>, payload: SaveUserPayload, actorProfile: Record<string, unknown> | null) {
+  const newPassword = String(payload.NewPassword || payload.TemporaryPassword || '').trim();
+  if (!newPassword) return json({ ok: false, error: 'New password is required.' }, 400);
+
+  const { error } = await userClient.auth.updateUser({ password: newPassword });
+  if (error) return json({ ok: false, error: error.message }, 400);
+
+  await sendCredentialDm({
+    discordId: String(actorProfile?.discord_id || ''),
+    title: 'MO8 MDT password changed',
+    username: String(actorProfile?.roblox_username || ''),
+    password: newPassword,
+    note: 'Your MDT password has been changed.',
+  });
+
+  return json({ ok: true });
 }
 
 async function deleteUser(adminClient: ReturnType<typeof createClient>, payload: SaveUserPayload) {
@@ -219,6 +261,64 @@ async function byId(adminClient: ReturnType<typeof createClient>, table: string,
   const { data, error } = await adminClient.from(table).select('*').eq(column, value).limit(1).maybeSingle();
   if (error) throw error;
   return data;
+}
+
+async function sendCredentialDm({ discordId, title, username, password, note }: { discordId: string; title: string; username: string; password: string; note: string }) {
+  const botToken = Deno.env.get('DISCORD_BOT_TOKEN');
+  const targetId = digitsOnly(discordId);
+  if (!botToken || !targetId || !password) return { ok: false, skipped: true };
+
+  const channelResponse = await discordFetch(botToken, 'https://discord.com/api/v10/users/@me/channels', {
+    method: 'POST',
+    body: JSON.stringify({ recipient_id: targetId }),
+  });
+  const channelBody = await channelResponse.json().catch(() => ({}));
+  if (!channelResponse.ok) return { ok: false, error: discordError(channelResponse, channelBody) };
+
+  const messageResponse = await discordFetch(botToken, `https://discord.com/api/v10/channels/${channelBody.id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      embeds: [credentialEmbed(title, username, password, note)],
+    }),
+  });
+  const messageBody = await messageResponse.json().catch(() => ({}));
+  if (!messageResponse.ok) return { ok: false, error: discordError(messageResponse, messageBody) };
+  return { ok: true };
+}
+
+function credentialEmbed(title: string, username: string, password: string, note: string) {
+  const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
+  return {
+    title,
+    description: note,
+    color: 0x1267d8,
+    fields: [
+      { name: 'Username', value: username || 'Your Roblox username', inline: true },
+      { name: 'Password', value: `\`${password}\``, inline: true },
+      { name: 'Open MDT', value: `[Launch MO8 MDT](${mdtUrl})`, inline: false },
+    ],
+    footer: { text: 'MO8 MDT Account Access' },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function discordFetch(botToken: string, url: string, init: RequestInit = {}) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      'Authorization': `Bot ${botToken}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+function discordError(response: Response, body: Record<string, unknown>) {
+  return `Discord API ${response.status}: ${body.message || response.statusText || 'Request failed'}${body.code ? ` (${body.code})` : ''}`;
+}
+
+function digitsOnly(value: unknown) {
+  return String(value || '').replace(/\D/g, '');
 }
 
 function json(body: Record<string, unknown>, status = 200) {

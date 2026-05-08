@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-07-10';
+const APP_VERSION = '2026-05-08-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3912,8 +3912,7 @@ async function supabaseResetUserPassword(data) {
 }
 
 async function supabaseChangePassword(data) {
-  const { error } = await supabaseClient.auth.updateUser({ password: data.NewPassword });
-  return error ? { ok: false, error: error.message } : { ok: true };
+  return supabaseInvokeAdminUsers({ action: 'changePassword', NewPassword: data.NewPassword || '' });
 }
 
 async function supabaseInvokeAdminUsers(payload) {

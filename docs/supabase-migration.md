@@ -217,6 +217,7 @@ After deployment:
 - `Users > Add user` creates the MDT profile, linked officer record and Supabase Auth login.
 - `Reset password` generates a temporary password.
 - `Delete user` removes the Auth user and linked MDT profile/officer records.
+- If `DISCORD_BOT_TOKEN` is set as a Supabase secret, new account, password reset, and password change details are sent by Discord DM when the user has a Discord ID saved.
 
 The service role key is found in Supabase `Project Settings > API`, but it must only be used as an Edge Function secret.
 
