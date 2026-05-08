@@ -1209,6 +1209,26 @@ dialog .section-head .ghost:hover {
   font-size: 14px;
 }
 
+.link-button {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: var(--blue-dark);
+  background: transparent;
+  box-shadow: none;
+  font-size: inherit;
+  font-weight: 950;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button:hover {
+  color: var(--blue);
+  background: transparent;
+}
+
 .profile-notes {
   padding: 14px;
 }

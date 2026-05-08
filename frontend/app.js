@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-2';
+const APP_VERSION = '2026-05-08-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -673,7 +673,7 @@ async function loadMyProfile() {
       ${detailCard('Status', officer ? formatCell(officer.EffectiveStatus || officer.Status, 'Status') : 'No record', true)}
       ${detailCard('LOA Status', officer ? loaStatusText(officer) : 'No record', true)}
       ${detailCard('Duty Status', response.shiftStatus?.onDuty ? formatCell('On Duty', 'Status') : formatCell('Off Duty', 'Status'), true)}
-      ${detailCard('Supervisor', officer ? officer.Supervisor || 'Not assigned' : 'No record')}
+      ${detailCard('Supervisor', officer ? supervisorProfileLink(officer) : 'No record', true)}
       ${detailCard('Discord ID', user.DiscordID || 'Not set')}
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
@@ -1298,7 +1298,7 @@ function renderOfficerProfile(data) {
     <section class="profile-grid">
       ${detailCard('Status', formatCell(officer.Status), true)}
       ${detailCard('Duty Status', formatCell(officer.DutyStatus || 'Off Duty', 'Status'), true)}
-      ${detailCard('Supervisor', officer.Supervisor || 'Not assigned')}
+      ${detailCard('Supervisor', supervisorProfileLink(officer), true)}
       ${detailCard('Join date', officer.JoinDate || 'Not set')}
       ${detailCard('Discord ID', officer.DiscordID || 'Not set')}
       ${detailCard('Updated', officer.UpdatedAt || 'Not set')}
@@ -2156,6 +2156,12 @@ function detailCard(label, value, allowHtml = false) {
   return `<article class="detail-card"><span>${escapeHtml(label)}</span><strong>${content}</strong></article>`;
 }
 
+function supervisorProfileLink(officer = {}) {
+  if (!officer.Supervisor || officer.Supervisor === 'Not assigned') return 'Not assigned';
+  if (!officer.SupervisorOfficerID) return escapeHtml(officer.Supervisor);
+  return `<button class="link-button" data-open-officer="${escapeHtml(officer.SupervisorOfficerID)}">${escapeHtml(officer.Supervisor)}</button>`;
+}
+
 function profileTable(title, rows, columns, options = {}) {
   const actionHeader = options.actions ? '<th>Actions</th>' : '';
   const body = rows.length
@@ -2848,7 +2854,7 @@ async function supabaseMyProfile() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [training, discipline, loa, shifts, rankChanges, notifications, documents, announcements] = await Promise.all([
+  const [training, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers] = await Promise.all([
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('loa_requests', 'officer_id', officer.officer_id) : [],
@@ -2857,11 +2863,13 @@ async function supabaseMyProfile() {
     supabaseNotificationRows(profile.member_id),
     supabaseVisibleDocuments(),
     supabaseVisibleAnnouncements(),
+    supabaseAll('profiles'),
+    supabaseAll('officers'),
   ]);
   return {
     ok: true,
     user: me.user,
-    officer: officer ? supabaseOfficer(officer) : null,
+    officer: officer ? decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }) : null,
     training: training.map(supabaseTrainingRecord),
     discipline: discipline.map(supabaseDiscipline),
     loa: loa.map(supabaseLoa),
@@ -2945,7 +2953,7 @@ async function supabaseGetOfficerProfile(data) {
   const { data: officer, error } = await supabaseClient.from('officers').select('*').eq('officer_id', data.OfficerID).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!officer) return { ok: false, error: 'Officer not found.' };
-  const [training, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks] = await Promise.all([
+  const [training, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers] = await Promise.all([
     supabaseRows('training_records', 'officer_id', officer.officer_id),
     supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id),
     supabaseRows('loa_requests', 'officer_id', officer.officer_id),
@@ -2956,9 +2964,11 @@ async function supabaseGetOfficerProfile(data) {
     supabaseRows('development_plans', 'officer_id', officer.officer_id, 'created_at'),
     supabaseRows('shift_logs', 'officer_id', officer.officer_id, 'started_at'),
     supabaseRows('rank_changes', 'member_id', officer.member_id, 'changed_at'),
+    supabaseAll('profiles'),
+    supabaseAll('officers'),
   ]);
   const payload = {
-    officer: decorateSupabaseOfficer(officer, { loa, shifts }),
+    officer: decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }),
     training: training.map(supabaseTrainingRecord),
     discipline: discipline.map(supabaseDiscipline),
     loa: loa.map(supabaseLoa),
@@ -4262,11 +4272,13 @@ function decorateSupabaseOfficer(row, context = {}) {
   const activeLoa = (context.loa || []).find((request) => request.officer_id === row.officer_id && request.status === 'Approved' && isTodayInRange(request.start_date, request.end_date));
   const activeShift = (context.shifts || []).find((shift) => shift.officer_id === row.officer_id && shift.status === 'On Duty' && !shift.ended_at);
   const supervisor = (context.profiles || []).find((profile) => profile.user_id === row.supervisor_user_id);
+  const supervisorOfficer = supervisor ? (context.officers || []).find((item) => item.member_id === supervisor.member_id) : null;
   return Object.assign(officer, {
     EffectiveStatus: activeLoa ? 'LOA' : officer.Status,
     LoaStatus: activeLoa ? 'On LOA' : 'Available',
     DutyStatus: activeShift ? 'On Duty' : 'Off Duty',
     Supervisor: supervisor ? supervisor.roblox_username : 'Not assigned',
+    SupervisorOfficerID: supervisorOfficer?.officer_id || '',
   });
 }
 
