@@ -269,6 +269,10 @@ body:not(.is-authenticated) .module-dock {
   text-transform: uppercase;
 }
 
+.mobile-menu-button {
+  display: none;
+}
+
 .nav {
   display: grid;
   align-content: start;
@@ -1332,6 +1336,19 @@ dialog .section-head .ghost:hover {
   gap: 12px;
 }
 
+.dashboard-widget-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.dashboard-config-actions,
+.dashboard-widget-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .shift-dashboard {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1375,6 +1392,7 @@ dialog .section-head .ghost:hover {
   display: grid;
   align-content: start;
   gap: 10px;
+  grid-column: span 2;
   min-width: 0;
   min-height: 220px;
   padding: 14px;
@@ -1383,9 +1401,43 @@ dialog .section-head .ghost:hover {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.dashboard-widget.widget-wide {
+  grid-column: span 3;
+}
+
+.dashboard-widget.widget-large {
+  grid-column: 1 / -1;
+  min-height: 330px;
+}
+
+.dashboard-widget-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .dashboard-panel h3 {
   margin: 0;
   font-size: 15px;
+}
+
+.mini-button {
+  width: auto;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: #1d3d66;
+  background: #eef5ff;
+  border-color: rgba(134, 177, 232, 0.86);
+  box-shadow: none;
+  font-size: 11px;
+}
+
+.mini-button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .dashboard-config {
@@ -1857,7 +1909,7 @@ body.is-authenticated .profile-actions button.ghost {
 
 @media (max-width: 760px) {
   body.is-authenticated {
-    background: linear-gradient(180deg, #08172b 0%, #102746 180px, #edf3fa 180px, #edf3fa 100%);
+    background: #edf3fa;
   }
 
   body.is-authenticated .terminal-shell,
@@ -1871,57 +1923,129 @@ body.is-authenticated .profile-actions button.ghost {
     min-height: 100dvh;
     grid-template-columns: 1fr;
     border-radius: 0;
-    border-left: 0;
-    border-right: 0;
+    border: 0;
+    background: #edf3fa;
+    backdrop-filter: none;
   }
 
   body.is-authenticated .module-dock,
   .module-dock {
     position: sticky;
     top: 0;
-    z-index: 20;
-    padding: 10px;
+    z-index: 50;
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 0;
+    padding: 10px 12px;
+    background: linear-gradient(180deg, #102746, #173762);
     border-right: 0;
-    border-bottom: 1px solid rgba(184, 197, 212, 0.5);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 10px 28px rgba(7, 20, 38, 0.18);
   }
 
-  .dock-label,
-  .nav-group > span {
+  .dock-label {
     display: none;
   }
 
-  .nav,
-  .nav-group {
+  .mobile-menu-button {
     display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 52px;
+    padding: 8px 12px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 14px;
+    box-shadow: none;
+    text-align: left;
+  }
+
+  .mobile-menu-button span {
+    color: #b9cbe0;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobile-menu-button strong {
+    color: #fff;
+    font-size: 17px;
+  }
+
+  .mobile-menu-button::after {
+    content: "Open";
+    color: #d8e7f8;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  body.mobile-nav-open .mobile-menu-button::after {
+    content: "Close";
   }
 
   .nav {
-    padding-bottom: 4px;
+    display: grid;
+    gap: 12px;
+    max-height: 0;
+    margin-top: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: max-height 180ms ease, opacity 180ms ease, transform 180ms ease, margin-top 180ms ease;
+  }
+
+  body.mobile-nav-open .nav {
+    max-height: calc(100dvh - 88px);
+    margin-top: 10px;
+    overflow-y: auto;
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .nav-group {
-    min-width: max-content;
+    display: grid;
+    gap: 7px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(7, 20, 38, 0.20);
+  }
+
+  .nav-group > span {
+    display: block;
+    padding: 0 2px 2px;
+    color: #9fb6d1;
   }
 
   .nav-item {
-    min-width: 118px;
-    min-height: 42px;
-    white-space: nowrap;
+    min-height: 44px;
+    padding: 10px 12px;
+    color: #eaf3ff;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    white-space: normal;
+  }
+
+  .nav-item:hover,
+  .nav-item.active {
+    color: #fff;
+    background: #1980ff;
+    border-color: #55a8ff;
   }
 
   .workspace {
+    gap: 10px;
     padding: 12px;
   }
 
   .topbar {
-    align-items: stretch;
+    align-items: flex-start;
     gap: 12px;
-    padding: 14px;
-    border-radius: 14px;
+    padding: 14px 14px 12px;
+    border-radius: 16px;
   }
 
   .topbar,
@@ -1932,14 +2056,34 @@ body.is-authenticated .profile-actions button.ghost {
   }
 
   .identity {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     align-items: stretch;
   }
 
+  .notification-shell,
+  .identity .ghost,
+  .identity button {
+    width: 100%;
+  }
+
+  .notification-menu {
+    position: fixed;
+    top: 76px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 96px);
+  }
+
   #currentUser {
+    grid-column: 1 / -1;
     justify-items: start;
   }
 
   .dashboard-grid,
+  .dashboard-widget-grid,
   .stats-grid,
   .stat-row,
   .filter-row,
@@ -1951,6 +2095,30 @@ body.is-authenticated .profile-actions button.ghost {
   .file-list-head,
   .file-row {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-panel,
+  .dashboard-widget.widget-wide,
+  .dashboard-widget.widget-large {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-widget-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-widget-tools {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stat {
+    min-height: 94px;
+  }
+
+  .stat strong {
+    font-size: 30px;
   }
 
   .table-wrap {

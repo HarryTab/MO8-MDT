@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-5';
+const APP_VERSION = '2026-05-08-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -64,6 +64,7 @@ const CACHE_STORAGE_KEY = 'mo8_api_cache';
 const BOOT_STORAGE_KEY = 'mo8_boot_ready';
 const SESSION_STORAGE_KEY = 'mo8_session_auth';
 const VERSION_STORAGE_KEY = 'mo8_app_version';
+const DASHBOARD_LAYOUT_STORAGE_KEY = 'mo8_dashboard_layout';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -130,6 +131,8 @@ const elements = {
   bootProgressBar: document.querySelector('#bootProgressBar'),
   appView: document.querySelector('#appView'),
   nav: document.querySelector('#nav'),
+  mobileMenuButton: document.querySelector('#mobileMenuButton'),
+  mobileMenuLabel: document.querySelector('#mobileMenuLabel'),
   identity: document.querySelector('#identity'),
   currentUser: document.querySelector('#currentUser'),
   logoutButton: document.querySelector('#logoutButton'),
@@ -204,6 +207,7 @@ elements.passwordButton.addEventListener('click', () => {
 });
 elements.notificationsButton.addEventListener('click', toggleNotifications);
 elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
+elements.mobileMenuButton?.addEventListener('click', () => toggleMobileNav());
 
 document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
 document.querySelector('#documentSearch').addEventListener('input', () => renderDocumentTable());
@@ -220,6 +224,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
     state.activeView = button.dataset.view;
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item === button));
     await showView(state.activeView);
+    closeMobileNav();
   });
 });
 
@@ -444,6 +449,16 @@ function updateNotificationBadge() {
     : 'Notifications');
 }
 
+function toggleMobileNav(force) {
+  const shouldOpen = typeof force === 'boolean' ? force : !document.body.classList.contains('mobile-nav-open');
+  document.body.classList.toggle('mobile-nav-open', shouldOpen);
+  elements.mobileMenuButton?.setAttribute('aria-expanded', String(shouldOpen));
+}
+
+function closeMobileNav() {
+  toggleMobileNav(false);
+}
+
 function defaultView() {
   if (can('VIEW_DASHBOARD')) return 'dashboard';
   return 'myProfile';
@@ -479,6 +494,7 @@ async function showView(view) {
 
   elements.pageTitle.textContent = titles[view][0];
   elements.pageSubtitle.textContent = titles[view][1];
+  if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = titles[view][0];
   renderViewLoading(view);
 
   const loaders = {
@@ -605,11 +621,31 @@ async function loadDashboard() {
 
   const counts = response.counts || {};
   const activeWidgets = response.widgets || DASHBOARD_WIDGETS.map(([key]) => key);
-  const widget = (key, html) => activeWidgets.includes(key) ? html : '';
+  const layout = getDashboardLayout(activeWidgets);
+  const widgetBodies = {
+    activeLoa: ['Active LOA Status', dashboardRows(response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status'])],
+    pendingLoa: ['Pending LOA', dashboardRows(response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate'])],
+    announcements: ['Notice Board', announcementRows(response.announcements || [])],
+    upcomingTraining: ['Upcoming Training', dashboardRows(response.upcomingTraining || [], ['Title', 'Standard', 'CourseDate', 'Status', 'Location'])],
+    trainingReviews: ['Training Reviews', dashboardRows(response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy'])],
+    recentDocuments: ['Recent Documents', dashboardRows(response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt'])],
+    recentActivity: ['Recent Activity', dashboardRows(response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID'])],
+    pendingAppeals: ['Pending Appeals', dashboardRows(response.pendingAppeals || [], ['Officer', 'Rank', 'SourceType', 'Reason'])],
+    unassignedOfficers: ['Unassigned Officers', dashboardRows(response.unassignedOfficers || [], ['RobloxUsername', 'Rank', 'DutyStatus'])],
+    lowActivity: ['Low Activity', dashboardRows(response.lowActivity || [], ['RobloxUsername', 'Rank', 'Duration', 'ActivityFlag'])],
+    documentAcknowledgements: ['Document Acknowledgements', dashboardRows(response.documentAcknowledgements || [], ['Title', 'Category', 'RequiredRole'])],
+  };
+  const renderedWidgets = layout.order
+    .filter((key) => activeWidgets.includes(key) && widgetBodies[key])
+    .map((key, index) => dashboardWidget(key, widgetBodies[key][0], widgetBodies[key][1], layout, index))
+    .join('');
   elements.dashboardView.innerHTML = `
     <div class="section-head dashboard-config">
       <h2>Dashboard</h2>
-      <button class="ghost" data-configure-dashboard>Widgets</button>
+      <div class="dashboard-config-actions">
+        <button class="ghost" data-reset-dashboard-layout>Reset layout</button>
+        <button class="ghost" data-configure-dashboard>Widgets</button>
+      </div>
     </div>
     <div class="stat-row">
       ${[
@@ -622,18 +658,8 @@ async function loadDashboard() {
     stat('Upcoming Training', counts.upcomingTraining || 0),
   ].join('')}
     </div>
-    <section class="dashboard-grid">
-      ${widget('activeLoa', dashboardPanel('Active LOA Status', response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status']))}
-      ${widget('pendingLoa', dashboardPanel('Pending LOA', response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate']))}
-      ${widget('announcements', announcementPanel('Notice Board', response.announcements || []))}
-      ${widget('upcomingTraining', dashboardPanel('Upcoming Training', response.upcomingTraining || [], ['Title', 'Standard', 'CourseDate', 'Status', 'Location']))}
-      ${widget('trainingReviews', dashboardPanel('Training Reviews', response.trainingReviewsDue || [], ['RobloxUsername', 'Standard', 'ReviewDate', 'UpdatedBy']))}
-      ${widget('recentDocuments', dashboardPanel('Recent Documents', response.recentDocuments || [], ['Title', 'Category', 'RequiredRole', 'UpdatedAt']))}
-      ${widget('recentActivity', dashboardPanel('Recent Activity', response.recentAudit || [], ['Timestamp', 'Action', 'TargetType', 'TargetID']))}
-      ${widget('pendingAppeals', dashboardPanel('Pending Appeals', response.pendingAppeals || [], ['Officer', 'Rank', 'SourceType', 'Reason']))}
-      ${widget('unassignedOfficers', dashboardPanel('Unassigned Officers', response.unassignedOfficers || [], ['RobloxUsername', 'Rank', 'DutyStatus']))}
-      ${widget('lowActivity', dashboardPanel('Low Activity', response.lowActivity || [], ['RobloxUsername', 'Rank', 'Duration', 'ActivityFlag']))}
-      ${widget('documentAcknowledgements', dashboardPanel('Document Acknowledgements', response.documentAcknowledgements || [], ['Title', 'Category', 'RequiredRole']))}
+    <section class="dashboard-grid dashboard-widget-grid">
+      ${renderedWidgets || emptyState('No dashboard widgets selected.')}
     </section>
   `;
 }
@@ -1691,6 +1717,46 @@ async function handleDocumentClick(event) {
   if (!event.target.closest('.notification-shell')) {
     closeNotificationMenu();
   }
+  if (document.body.classList.contains('mobile-nav-open')
+    && !event.target.closest('.module-dock')
+    && !event.target.closest('.mobile-menu-button')) {
+    closeMobileNav();
+  }
+
+  const widgetMove = event.target.closest('[data-widget-move]');
+  if (widgetMove) {
+    const card = widgetMove.closest('[data-dashboard-widget]');
+    if (!card) return;
+    updateDashboardWidget(card.dataset.dashboardWidget, (layout, key) => {
+      const index = layout.order.indexOf(key);
+      const direction = widgetMove.dataset.widgetMove === 'up' ? -1 : 1;
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= layout.order.length) return;
+      [layout.order[index], layout.order[nextIndex]] = [layout.order[nextIndex], layout.order[index]];
+    });
+    await loadDashboard();
+    return;
+  }
+
+  const widgetSize = event.target.closest('[data-widget-size]');
+  if (widgetSize) {
+    const card = widgetSize.closest('[data-dashboard-widget]');
+    if (!card) return;
+    updateDashboardWidget(card.dataset.dashboardWidget, (layout, key) => {
+      const sizes = ['normal', 'wide', 'large'];
+      const current = layout.sizes[key] || 'normal';
+      layout.sizes[key] = sizes[(sizes.indexOf(current) + 1) % sizes.length];
+    });
+    await loadDashboard();
+    return;
+  }
+
+  const resetDashboardLayout = event.target.closest('[data-reset-dashboard-layout]');
+  if (resetDashboardLayout) {
+    localStorage.removeItem(DASHBOARD_LAYOUT_STORAGE_KEY);
+    await loadDashboard();
+    return;
+  }
 
   const viewLink = event.target.closest('[data-view-link]');
   if (viewLink) {
@@ -1699,7 +1765,7 @@ async function handleDocumentClick(event) {
   }
 
   const officerLink = event.target.closest('[data-open-officer]');
-  if (officerLink && (event.target === officerLink || !event.target.closest('button, a, input, select, textarea'))) {
+  if (officerLink && (officerLink.matches('button, a') || !event.target.closest('button, a, input, select, textarea'))) {
     state.selectedOfficerId = officerLink.dataset.openOfficer;
     await showView('officerProfile');
     return;
@@ -2102,8 +2168,53 @@ function stat(label, value) {
   `;
 }
 
-function dashboardPanel(title, rows, columns) {
-  const body = rows.length
+function getDashboardLayout(activeWidgets = DASHBOARD_WIDGETS.map(([key]) => key)) {
+  const defaults = DASHBOARD_WIDGETS.map(([key]) => key).filter((key) => activeWidgets.includes(key));
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(DASHBOARD_LAYOUT_STORAGE_KEY) || '{}');
+  } catch {
+    saved = {};
+  }
+  const savedOrder = Array.isArray(saved.order) ? saved.order : [];
+  const order = [...savedOrder.filter((key) => activeWidgets.includes(key)), ...defaults.filter((key) => !savedOrder.includes(key))];
+  const sizes = { ...(saved.sizes || {}) };
+  return { order, sizes };
+}
+
+function saveDashboardLayout(layout) {
+  localStorage.setItem(DASHBOARD_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+}
+
+function updateDashboardWidget(key, updater) {
+  const activeWidgets = getCachedResponse('dashboard', {})?.widgets || DASHBOARD_WIDGETS.map(([item]) => item);
+  const layout = getDashboardLayout(activeWidgets);
+  updater(layout, key);
+  saveDashboardLayout(layout);
+}
+
+function dashboardWidget(key, title, body, layout, index) {
+  const size = layout.sizes[key] || 'normal';
+  const sizeLabel = size === 'large' ? 'Large' : size === 'wide' ? 'Wide' : 'Standard';
+  const canMoveUp = index > 0;
+  const canMoveDown = index < layout.order.length - 1;
+  return `
+    <article class="dashboard-panel dashboard-widget widget-${escapeHtml(size)}" data-dashboard-widget="${escapeHtml(key)}">
+      <div class="dashboard-widget-head">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="dashboard-widget-tools" aria-label="${escapeHtml(title)} widget controls">
+          <button class="mini-button" data-widget-move="up" ${canMoveUp ? '' : 'disabled'}>Up</button>
+          <button class="mini-button" data-widget-move="down" ${canMoveDown ? '' : 'disabled'}>Down</button>
+          <button class="mini-button" data-widget-size>${escapeHtml(sizeLabel)}</button>
+        </div>
+      </div>
+      <div class="dashboard-list">${body}</div>
+    </article>
+  `;
+}
+
+function dashboardRows(rows, columns) {
+  return rows.length
     ? rows.map((row) => `
       <article class="dashboard-row">
         ${columns.map((column) => `
@@ -2115,17 +2226,10 @@ function dashboardPanel(title, rows, columns) {
       </article>
     `).join('')
     : `<p class="empty">No records found.</p>`;
-
-  return `
-    <article class="dashboard-panel">
-      <h3>${escapeHtml(title)}</h3>
-      <div class="dashboard-list">${body}</div>
-    </article>
-  `;
 }
 
-function announcementPanel(title, rows) {
-  const body = rows.length
+function announcementRows(rows) {
+  return rows.length
     ? rows.map((row) => `
       <article class="dashboard-row notice-dashboard">
         <span>
@@ -2136,13 +2240,6 @@ function announcementPanel(title, rows) {
       </article>
     `).join('')
     : `<p class="empty">No notices found.</p>`;
-
-  return `
-    <article class="dashboard-panel">
-      <h3>${escapeHtml(title)}</h3>
-      <div class="dashboard-list">${body}</div>
-    </article>
-  `;
 }
 
 function loaStatusText(officer) {
