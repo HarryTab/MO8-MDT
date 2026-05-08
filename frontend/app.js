@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-1';
+const APP_VERSION = '2026-05-08-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3017,9 +3017,13 @@ async function supabaseSaveOfficer(data) {
 async function supabaseSetOfficerSupervisor(data) {
   const officer = await supabaseById('officers', 'officer_id', data.OfficerID);
   const previousSupervisorId = officer?.supervisor_user_id || '';
-  const { error } = await supabaseClient.from('officers').update({ supervisor_user_id: data.SupervisorUserID || null }).eq('officer_id', data.OfficerID);
+  const nextSupervisorId = data.SupervisorUserID || '';
+  if (previousSupervisorId === nextSupervisorId) {
+    return { ok: true, changed: false, message: 'Supervisor unchanged.' };
+  }
+  const { error } = await supabaseClient.from('officers').update({ supervisor_user_id: nextSupervisorId || null }).eq('officer_id', data.OfficerID);
   if (error) return { ok: false, error: error.message };
-  const supervisor = data.SupervisorUserID ? await supabaseById('profiles', 'user_id', data.SupervisorUserID) : null;
+  const supervisor = nextSupervisorId ? await supabaseById('profiles', 'user_id', nextSupervisorId) : null;
   const previousSupervisor = previousSupervisorId ? await supabaseById('profiles', 'user_id', previousSupervisorId) : null;
   if (officer) {
     await supabaseNotify(officer.member_id, 'Supervisor updated', notificationDetails([
@@ -3859,16 +3863,23 @@ async function supabaseBulkUpdateOfficers(data) {
   const ids = splitTags(data.OfficerIDs || '');
   const updates = {};
   if (data.Status) updates.status = data.Status;
-  if (Object.prototype.hasOwnProperty.call(data, 'SupervisorUserID')) updates.supervisor_user_id = data.SupervisorUserID || null;
   if (data.Tags) updates.tags = splitTags(data.Tags);
   if (Object.keys(updates).length) {
     const { error } = await supabaseClient.from('officers').update(updates).in('officer_id', ids);
     if (error) return { ok: false, error: error.message };
   }
+  let supervisorChanges = 0;
+  if (Object.prototype.hasOwnProperty.call(data, 'SupervisorUserID')) {
+    for (const OfficerID of ids) {
+      const response = await supabaseSetOfficerSupervisor({ OfficerID, SupervisorUserID: data.SupervisorUserID || '' });
+      if (!response.ok) return response;
+      if (response.changed !== false) supervisorChanges += 1;
+    }
+  }
   if (data.TrainingReviewDate) {
     for (const OfficerID of ids) await supabaseSetTrainingReviewDate({ OfficerID, ReviewDate: data.TrainingReviewDate });
   }
-  return { ok: true, updated: ids.length };
+  return { ok: true, updated: ids.length, supervisorChanges };
 }
 
 async function supabasePermissionsConfig() {
