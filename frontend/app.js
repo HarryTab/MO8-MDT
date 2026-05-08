@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-6';
+const APP_VERSION = '2026-05-08-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -1239,9 +1239,9 @@ function renderPermissionsMatrix() {
     const cells = config.roles.map((role) => {
       const enabled = rolePermissionEnabled(role, permission) ? ' checked' : '';
       const disabled = permission === 'FULL_ACCESS' ? ' disabled' : '';
-      return `<td><input type="checkbox" data-role-permission data-role="${escapeHtml(role)}" data-permission="${escapeHtml(permission)}"${enabled}${disabled}></td>`;
+      return `<td data-label="${escapeHtml(role)}"><input type="checkbox" data-role-permission data-role="${escapeHtml(role)}" data-permission="${escapeHtml(permission)}"${enabled}${disabled}></td>`;
     }).join('');
-    return `<tr><td>${escapeHtml(permission)}</td>${cells}</tr>`;
+    return `<tr><td data-label="Permission">${escapeHtml(permission)}</td>${cells}</tr>`;
   }).join('');
   document.querySelector('#permissionsMatrix').innerHTML = `
     <h3>Role permissions</h3>
@@ -1260,9 +1260,9 @@ function renderUserPermissionsMatrix() {
     const cells = config.permissions.map((permission) => {
       const mode = userPermissionMode(user.UserID, permission);
       const options = USER_PERMISSION_MODES.map((item) => `<option value="${escapeHtml(item)}"${item === mode ? ' selected' : ''}>${escapeHtml(item)}</option>`).join('');
-      return `<td><select data-user-permission data-user-id="${escapeHtml(user.UserID)}" data-permission="${escapeHtml(permission)}">${options}</select></td>`;
+      return `<td data-label="${escapeHtml(permission)}"><select data-user-permission data-user-id="${escapeHtml(user.UserID)}" data-permission="${escapeHtml(permission)}">${options}</select></td>`;
     }).join('');
-    return `<tr><td>${escapeHtml(user.RobloxUsername)}</td><td>${escapeHtml(user.Role)}</td>${cells}</tr>`;
+    return `<tr><td data-label="User">${escapeHtml(user.RobloxUsername)}</td><td data-label="Role">${escapeHtml(user.Role)}</td>${cells}</tr>`;
   }).join('');
   document.querySelector('#userPermissionsMatrix').innerHTML = `
     <h3>User-specific overrides</h3>
@@ -2263,8 +2263,8 @@ function profileTable(title, rows, columns, options = {}) {
   const actionHeader = options.actions ? '<th>Actions</th>' : '';
   const body = rows.length
     ? rows.map((row) => {
-      const actionCell = options.actions ? `<td class="actions">${options.actions(row)}</td>` : '';
-      return `<tr>${columns.map((column) => `<td>${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
+      const actionCell = options.actions ? `<td class="actions" data-label="Actions">${options.actions(row)}</td>` : '';
+      return `<tr>${columns.map((column) => `<td data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
     }).join('')
     : `<tr><td colspan="${columns.length + (options.actions ? 1 : 0)}">No records found.</td></tr>`;
   return `
@@ -2447,8 +2447,8 @@ function renderTable(selector, rows, columns, options = {}) {
   const head = `<thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}${actionHeader}</tr></thead>`;
   const body = rows.map((row) => {
     const attrs = options.rowAction ? options.rowAction(row) : '';
-    const actionCell = options.actions ? `<td class="actions">${options.actions(row)}</td>` : '';
-    return `<tr ${attrs}>${columns.map((column) => `<td>${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
+    const actionCell = options.actions ? `<td class="actions" data-label="Actions">${options.actions(row)}</td>` : '';
+    return `<tr ${attrs}>${columns.map((column) => `<td data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
   }).join('');
   table.innerHTML = `${head}<tbody>${body}</tbody>`;
 }
