@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-3';
+const APP_VERSION = '2026-05-08-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -2854,8 +2854,9 @@ async function supabaseMyProfile() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [training, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers] = await Promise.all([
+  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers] = await Promise.all([
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseRows('training_matrix', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('loa_requests', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('shift_logs', 'officer_id', officer.officer_id, 'started_at') : [],
@@ -2870,7 +2871,7 @@ async function supabaseMyProfile() {
     ok: true,
     user: me.user,
     officer: officer ? decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }) : null,
-    training: training.map(supabaseTrainingRecord),
+    training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
     discipline: discipline.map(supabaseDiscipline),
     loa: loa.map(supabaseLoa),
     transfers: [],
@@ -2953,8 +2954,9 @@ async function supabaseGetOfficerProfile(data) {
   const { data: officer, error } = await supabaseClient.from('officers').select('*').eq('officer_id', data.OfficerID).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!officer) return { ok: false, error: 'Officer not found.' };
-  const [training, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers] = await Promise.all([
+  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers] = await Promise.all([
     supabaseRows('training_records', 'officer_id', officer.officer_id),
+    supabaseRows('training_matrix', 'officer_id', officer.officer_id),
     supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id),
     supabaseRows('loa_requests', 'officer_id', officer.officer_id),
     supabaseRows('transfer_requests', 'officer_id', officer.officer_id),
@@ -2969,7 +2971,7 @@ async function supabaseGetOfficerProfile(data) {
   ]);
   const payload = {
     officer: decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }),
-    training: training.map(supabaseTrainingRecord),
+    training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
     discipline: discipline.map(supabaseDiscipline),
     loa: loa.map(supabaseLoa),
     transfers: transfers.map(supabaseTransfer),
@@ -3069,9 +3071,19 @@ async function supabaseDeleteOfficer(data) {
 }
 
 async function supabaseListTraining() {
-  const { data, error } = await supabaseClient.from('training_records').select('*').order('updated_at', { ascending: false });
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, rows: (data || []).map(supabaseTrainingRecord) };
+  const [records, matrix] = await Promise.all([
+    supabaseClient.from('training_records').select('*').order('updated_at', { ascending: false }),
+    supabaseClient.from('training_matrix').select('*').order('updated_at', { ascending: false }),
+  ]);
+  if (records.error) return { ok: false, error: records.error.message };
+  if (matrix.error) return { ok: false, error: matrix.error.message };
+  return {
+    ok: true,
+    rows: [
+      ...(records.data || []).map(supabaseTrainingRecord),
+      ...(matrix.data || []).flatMap(supabaseTrainingMatrixRecords),
+    ],
+  };
 }
 
 async function supabaseListTrainingOptions() {
@@ -4390,8 +4402,47 @@ function supabaseTrainingRecord(row) {
     DateCompleted: row.date_completed || '',
     ExpiryDate: row.expiry_date || '',
     Notes: row.notes || '',
+    ReviewDate: row.review_date || '',
     UpdatedAt: row.updated_at || '',
   };
+}
+
+function supabaseTrainingMatrixRecords(row) {
+  const standards = [
+    ['taser', 'Taser'],
+    ['moe', 'MOE'],
+    ['blue_ticket', 'Blue Ticket'],
+    ['motorbike', 'Motorbike'],
+  ];
+  const rows = standards
+    .filter(([field]) => row[field])
+    .map(([, standard]) => ({
+      TrainingID: `MATRIX_${row.officer_id}_${standard}`,
+      OfficerID: row.officer_id,
+      Standard: standard,
+      Status: 'Passed',
+      Assessor: row.updated_by || '',
+      DateCompleted: '',
+      ExpiryDate: '',
+      Notes: 'Training matrix certification',
+      ReviewDate: row.review_date || '',
+      UpdatedAt: row.updated_at || '',
+    }));
+  if (row.driving_standard) {
+    rows.push({
+      TrainingID: `MATRIX_${row.officer_id}_DRIVING`,
+      OfficerID: row.officer_id,
+      Standard: row.driving_standard,
+      Status: 'Passed',
+      Assessor: row.updated_by || '',
+      DateCompleted: '',
+      ExpiryDate: '',
+      Notes: 'Driving standard',
+      ReviewDate: row.review_date || '',
+      UpdatedAt: row.updated_at || '',
+    });
+  }
+  return rows;
 }
 
 function supabaseDiscipline(row, officer = {}) {
