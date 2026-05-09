@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-08-7';
+const APP_VERSION = '2026-05-09-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -119,6 +119,7 @@ const state = {
   selectedOfficerId: '',
   selectedBulkOfficerIds: [],
   selectedCourseId: '',
+  dashboardInteraction: null,
 };
 
 const elements = {
@@ -156,6 +157,10 @@ const elements = {
 document.addEventListener('click', handleDocumentClick);
 document.addEventListener('change', handleDocumentChange);
 document.addEventListener('change', handleBulkOfficerSelection);
+document.addEventListener('pointerdown', handleDashboardPointerDown);
+document.addEventListener('pointermove', handleDashboardPointerMove);
+document.addEventListener('pointerup', handleDashboardPointerUp);
+document.addEventListener('pointercancel', handleDashboardPointerUp);
 
 elements.loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1713,7 +1718,80 @@ function openUserEditor(user = {}) {
   });
 }
 
+function handleDashboardPointerDown(event) {
+  const dragHandle = event.target.closest('[data-widget-drag]');
+  const resizeHandle = event.target.closest('[data-widget-resize]');
+  if (!dragHandle && !resizeHandle) return;
+
+  const card = event.target.closest('[data-dashboard-widget]');
+  if (!card) return;
+  event.preventDefault();
+
+  const mode = resizeHandle ? 'resize' : 'drag';
+  const activeWidgets = getCachedResponse('dashboard', {})?.widgets || DASHBOARD_WIDGETS.map(([item]) => item);
+  const layout = getDashboardLayout(activeWidgets);
+  state.dashboardInteraction = {
+    mode,
+    card,
+    key: card.dataset.dashboardWidget,
+    startX: event.clientX,
+    startY: event.clientY,
+    startSize: layout.sizes[card.dataset.dashboardWidget] || 'normal',
+  };
+  card.classList.add(mode === 'resize' ? 'is-resizing' : 'is-dragging');
+  document.body.classList.add('dashboard-layout-active');
+}
+
+function handleDashboardPointerMove(event) {
+  const interaction = state.dashboardInteraction;
+  if (!interaction) return;
+  event.preventDefault();
+
+  if (interaction.mode === 'resize') {
+    resizeDashboardWidget(interaction, event.clientX);
+    return;
+  }
+
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-dashboard-widget]');
+  if (!target || target === interaction.card) return;
+
+  const grid = interaction.card.closest('.dashboard-widget-grid');
+  if (!grid || target.closest('.dashboard-widget-grid') !== grid) return;
+
+  const targetBox = target.getBoundingClientRect();
+  const before = event.clientY < targetBox.top + targetBox.height / 2;
+  grid.insertBefore(interaction.card, before ? target : target.nextSibling);
+  saveDashboardDomOrder();
+}
+
+function handleDashboardPointerUp() {
+  const interaction = state.dashboardInteraction;
+  if (!interaction) return;
+  interaction.card.classList.remove('is-dragging', 'is-resizing');
+  document.body.classList.remove('dashboard-layout-active');
+  state.dashboardInteraction = null;
+}
+
+function resizeDashboardWidget(interaction, clientX) {
+  const sizes = ['normal', 'wide', 'large'];
+  const startIndex = Math.max(0, sizes.indexOf(interaction.startSize));
+  const moved = clientX - interaction.startX;
+  const nextIndex = Math.max(0, Math.min(sizes.length - 1, startIndex + Math.round(moved / 140)));
+  const nextSize = sizes[nextIndex];
+  if (interaction.card.dataset.widgetSize === nextSize) return;
+
+  interaction.card.dataset.widgetSize = nextSize;
+  sizes.forEach((size) => interaction.card.classList.toggle(`widget-${size}`, size === nextSize));
+  updateDashboardWidget(interaction.key, (layout, key) => {
+    layout.sizes[key] = nextSize;
+    layout.order = [...document.querySelectorAll('[data-dashboard-widget]')].map((card) => card.dataset.dashboardWidget);
+  });
+  const label = interaction.card.querySelector('.dashboard-widget-title small');
+  if (label) label.textContent = nextSize === 'large' ? 'Large widget' : nextSize === 'wide' ? 'Wide widget' : 'Standard widget';
+}
+
 async function handleDocumentClick(event) {
+  if (event.target.closest('[data-widget-drag], [data-widget-resize]')) return;
   if (!event.target.closest('.notification-shell')) {
     closeNotificationMenu();
   }
@@ -1721,34 +1799,6 @@ async function handleDocumentClick(event) {
     && !event.target.closest('.module-dock')
     && !event.target.closest('.mobile-menu-button')) {
     closeMobileNav();
-  }
-
-  const widgetMove = event.target.closest('[data-widget-move]');
-  if (widgetMove) {
-    const card = widgetMove.closest('[data-dashboard-widget]');
-    if (!card) return;
-    updateDashboardWidget(card.dataset.dashboardWidget, (layout, key) => {
-      const index = layout.order.indexOf(key);
-      const direction = widgetMove.dataset.widgetMove === 'up' ? -1 : 1;
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= layout.order.length) return;
-      [layout.order[index], layout.order[nextIndex]] = [layout.order[nextIndex], layout.order[index]];
-    });
-    await loadDashboard();
-    return;
-  }
-
-  const widgetSize = event.target.closest('[data-widget-size]');
-  if (widgetSize) {
-    const card = widgetSize.closest('[data-dashboard-widget]');
-    if (!card) return;
-    updateDashboardWidget(card.dataset.dashboardWidget, (layout, key) => {
-      const sizes = ['normal', 'wide', 'large'];
-      const current = layout.sizes[key] || 'normal';
-      layout.sizes[key] = sizes[(sizes.indexOf(current) + 1) % sizes.length];
-    });
-    await loadDashboard();
-    return;
   }
 
   const resetDashboardLayout = event.target.closest('[data-reset-dashboard-layout]');
@@ -2193,22 +2243,30 @@ function updateDashboardWidget(key, updater) {
   saveDashboardLayout(layout);
 }
 
-function dashboardWidget(key, title, body, layout, index) {
+function saveDashboardDomOrder() {
+  const activeWidgets = getCachedResponse('dashboard', {})?.widgets || DASHBOARD_WIDGETS.map(([item]) => item);
+  const layout = getDashboardLayout(activeWidgets);
+  layout.order = [...document.querySelectorAll('[data-dashboard-widget]')].map((card) => card.dataset.dashboardWidget);
+  saveDashboardLayout(layout);
+}
+
+function dashboardWidget(key, title, body, layout) {
   const size = layout.sizes[key] || 'normal';
-  const sizeLabel = size === 'large' ? 'Large' : size === 'wide' ? 'Wide' : 'Standard';
-  const canMoveUp = index > 0;
-  const canMoveDown = index < layout.order.length - 1;
+  const sizeLabel = size === 'large' ? 'Large widget' : size === 'wide' ? 'Wide widget' : 'Standard widget';
   return `
     <article class="dashboard-panel dashboard-widget widget-${escapeHtml(size)}" data-dashboard-widget="${escapeHtml(key)}">
       <div class="dashboard-widget-head">
-        <h3>${escapeHtml(title)}</h3>
-        <div class="dashboard-widget-tools" aria-label="${escapeHtml(title)} widget controls">
-          <button class="mini-button" data-widget-move="up" ${canMoveUp ? '' : 'disabled'}>Up</button>
-          <button class="mini-button" data-widget-move="down" ${canMoveDown ? '' : 'disabled'}>Down</button>
-          <button class="mini-button" data-widget-size>${escapeHtml(sizeLabel)}</button>
+        <button class="dashboard-drag-handle" data-widget-drag type="button" aria-label="Move ${escapeHtml(title)} widget">
+          <span></span>
+          <span></span>
+        </button>
+        <div class="dashboard-widget-title">
+          <h3>${escapeHtml(title)}</h3>
+          <small>${escapeHtml(sizeLabel)}</small>
         </div>
       </div>
       <div class="dashboard-list">${body}</div>
+      <button class="dashboard-resize-handle" data-widget-resize type="button" aria-label="Resize ${escapeHtml(title)} widget"></button>
     </article>
   `;
 }

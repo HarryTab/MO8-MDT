@@ -1389,6 +1389,7 @@ dialog .section-head .ghost:hover {
 }
 
 .dashboard-panel {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 10px;
@@ -1401,6 +1402,22 @@ dialog .section-head .ghost:hover {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.dashboard-widget {
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.dashboard-widget.is-dragging,
+.dashboard-widget.is-resizing {
+  z-index: 10;
+  border-color: rgba(18, 103, 216, 0.58);
+  background: #fff;
+  transform: scale(1.01);
+}
+
+.dashboard-layout-active {
+  user-select: none;
+}
+
 .dashboard-widget.widget-wide {
   grid-column: span 3;
 }
@@ -1411,15 +1428,72 @@ dialog .section-head .ghost:hover {
 }
 
 .dashboard-widget-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
   gap: 10px;
 }
 
 .dashboard-panel h3 {
   margin: 0;
   font-size: 15px;
+}
+
+.dashboard-widget-title {
+  min-width: 0;
+}
+
+.dashboard-widget-title small {
+  display: block;
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.dashboard-drag-handle {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  color: #24517f;
+  background: #eef5ff;
+  border-color: rgba(134, 177, 232, 0.86);
+  box-shadow: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.dashboard-drag-handle:active {
+  cursor: grabbing;
+}
+
+.dashboard-drag-handle span {
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.dashboard-resize-handle {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, transparent 0 45%, rgba(36, 81, 127, 0.56) 45% 52%, transparent 52%),
+    linear-gradient(135deg, transparent 0 62%, rgba(36, 81, 127, 0.56) 62% 69%, transparent 69%);
+  box-shadow: none;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 .mini-button {
