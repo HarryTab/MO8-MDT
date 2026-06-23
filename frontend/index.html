@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-23-4">
+    <link rel="stylesheet" href="styles.css?v=2026-06-23-5">
   </head>
   <body>
     <main class="terminal-shell">
@@ -144,7 +144,7 @@
           <section class="data-view" id="calendarView" hidden>
             <div class="section-head">
               <h2>Operational Calendar</h2>
-              <button id="newCalendarEventButton" data-permission="VIEW_TASKS">Add event</button>
+              <button id="newCalendarEventButton" data-permission="VIEW_TASKS">Add assignment</button>
             </div>
             <div class="calendar-toolbar">
               <button class="ghost" id="calendarPreviousButton" type="button" aria-label="Previous period">Previous</button>
@@ -457,21 +457,31 @@
     <dialog id="accountRequestDialog">
       <form method="dialog" class="dialog-card" id="accountRequestForm">
         <div class="section-head"><h2>Request an MDT account</h2><button class="ghost" value="cancel" formnovalidate>Close</button></div>
-        <p class="dialog-intro">Requests are reviewed by MO8 Inspector+ before an account is created.</p>
-        <div class="form-grid">
-          <label>Roblox username<input name="RobloxUsername" required autocomplete="username"></label>
-          <label>Callsign<input name="Callsign" required placeholder="e.g. 2104"></label>
-          <label>Rank<select name="Rank" id="accountRequestRank" required></select></label>
-          <label class="wide">Discord user ID<input name="DiscordID" required inputmode="numeric" pattern="[0-9]{15,22}"></label>
+        <div id="accountRequestEntry">
+          <p class="dialog-intro">Requests are reviewed by MO8 Inspector+ before an account is created.</p>
+          <div class="form-grid">
+            <label>Roblox username<input name="RobloxUsername" required autocomplete="username"></label>
+            <label>Callsign<input name="Callsign" required placeholder="e.g. 2104"></label>
+            <label>Rank<select name="Rank" id="accountRequestRank" required></select></label>
+            <label class="wide">Discord user ID<input name="DiscordID" required inputmode="numeric" pattern="[0-9]{15,22}"></label>
+          </div>
+          <p class="form-status" id="accountRequestStatus"></p>
+          <button value="submit">Submit request</button>
         </div>
-        <p class="form-status" id="accountRequestStatus"></p>
-        <button value="submit">Submit request</button>
+        <section class="request-success" id="accountRequestSuccess" hidden>
+          <span class="request-success-mark">Received</span>
+          <h3>Account request sent</h3>
+          <p>Your details are now in the Inspector+ review queue.</p>
+          <strong id="accountRequestReference"></strong>
+          <p id="accountRequestDmStatus"></p>
+          <button type="button" data-close-account-request>Return to login</button>
+        </section>
       </form>
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-23-4"></script>
+    <script src="app.js?v=2026-06-23-5"></script>
   </body>
 </html>
