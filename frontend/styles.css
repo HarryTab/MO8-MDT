@@ -1152,6 +1152,58 @@ dialog .section-head .ghost:hover {
   grid-column: 1 / -1;
 }
 
+.searchable-officer-field {
+  position: relative;
+}
+
+.searchable-officer-options {
+  position: absolute;
+  z-index: 80;
+  top: 100%;
+  right: 0;
+  left: 0;
+  display: grid;
+  max-height: 250px;
+  margin-top: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 32, 55, 0.18);
+}
+
+.searchable-officer-options button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 0;
+  padding: 9px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: none;
+  text-align: left;
+}
+
+.searchable-officer-options button:hover {
+  color: var(--ink);
+  background: #eef5ff;
+}
+
+.searchable-officer-options button span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.searchable-officer-options.no-results::after {
+  content: "No matching officers";
+  padding: 11px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .profile-view {
   display: grid;
   gap: 14px;
@@ -1388,6 +1440,104 @@ dialog .section-head .ghost:hover {
   font-size: 13px;
 }
 
+.training-matrix-table {
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.training-matrix-table th,
+.training-matrix-table td {
+  height: 44px;
+  padding: 7px 9px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.90);
+  text-align: center;
+}
+
+.training-matrix-table thead th {
+  z-index: 12;
+  top: 0;
+  color: #fff;
+  background: #405779;
+}
+
+.training-matrix-table th:nth-child(1),
+.training-matrix-table td:nth-child(1) {
+  position: sticky;
+  z-index: 8;
+  left: 0;
+  width: 96px;
+  min-width: 96px;
+}
+
+.training-matrix-table th:nth-child(2),
+.training-matrix-table td:nth-child(2) {
+  position: sticky;
+  z-index: 8;
+  left: 96px;
+  width: 190px;
+  min-width: 190px;
+  text-align: left;
+}
+
+.training-matrix-table th:nth-child(3),
+.training-matrix-table td:nth-child(3) {
+  position: sticky;
+  z-index: 8;
+  left: 286px;
+  width: 170px;
+  min-width: 170px;
+}
+
+.training-matrix-table thead th:nth-child(-n+3) {
+  z-index: 14;
+  background: #405779;
+}
+
+.training-group-row th {
+  position: static !important;
+  height: 38px;
+  color: #fff;
+  background: #53698a !important;
+  text-align: left;
+}
+
+.training-matrix-table select,
+.training-matrix-table input[type="date"] {
+  min-width: 130px;
+  padding: 6px 7px;
+  font-size: 11px;
+}
+
+.training-toggle-cell input {
+  width: 19px;
+  height: 19px;
+  accent-color: #2d5fb3;
+}
+
+.training-officer-link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: #234f85;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.rank-cell {
+  display: block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: #2f5fb2;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .dashboard-panel {
   position: relative;
   display: grid;
@@ -1619,54 +1769,161 @@ dialog .section-head .ghost:hover {
 
 .calendar-grid {
   display: grid;
-  gap: 8px;
-}
-
-.calendar-event {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-left: 5px solid var(--blue);
-  border-radius: 10px;
+  gap: 0;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
 }
 
-.calendar-event time,
-.calendar-event time span {
+.calendar-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 190px) auto auto minmax(170px, 240px);
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.calendar-month-title {
+  min-width: 780px;
+  padding: 14px;
+  color: #fff;
+  background: #173762;
+  font-size: 18px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.calendar-weekdays,
+.calendar-week {
+  min-width: 780px;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line-strong);
+  color: #45536a;
+  background: #eef3f9;
+}
+
+.calendar-weekdays span {
+  padding: 9px 7px;
+  border-right: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 950;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.calendar-week {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: calc(68px + (var(--calendar-tracks) * 27px));
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.calendar-week:last-child {
+  border-bottom: 0;
+}
+
+.calendar-day {
+  grid-row: 1;
+  align-self: stretch;
+  width: 100%;
+  min-height: 100%;
+  padding: 8px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-day:hover {
+  background: #eef5ff;
+}
+
+.calendar-day.outside {
+  color: #9aa7b8;
+  background: rgba(239, 243, 248, 0.62);
+}
+
+.calendar-day.today strong {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--blue-dark);
+}
+
+.calendar-day small {
   display: block;
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 10px;
 }
 
-.calendar-event time span,
-.calendar-event small {
-  color: var(--muted);
-  font-size: 12px;
+.calendar-span {
+  z-index: 3;
+  grid-row: 1;
+  align-self: start;
+  width: auto;
+  min-width: 0;
+  min-height: 22px;
+  margin: calc(42px + (var(--event-track) * 27px)) 3px 0;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid #9bbce5;
+  border-radius: 5px;
+  color: #123d70;
+  background: #dcecff;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.calendar-event h3,
-.handover-card h4 {
-  margin: 3px 0;
-  font-size: 14px;
+.calendar-span.type-loa { color: #59358a; background: #eee4fb; border-color: #c7afe8; }
+.calendar-span.type-review,
+.calendar-span.type-follow-up { color: #8a4d08; background: #fff0d7; border-color: #efc47d; }
+.calendar-span.type-training { color: #17633d; background: #dcf5e7; border-color: #9ed5b7; }
+
+.calendar-day-details {
+  display: grid;
+  gap: 9px;
 }
 
-.calendar-event p {
-  margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 12px;
+.calendar-day-details article {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f7f9fc;
 }
 
-.calendar-event > div > span {
+.calendar-day-details article span {
   color: var(--blue-dark);
   font-size: 10px;
   font-weight: 950;
   text-transform: uppercase;
 }
 
-.type-loa { border-left-color: #7a5cad; }
-.type-review, .type-follow-up { border-left-color: #e67e22; }
-.type-training { border-left-color: #198754; }
+.calendar-day-details article p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
 
 .report-grid {
   display: grid;
@@ -2387,12 +2644,19 @@ body.is-authenticated .profile-actions button.ghost {
     grid-column: 1 / -1;
   }
 
-  .calendar-event {
-    grid-template-columns: 1fr;
+  .calendar-toolbar {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .calendar-event .mini {
-    width: 100%;
+  .calendar-toolbar #calendarMonth,
+  .calendar-toolbar #calendarTypeFilter {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-month-title,
+  .calendar-weekdays,
+  .calendar-week {
+    min-width: 700px;
   }
 
   .dashboard-widget-head {
@@ -2551,6 +2815,44 @@ body.is-authenticated .profile-actions button.ghost {
   .file-main strong,
   .file-main small {
     white-space: normal;
+  }
+
+  #trainingView .table-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    background: #fff;
+  }
+
+  .training-matrix-table {
+    display: table;
+    width: max-content;
+    min-width: 900px !important;
+  }
+
+  .training-matrix-table thead {
+    display: table-header-group;
+  }
+
+  .training-matrix-table tbody {
+    display: table-row-group;
+  }
+
+  .training-matrix-table tr {
+    display: table-row;
+    width: auto;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .training-matrix-table th,
+  .training-matrix-table td {
+    display: table-cell;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .training-matrix-table td::before {
+    content: none;
   }
 
   .modal-card {

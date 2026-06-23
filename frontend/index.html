@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-23-1">
+    <link rel="stylesheet" href="styles.css?v=2026-06-23-2">
   </head>
   <body>
     <main class="terminal-shell">
@@ -36,7 +36,6 @@
             <section class="nav-group">
               <span>Home</span>
               <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
-              <button class="nav-item" data-view="myActions">My Actions</button>
               <button class="nav-item" data-view="myProfile">My Profile</button>
               <button class="nav-item" data-view="shift">Shift</button>
             </section>
@@ -129,8 +128,6 @@
         <section id="appView" hidden>
           <section class="stats-grid" id="dashboardView"></section>
 
-          <section class="data-view" id="myActionsView" hidden></section>
-
           <section class="data-view" id="globalSearchView" hidden>
             <div class="section-head">
               <h2>Global Search</h2>
@@ -148,8 +145,11 @@
               <h2>Operational Calendar</h2>
               <button id="newCalendarEventButton" data-permission="VIEW_TASKS">Add event</button>
             </div>
-            <div class="filter-row">
+            <div class="calendar-toolbar">
+              <button class="ghost" id="calendarPreviousButton" type="button" aria-label="Previous month">Previous</button>
               <input id="calendarMonth" type="month">
+              <button class="ghost" id="calendarTodayButton" type="button">Today</button>
+              <button class="ghost" id="calendarNextButton" type="button" aria-label="Next month">Next</button>
               <select id="calendarTypeFilter"><option value="">All event types</option></select>
             </div>
             <div id="calendarGrid" class="calendar-grid"></div>
@@ -301,7 +301,7 @@
               <h2>Training</h2>
               <button id="newTrainingOptionButton" data-permission="MANAGE_TRAINING_OPTIONS">Add option</button>
             </div>
-            <input class="search-input" data-search-view="training" placeholder="Search training">
+            <input class="search-input" data-search-view="training" placeholder="Search officers by username, callsign, rank, or training">
             <div id="trainingMatrix" class="matrix-block"></div>
             <div id="trainingOptionsPanel" class="matrix-block"></div>
             <div class="table-wrap">
@@ -429,7 +429,7 @@
       <form method="dialog" class="dialog-card" id="editorForm">
         <div class="section-head">
           <h2 id="editorTitle">Edit</h2>
-          <button class="ghost" value="cancel">Close</button>
+          <button class="ghost" value="cancel" formnovalidate>Close</button>
         </div>
         <div class="form-grid" id="editorFields"></div>
         <p class="form-status" id="editorStatus"></p>
@@ -449,6 +449,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-23-1"></script>
+    <script src="app.js?v=2026-06-23-2"></script>
   </body>
 </html>

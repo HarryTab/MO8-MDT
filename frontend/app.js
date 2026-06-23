@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-23-1';
+const APP_VERSION = '2026-06-23-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -159,6 +159,7 @@ const elements = {
 document.addEventListener('click', handleDocumentClick);
 document.addEventListener('change', handleDocumentChange);
 document.addEventListener('change', handleBulkOfficerSelection);
+document.addEventListener('input', handleSearchableOfficerInput);
 document.addEventListener('pointerdown', handleDashboardPointerDown);
 document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
@@ -253,6 +254,12 @@ document.querySelector('#savedViewSelect')?.addEventListener('change', applySave
 document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
 document.querySelector('#calendarMonth')?.addEventListener('change', renderCalendar);
 document.querySelector('#calendarTypeFilter')?.addEventListener('change', renderCalendar);
+document.querySelector('#calendarPreviousButton')?.addEventListener('click', () => changeCalendarMonth(-1));
+document.querySelector('#calendarNextButton')?.addEventListener('click', () => changeCalendarMonth(1));
+document.querySelector('#calendarTodayButton')?.addEventListener('click', () => {
+  document.querySelector('#calendarMonth').value = localMonthValue(new Date());
+  renderCalendar();
+});
 document.querySelector('#newCalendarEventButton')?.addEventListener('click', () => openCalendarEventEditor());
 document.querySelector('#developmentSearch')?.addEventListener('input', renderDevelopmentTables);
 document.querySelector('#newProbationButton')?.addEventListener('click', () => openProbationEditor());
@@ -492,7 +499,6 @@ function defaultView() {
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
-    myActions: ['My Actions', 'Items requiring your attention'],
     globalSearch: ['Search', 'Search across the MDT and open saved views'],
     calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
@@ -530,7 +536,6 @@ async function showView(view) {
 
   const loaders = {
     dashboard: loadDashboard,
-    myActions: loadMyActions,
     globalSearch: loadGlobalSearch,
     calendar: loadCalendar,
     myProfile: loadMyProfile,
@@ -645,7 +650,6 @@ function isViewCached(view) {
 function loaderActionForView(view) {
   const actions = {
     dashboard: 'dashboard',
-    myActions: 'myActions',
     globalSearch: 'savedViews',
     calendar: 'operationalCalendar',
     myProfile: 'myProfile',
@@ -727,23 +731,6 @@ async function loadDashboard() {
   `;
 }
 
-async function loadMyActions() {
-  await showViewOnly('myActions');
-  const container = document.querySelector('#myActionsView');
-  const response = await apiCached('myActions', {});
-  if (!response.ok) return renderError(container, response.error);
-  state.operations.actions = response.rows || [];
-  const groups = ['Urgent', 'Due Soon', 'Upcoming', 'Information'];
-  container.innerHTML = `
-    <div class="section-head"><h2>My Actions</h2><span class="pill ${response.rows?.length ? 'warning' : 'success'}">${escapeHtml(response.rows?.length || 0)} items</span></div>
-    <div class="action-board">
-      ${groups.map((group) => {
-    const rows = state.operations.actions.filter((row) => row.Group === group);
-    return `<section class="action-column"><h3>${escapeHtml(group)} <span>${rows.length}</span></h3>${rows.length ? rows.map(actionCard).join('') : '<p class="empty">Nothing here.</p>'}</section>`;
-  }).join('')}
-    </div>`;
-}
-
 function actionCard(row) {
   return `<article class="action-card priority-${escapeHtml(String(row.Priority || 'normal').toLowerCase())}" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}>
     <span>${escapeHtml(row.Type || 'Action')}</span><strong>${escapeHtml(row.Title || '')}</strong>
@@ -811,15 +798,97 @@ async function loadCalendar() {
 function renderCalendar() {
   const container = document.querySelector('#calendarGrid');
   if (!container) return;
-  const month = document.querySelector('#calendarMonth').value;
+  const month = document.querySelector('#calendarMonth').value || localMonthValue(new Date());
   const type = document.querySelector('#calendarTypeFilter').value;
-  const rows = state.operations.calendar.filter((row) => (!month || String(row.Start).slice(0, 7) === month) && (!type || row.Type === type));
-  container.innerHTML = rows.length ? rows.sort((a, b) => String(a.Start).localeCompare(String(b.Start))).map((row) => `
-    <article class="calendar-event type-${escapeHtml(String(row.Type).toLowerCase().replaceAll(' ', '-'))}">
-      <time><strong>${escapeHtml(formatDisplayDate(row.Start))}</strong><span>${escapeHtml(formatDisplayDateTime(row.Start).split(' ')[1] || '')}</span></time>
-      <div><span>${escapeHtml(row.Type)}</span><h3>${escapeHtml(row.Title)}</h3><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml(row.Location || '')}</small></div>
-      ${row.Editable ? `<button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button>` : ''}
-    </article>`).join('') : emptyState('No events in this period.');
+  const [year, monthNumber] = month.split('-').map(Number);
+  const monthStart = new Date(year, monthNumber - 1, 1);
+  const leadingDays = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(year, monthNumber - 1, 1 - leadingDays);
+  const rows = state.operations.calendar
+    .filter((row) => !type || row.Type === type)
+    .sort((a, b) => calendarDate(row.Start) - calendarDate(b.Start));
+  const weekdayHead = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    .map((day) => `<span>${day}</span>`).join('');
+  const weeks = Array.from({ length: 6 }, (_, weekIndex) => {
+    const weekStart = addCalendarDays(gridStart, weekIndex * 7);
+    const weekEnd = addCalendarDays(weekStart, 6);
+    const days = Array.from({ length: 7 }, (_, dayIndex) => {
+      const date = addCalendarDays(weekStart, dayIndex);
+      const key = calendarDateKey(date);
+      const inMonth = date.getMonth() === monthNumber - 1;
+      const today = key === calendarDateKey(new Date());
+      const count = rows.filter((row) => calendarEventIncludes(row, date)).length;
+      return `<button class="calendar-day${inMonth ? '' : ' outside'}${today ? ' today' : ''}" data-calendar-day="${key}" style="grid-column:${dayIndex + 1}">
+        <strong>${date.getDate()}</strong>${count ? `<small>${count} item${count === 1 ? '' : 's'}</small>` : ''}
+      </button>`;
+    }).join('');
+    const weekEvents = rows.filter((row) => calendarDate(row.Start) <= weekEnd && calendarDate(row.End || row.Start) >= weekStart);
+    const trackEnds = [];
+    const eventBars = weekEvents.map((row) => {
+      const start = calendarDate(row.Start) < weekStart ? weekStart : calendarDate(row.Start);
+      const end = calendarDate(row.End || row.Start) > weekEnd ? weekEnd : calendarDate(row.End || row.Start);
+      let track = trackEnds.findIndex((trackEnd) => trackEnd < start);
+      if (track < 0) track = trackEnds.length;
+      trackEnds[track] = end;
+      if (track > 3) return '';
+      const startColumn = ((start.getDay() + 6) % 7) + 1;
+      const span = calendarDayNumber(end) - calendarDayNumber(start) + 1;
+      const typeClass = String(row.Type || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      return `<button class="calendar-span type-${escapeHtml(typeClass)}" data-calendar-event-detail="${escapeHtml(row.ID)}" style="grid-column:${startColumn} / span ${span};--event-track:${track}">${escapeHtml(row.Title)}</button>`;
+    }).join('');
+    return `<section class="calendar-week" style="--calendar-tracks:${Math.min(4, Math.max(1, trackEnds.length))}">${days}${eventBars}</section>`;
+  }).join('');
+  container.innerHTML = `<div class="calendar-month-title">${monthStart.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</div><div class="calendar-weekdays">${weekdayHead}</div>${weeks}`;
+}
+
+function changeCalendarMonth(offset) {
+  const input = document.querySelector('#calendarMonth');
+  const [year, month] = (input.value || localMonthValue(new Date())).split('-').map(Number);
+  input.value = localMonthValue(new Date(year, month - 1 + offset, 1));
+  renderCalendar();
+}
+
+function localMonthValue(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function calendarDate(value) {
+  if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(value);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addCalendarDays(date, days) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function calendarDateKey(value) {
+  const date = calendarDate(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function calendarDayNumber(value) {
+  const date = calendarDate(value);
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+}
+
+function calendarEventIncludes(row, date) {
+  const day = calendarDate(date);
+  return calendarDate(row.Start) <= day && calendarDate(row.End || row.Start) >= day;
+}
+
+function showCalendarDay(dateKey) {
+  const rows = state.operations.calendar.filter((row) => calendarEventIncludes(row, dateKey));
+  showInfo(formatDisplayDate(dateKey), rows.length ? `<div class="calendar-day-details">${rows.map((row) => `
+    <article><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml(row.Location || '')}${row.End && calendarDateKey(row.End) !== calendarDateKey(row.Start) ? ` / Until ${escapeHtml(formatDisplayDate(row.End))}` : ''}</small>${row.Editable ? `<button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button>` : ''}</article>`).join('')}</div>` : '<p class="empty">No entries on this day.</p>');
+}
+
+function showCalendarEvent(eventId) {
+  const row = state.operations.calendar.find((item) => item.ID === eventId);
+  if (!row) return;
+  showInfo(row.Title, `<div class="calendar-day-details"><article><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(formatDisplayDate(row.Start))}${row.End ? ` to ${escapeHtml(formatDisplayDate(row.End))}` : ''}</strong><p>${escapeHtml(row.Detail || 'No additional details.')}</p><small>${escapeHtml(row.Location || '')}</small>${row.Editable ? `<button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button>` : ''}</article></div>`);
 }
 
 function openCalendarEventEditor(record = {}) {
@@ -850,25 +919,35 @@ async function loadDevelopment() {
 function renderDevelopmentTables() {
   const query = document.querySelector('#developmentSearch')?.value.toLowerCase() || '';
   const filter = (rows) => rows.filter((row) => Object.values(row).some((value) => String(value || '').toLowerCase().includes(query)));
-  renderTable('#probationTable', filter(state.operations.probation), ['Officer', 'Rank', 'Stage', 'Status', 'Progress', 'TargetDate', 'Reviewer'], { actions: (row) => `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button>` });
-  renderTable('#performanceReviewsTable', filter(state.operations.reviews), ['Officer', 'ReviewDate', 'Rating', 'Reviewer', 'NextReviewDate', 'Objectives'], { actions: (row) => `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button>` });
-  renderTable('#restrictionsTable', filter(state.operations.restrictions), ['Officer', 'RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button>` });
+  renderTable('#probationTable', filter(state.operations.probation), ['Officer', 'Rank', 'Stage', 'Status', 'Progress', 'TargetDate', 'Reviewer'], { actions: (row) => `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` });
+  renderTable('#performanceReviewsTable', filter(state.operations.reviews), ['Officer', 'ReviewDate', 'Rating', 'Reviewer', 'NextReviewDate', 'Objectives'], { actions: (row) => `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` });
+  renderTable('#restrictionsTable', filter(state.operations.restrictions), ['Officer', 'RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` });
 }
 
 function officerRecordField(selected = '') {
-  const options = state.officers.map((row) => `<option value="${escapeHtml(row.OfficerID)}"${row.OfficerID === selected ? ' selected' : ''}>${escapeHtml(row.RobloxUsername)} - ${escapeHtml(row.Rank)}</option>`).join('');
-  return { html: `<label>Officer<select name="OfficerID" required><option value="">Select officer</option>${options}</select></label>` };
+  const selectedOfficer = state.officers.find((row) => row.OfficerID === selected);
+  const options = state.officers.map((row) => `<button type="button" data-officer-option="${escapeHtml(row.OfficerID)}" data-officer-label="${escapeHtml(`${row.RobloxUsername} - ${row.Rank}${row.Callsign ? ` / ${row.Callsign}` : ''}`)}"><strong>${escapeHtml(row.RobloxUsername)}</strong><span>${escapeHtml(row.Rank)}${row.Callsign ? ` / ${escapeHtml(row.Callsign)}` : ''}</span></button>`).join('');
+  const label = selectedOfficer ? `${selectedOfficer.RobloxUsername} - ${selectedOfficer.Rank}${selectedOfficer.Callsign ? ` / ${selectedOfficer.Callsign}` : ''}` : '';
+  return { html: `<label class="wide searchable-officer-field">Officer<input type="search" data-officer-search required autocomplete="off" placeholder="Search by username, callsign or rank" value="${escapeHtml(label)}"><input type="hidden" name="OfficerID" value="${escapeHtml(selected)}"><div class="searchable-officer-options" hidden>${options}</div></label>` };
 }
 
-function openProbationEditor(record = {}) {
+async function ensureOfficerRecords() {
+  if (state.officers.length) return;
+  const response = await apiCached('listOfficers', {});
+  if (response.ok) state.officers = response.rows || [];
+}
+
+async function openProbationEditor(record = {}) {
+  await ensureOfficerRecords();
   openEditor(record.ProbationID ? 'Edit probation record' : 'Add probation record', [hiddenField('ProbationID', record.ProbationID || ''), officerRecordField(record.OfficerID),
-    selectField('Stage', 'Stage', ['Initial', 'Foundation', 'Independent Patrol', 'Final Review'], record.Stage || 'Initial'), selectField('Status', 'Status', ['Active', 'Paused', 'Completed', 'Extended'], record.Status || 'Active'),
+    customSelectField('Stage', 'CustomStage', 'Stage', ['Initial', 'Foundation', 'Independent Patrol', 'Final Review'], record.Stage || 'Initial'), selectField('Status', 'Status', ['Active', 'Paused', 'Completed', 'Extended'], record.Status || 'Active'),
     field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)), field('TargetDate', 'Target date', 'date', false, dateInputValue(record.TargetDate)), field('Progress', 'Progress %', 'number', false, record.Progress || 0),
     field('Requirements', 'Requirements / sign-offs', 'textarea', true, record.Requirements || ''), field('Notes', 'Notes', 'textarea', true, record.Notes || ''),
-  ], async (values) => api('saveProbation', values), operationsSaveOptions('Probation record saved.', loadDevelopment));
+  ], async (values) => { if (values.Stage === 'Custom') values.Stage = values.CustomStage; return api('saveProbation', values); }, operationsSaveOptions('Probation record saved.', loadDevelopment));
 }
 
-function openPerformanceReviewEditor(record = {}) {
+async function openPerformanceReviewEditor(record = {}) {
+  await ensureOfficerRecords();
   openEditor(record.ReviewID ? 'Edit performance review' : 'Add performance review', [hiddenField('ReviewID', record.ReviewID || ''), officerRecordField(record.OfficerID),
     field('ReviewDate', 'Review date', 'date', false, dateInputValue(record.ReviewDate) || new Date().toISOString().slice(0, 10)), field('PeriodStart', 'Period start', 'date', false, dateInputValue(record.PeriodStart)), field('PeriodEnd', 'Period end', 'date', false, dateInputValue(record.PeriodEnd)),
     selectField('Rating', 'Rating', ['Exceeds Expectations', 'Meets Expectations', 'Development Required', 'Unsatisfactory'], record.Rating || 'Meets Expectations'),
@@ -876,11 +955,12 @@ function openPerformanceReviewEditor(record = {}) {
   ], async (values) => api('savePerformanceReview', values), operationsSaveOptions('Performance review saved.', loadDevelopment));
 }
 
-function openRestrictionEditor(record = {}) {
+async function openRestrictionEditor(record = {}) {
+  await ensureOfficerRecords();
   openEditor(record.RestrictionID ? 'Edit restriction' : 'Add restriction', [hiddenField('RestrictionID', record.RestrictionID || ''), officerRecordField(record.OfficerID),
-    selectField('RestrictionType', 'Restriction', ['No Driving', 'Modified Duties', 'Training Suspended', 'Operational Restriction', 'Temporary Attachment', 'Other'], record.RestrictionType || 'Modified Duties'),
+    customSelectField('RestrictionType', 'CustomRestrictionType', 'Restriction', ['No Driving', 'Modified Duties', 'Training Suspended', 'Operational Restriction', 'Temporary Attachment', 'Other'], record.RestrictionType || 'Modified Duties'),
     field('Details', 'Details', 'textarea', true, record.Details || ''), field('StartsOn', 'Starts on', 'date', false, dateInputValue(record.StartsOn) || new Date().toISOString().slice(0, 10)), field('EndsOn', 'Ends on', 'date', false, dateInputValue(record.EndsOn)), selectField('Status', 'Status', ['Active', 'Expired', 'Removed'], record.Status || 'Active'),
-  ], async (values) => api('saveRestriction', values), operationsSaveOptions('Restriction saved.', loadDevelopment));
+  ], async (values) => { if (values.RestrictionType === 'Custom') values.RestrictionType = values.CustomRestrictionType; return api('saveRestriction', values); }, operationsSaveOptions('Restriction saved.', loadDevelopment));
 }
 
 async function loadReports() {
@@ -937,6 +1017,12 @@ async function openHandoverEditor(record = {}) {
 
 function operationsSaveOptions(message, loader) {
   return { successMessage: message, onSuccess: async () => { invalidateCache(); await loader(); } };
+}
+
+async function reloadDevelopmentContext() {
+  invalidateCache();
+  if (state.activeView === 'officerProfile') return loadOfficerProfile(state.selectedOfficerId);
+  return loadDevelopment();
 }
 
 async function loadMyProfile() {
@@ -1013,6 +1099,9 @@ async function loadTasks() {
     ...(response.pendingSupervisorRequests || []),
     ...(response.pendingCourseBookings || []),
     ...(response.pendingAppeals || []),
+    ...(response.probationReviews || []),
+    ...(response.performanceReviews || []),
+    ...(response.restrictionReviews || []),
   ];
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
@@ -1021,6 +1110,7 @@ async function loadTasks() {
     stat('Supervisor Requests', counts.pendingSupervisorRequests || 0),
     stat('Course Requests', counts.pendingCourseBookings || 0),
     stat('Appeals', counts.pendingAppeals || 0),
+    stat('Development Reviews', counts.developmentReviews || 0),
     stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
@@ -1031,6 +1121,9 @@ async function loadTasks() {
 }
 
 function taskOpenAttr(row) {
+  if (row.TaskType === 'Probation Review') return `data-edit-probation="${escapeHtml(row.ProbationID)}"`;
+  if (row.TaskType === 'Performance Review') return `data-task-performance-review="${escapeHtml(row.OfficerID)}"${row.ReviewID ? ` data-review-id="${escapeHtml(row.ReviewID)}"` : ''}`;
+  if (row.TaskType === 'Restriction Review') return `data-edit-restriction="${escapeHtml(row.RestrictionID)}"`;
   if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Appeal / Review') return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
@@ -1453,7 +1546,7 @@ function renderSearchableView(view) {
       if (!query) return true;
       return Object.values(row).some((value) => String(value || '').toLowerCase().includes(query));
     });
-    renderTable('#trainingTable', summaryRows, ['RobloxUsername', 'Callsign', 'Rank', 'DrivingStandard', 'SpecialistTickets', 'MissingTraining', 'ReviewDate']);
+    renderTrainingSpreadsheet(summaryRows);
   }
   if (view === 'courses') {
     renderCoursesTable(rows);
@@ -1483,6 +1576,34 @@ function renderSearchableView(view) {
   if (view === 'audit') {
     renderTable('#auditTable', rows, ['Timestamp', 'ActorUserID', 'Action', 'TargetType', 'TargetID']);
   }
+}
+
+function renderTrainingSpreadsheet(rows) {
+  const table = document.querySelector('#trainingTable');
+  const specialistOptions = trainingOptionNames('Specialist');
+  const drivingStandards = trainingOptionNames('Driving');
+  const disabled = can('MANAGE_TRAINING') ? '' : ' disabled';
+  table.className = 'training-matrix-table';
+  if (!rows.length) {
+    table.innerHTML = '<tbody><tr><td>No officers found.</td></tr></tbody>';
+    return;
+  }
+  const rankIndex = (rank) => OFFICER_RANKS.indexOf(rank);
+  const groups = [
+    ['Senior Officers', rows.filter((row) => rankIndex(row.Rank) >= rankIndex('Inspector'))],
+    ['Supervisory Officers', rows.filter((row) => row.Rank === 'Sergeant')],
+    ['Police Constables', rows.filter((row) => rankIndex(row.Rank) < rankIndex('Sergeant') || rankIndex(row.Rank) < 0)],
+  ].filter(([, groupRows]) => groupRows.length);
+  const header = `<thead><tr><th>Callsign</th><th>Officer</th><th>Rank</th><th>Driving</th>${specialistOptions.map((standard) => `<th>${escapeHtml(standard)}</th>`).join('')}<th>Review Date</th></tr></thead>`;
+  const body = groups.map(([groupName, groupRows]) => `<tbody><tr class="training-group-row"><th colspan="${specialistOptions.length + 5}">${escapeHtml(groupName)}</th></tr>${groupRows.map((officer) => {
+    const records = state.training.filter((record) => record.OfficerID === officer.OfficerID);
+    const passed = (standard) => records.some((record) => record.Standard === standard && record.Status === 'Passed');
+    const driving = drivingStandards.find(passed) || '';
+    const drivingOptions = [''].concat(drivingStandards).map((standard) => `<option value="${escapeHtml(standard)}"${standard === driving ? ' selected' : ''}>${escapeHtml(standard || 'Not set')}</option>`).join('');
+    const reviewDate = records.find((record) => record.ReviewDate)?.ReviewDate || '';
+    return `<tr data-training-officer="${escapeHtml(officer.OfficerID)}"><td data-label="Callsign">${escapeHtml(officer.Callsign || '-')}</td><td data-label="Officer"><button class="training-officer-link" data-open-officer="${escapeHtml(officer.OfficerID)}">${escapeHtml(officer.RobloxUsername)}</button></td><td data-label="Rank"><span class="rank-cell">${escapeHtml(officer.Rank)}</span></td><td data-label="Driving"><select data-driving-select data-training-context="matrix" data-officer-id="${escapeHtml(officer.OfficerID)}"${disabled}>${drivingOptions}</select></td>${specialistOptions.map((standard) => `<td class="training-toggle-cell" data-label="${escapeHtml(standard)}"><input type="checkbox" data-training-toggle data-training-context="matrix" data-officer-id="${escapeHtml(officer.OfficerID)}" data-standard="${escapeHtml(standard)}"${passed(standard) ? ' checked' : ''}${disabled} aria-label="${escapeHtml(`${officer.RobloxUsername}: ${standard}`)}"></td>`).join('')}<td data-label="Review Date"><input type="date" data-training-review data-training-context="matrix" data-officer-id="${escapeHtml(officer.OfficerID)}" value="${escapeHtml(dateInputValue(reviewDate))}"${disabled}></td></tr>`;
+  }).join('')}</tbody>`).join('');
+  table.innerHTML = header + body;
 }
 
 async function loadUsers() {
@@ -1575,6 +1696,9 @@ async function loadAudit() {
 function renderOfficerProfile(data) {
   const officer = data.officer;
   const container = document.querySelector('#officerProfileView');
+  state.operations.probation = data.probation || [];
+  state.operations.reviews = data.performanceReviews || [];
+  state.operations.restrictions = data.restrictions || [];
   state.profileDiscipline = data.discipline || [];
   state.profileLoa = data.loa || [];
   state.profileSupervisorRequests = data.supervisorRequests || [];
@@ -1642,9 +1766,9 @@ function renderOfficerProfile(data) {
       ${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], {
         actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '',
       })}
-      ${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'])}
-      ${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'])}
-      ${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'])}
+      ${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` : '' })}
+      ${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` : '' })}
+      ${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` : '' })}
       ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
       ${profileTimeline(data.timeline || [])}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
@@ -2077,16 +2201,50 @@ async function handleDocumentClick(event) {
     closeMobileNav();
   }
 
+  const officerOption = event.target.closest('[data-officer-option]');
+  if (officerOption) {
+    const field = officerOption.closest('.searchable-officer-field');
+    const input = field.querySelector('[data-officer-search]');
+    input.value = officerOption.dataset.officerLabel;
+    input.setCustomValidity('');
+    field.querySelector('input[name="OfficerID"]').value = officerOption.dataset.officerOption;
+    field.querySelector('.searchable-officer-options').hidden = true;
+    return;
+  }
+  const officerSearch = event.target.closest('[data-officer-search]');
+  if (officerSearch) {
+    officerSearch.closest('.searchable-officer-field').querySelector('.searchable-officer-options').hidden = false;
+  }
+  if (!event.target.closest('.searchable-officer-field')) {
+    document.querySelectorAll('.searchable-officer-options').forEach((options) => { options.hidden = true; });
+  }
+
   const editCalendar = event.target.closest('[data-edit-calendar]');
   if (editCalendar) {
     const record = state.operations.calendar.find((row) => row.ID === editCalendar.dataset.editCalendar);
+    if (elements.infoDialog.open) elements.infoDialog.close();
     if (record) openCalendarEventEditor(record);
+    return;
+  }
+  const calendarDay = event.target.closest('[data-calendar-day]');
+  if (calendarDay) {
+    showCalendarDay(calendarDay.dataset.calendarDay);
+    return;
+  }
+  const calendarEvent = event.target.closest('[data-calendar-event-detail]');
+  if (calendarEvent) {
+    showCalendarEvent(calendarEvent.dataset.calendarEventDetail);
     return;
   }
   const editProbation = event.target.closest('[data-edit-probation]');
   if (editProbation) {
-    const record = state.operations.probation.find((row) => row.ProbationID === editProbation.dataset.editProbation);
+    const record = state.operations.probation.find((row) => row.ProbationID === editProbation.dataset.editProbation) || state.tasks.find((row) => row.ProbationID === editProbation.dataset.editProbation);
     if (record) openProbationEditor(record);
+    return;
+  }
+  const deleteProbation = event.target.closest('[data-delete-probation]');
+  if (deleteProbation) {
+    await confirmDelete('Delete this probation record?', 'deleteProbation', { ProbationID: deleteProbation.dataset.deleteProbation }, reloadDevelopmentContext);
     return;
   }
   const editReview = event.target.closest('[data-edit-performance-review]');
@@ -2095,10 +2253,28 @@ async function handleDocumentClick(event) {
     if (record) openPerformanceReviewEditor(record);
     return;
   }
+  const taskPerformanceReview = event.target.closest('[data-task-performance-review]');
+  if (taskPerformanceReview) {
+    const record = state.operations.reviews.find((row) => row.ReviewID === taskPerformanceReview.dataset.reviewId)
+      || state.tasks.find((row) => row.ReviewID === taskPerformanceReview.dataset.reviewId)
+      || { OfficerID: taskPerformanceReview.dataset.taskPerformanceReview };
+    openPerformanceReviewEditor(record);
+    return;
+  }
+  const deletePerformanceReview = event.target.closest('[data-delete-performance-review]');
+  if (deletePerformanceReview) {
+    await confirmDelete('Delete this performance review?', 'deletePerformanceReview', { ReviewID: deletePerformanceReview.dataset.deletePerformanceReview }, reloadDevelopmentContext);
+    return;
+  }
   const editRestriction = event.target.closest('[data-edit-restriction]');
   if (editRestriction) {
-    const record = state.operations.restrictions.find((row) => row.RestrictionID === editRestriction.dataset.editRestriction);
+    const record = state.operations.restrictions.find((row) => row.RestrictionID === editRestriction.dataset.editRestriction) || state.tasks.find((row) => row.RestrictionID === editRestriction.dataset.editRestriction);
     if (record) openRestrictionEditor(record);
+    return;
+  }
+  const deleteRestriction = event.target.closest('[data-delete-restriction]');
+  if (deleteRestriction) {
+    await confirmDelete('Delete this restriction?', 'deleteRestriction', { RestrictionID: deleteRestriction.dataset.deleteRestriction }, reloadDevelopmentContext);
     return;
   }
   const editHandover = event.target.closest('[data-edit-handover]');
@@ -2423,6 +2599,17 @@ async function handleDocumentClick(event) {
 }
 
 async function handleDocumentChange(event) {
+  const customSelect = event.target.closest('[data-custom-select]');
+  if (customSelect) {
+    const customField = elements.editorFields.querySelector(`[data-custom-field="${CSS.escape(customSelect.dataset.customSelect)}"]`);
+    if (customField) {
+      customField.hidden = customSelect.value !== 'Custom';
+      const input = customField.querySelector('input');
+      input.required = customSelect.value === 'Custom';
+      if (!input.required) input.value = '';
+    }
+    return;
+  }
   const rolePermission = event.target.closest('[data-role-permission]');
   if (rolePermission) {
     rolePermission.disabled = true;
@@ -2472,6 +2659,15 @@ async function handleDocumentChange(event) {
       return;
     }
     invalidateCache();
+    if (trainingToggle.dataset.trainingContext === 'matrix') {
+      if (trainingToggle.checked) {
+        state.training.push({ OfficerID: trainingToggle.dataset.officerId, Standard: trainingToggle.dataset.standard, Status: 'Passed' });
+      } else {
+        state.training = state.training.filter((record) => !(record.OfficerID === trainingToggle.dataset.officerId && record.Standard === trainingToggle.dataset.standard));
+      }
+      trainingToggle.disabled = !can('MANAGE_TRAINING');
+      return;
+    }
     await loadOfficerProfile(trainingToggle.dataset.officerId);
     return;
   }
@@ -2489,6 +2685,13 @@ async function handleDocumentChange(event) {
       return;
     }
     invalidateCache();
+    if (drivingSelect.dataset.trainingContext === 'matrix') {
+      const drivingStandards = trainingOptionNames('Driving');
+      state.training = state.training.filter((record) => !(record.OfficerID === drivingSelect.dataset.officerId && drivingStandards.includes(record.Standard)));
+      if (drivingSelect.value) state.training.push({ OfficerID: drivingSelect.dataset.officerId, Standard: drivingSelect.value, Status: 'Passed' });
+      drivingSelect.disabled = !can('MANAGE_TRAINING');
+      return;
+    }
     await loadOfficerProfile(drivingSelect.dataset.officerId);
     return;
   }
@@ -2506,9 +2709,34 @@ async function handleDocumentChange(event) {
       return;
     }
     invalidateCache();
+    if (reviewDate.dataset.trainingContext === 'matrix') {
+      const existing = state.training.find((record) => record.OfficerID === reviewDate.dataset.officerId);
+      if (existing) existing.ReviewDate = reviewDate.value;
+      else state.training.push({ OfficerID: reviewDate.dataset.officerId, Standard: '', Status: '', ReviewDate: reviewDate.value });
+      reviewDate.disabled = !can('MANAGE_TRAINING');
+      return;
+    }
     await loadOfficerProfile(reviewDate.dataset.officerId);
     return;
   }
+}
+
+function handleSearchableOfficerInput(event) {
+  const input = event.target.closest('[data-officer-search]');
+  if (!input) return;
+  const field = input.closest('.searchable-officer-field');
+  const query = input.value.trim().toLowerCase();
+  field.querySelector('input[name="OfficerID"]').value = '';
+  input.setCustomValidity('Select an officer from the search results.');
+  const options = field.querySelector('.searchable-officer-options');
+  let visible = 0;
+  options.querySelectorAll('[data-officer-option]').forEach((option) => {
+    const show = !query || option.textContent.toLowerCase().includes(query);
+    option.hidden = !show;
+    if (show) visible += 1;
+  });
+  options.hidden = false;
+  options.classList.toggle('no-results', visible === 0);
 }
 
 function handleBulkOfficerSelection(event) {
@@ -2800,7 +3028,7 @@ function renderTrainingOverview(rows) {
     <h3>Training Overview</h3>
     <div class="training-overview">
       ${cards}
-      <p>Select an officer profile to update specialist tickets, driving standard, and review date.</p>
+      <p>Use the personnel matrix below to update specialist tickets, driving level, and review dates.</p>
     </div>
   `;
 }
@@ -3079,6 +3307,13 @@ function selectField(name, label, options, selected = '') {
   return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}">${optionHtml}</select></label>` };
 }
 
+function customSelectField(name, customName, label, options, selected = '') {
+  const isCustom = Boolean(selected && !options.includes(selected));
+  const selectedValue = isCustom ? 'Custom' : selected;
+  const optionHtml = [...options, 'Custom'].map((option) => `<option value="${escapeHtml(option)}"${option === selectedValue ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
+  return { html: `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}" data-custom-select="${escapeHtml(customName)}">${optionHtml}</select></label><label${isCustom ? '' : ' hidden'} data-custom-field="${escapeHtml(customName)}">Custom ${escapeHtml(label.toLowerCase())}<input name="${escapeHtml(customName)}" value="${escapeHtml(isCustom ? selected : '')}"></label>` };
+}
+
 function supervisorSelectField(name, label, options, selected = '') {
   const optionHtml = [
     `<option value="">No supervisor assigned</option>`,
@@ -3217,8 +3452,11 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       saveCalendarEvent: supabaseSaveCalendarEvent,
       developmentRecords: supabaseDevelopmentRecords,
       saveProbation: supabaseSaveProbation,
+      deleteProbation: (payload) => supabaseDeleteOperationsRecord('probation_records', 'probation_id', payload.ProbationID),
       savePerformanceReview: supabaseSavePerformanceReview,
+      deletePerformanceReview: (payload) => supabaseDeleteOperationsRecord('performance_reviews', 'review_id', payload.ReviewID),
       saveRestriction: supabaseSaveRestriction,
+      deleteRestriction: (payload) => supabaseDeleteOperationsRecord('officer_restrictions', 'restriction_id', payload.RestrictionID),
       commandReports: supabaseCommandReports,
       listHandovers: supabaseListHandovers,
       saveHandover: supabaseSaveHandover,
@@ -3361,9 +3599,9 @@ async function supabaseMyProfile() {
     appeals: [],
     checkins: [],
     developmentPlans: [],
-    probation: probation.map((row) => ({ Stage: row.stage, Status: row.status, Progress: `${row.progress}%`, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
-    performanceReviews: performanceReviews.map((row) => ({ ReviewDate: row.review_date, Rating: row.rating, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
-    restrictions: restrictions.map((row) => ({ RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    probation: probation.map((row) => ({ ProbationID: row.probation_id, OfficerID: row.officer_id, Stage: row.stage, Status: row.status, Progress: row.progress, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
+    performanceReviews: performanceReviews.map((row) => ({ ReviewID: row.review_id, OfficerID: row.officer_id, ReviewDate: row.review_date, PeriodStart: row.period_start, PeriodEnd: row.period_end, Rating: row.rating, ActivitySummary: row.activity_summary, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
+    restrictions: restrictions.map((row) => ({ RestrictionID: row.restriction_id, OfficerID: row.officer_id, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
     shifts: shifts.map(supabaseShift),
     shiftStatus: await supabaseShiftStatus(),
     rankChanges: rankChanges.map(supabaseRankChange),
@@ -3534,6 +3772,14 @@ async function supabaseSaveRestriction(data) {
   const query = data.RestrictionID ? supabaseClient.from('officer_restrictions').update(record).eq('restriction_id', data.RestrictionID) : supabaseClient.from('officer_restrictions').insert(record);
   const { error } = await query; if (error) return { ok: false, error: error.message };
   const officer = await supabaseById('officers', 'officer_id', data.OfficerID); await supabaseNotify(officer?.member_id, `Restriction ${data.Status.toLowerCase()}`, `${data.RestrictionType}: ${data.Details || 'See your MDT profile.'}`, me.user.UserID); return { ok: true };
+}
+
+async function supabaseDeleteOperationsRecord(table, idColumn, id) {
+  if (!id) return { ok: false, error: 'Record ID is required.' };
+  const { error } = await supabaseClient.from(table).delete().eq(idColumn, id);
+  if (error) return { ok: false, error: error.message };
+  await supabaseAudit(state.user?.UserID, 'DELETE_RECORD', table, id);
+  return { ok: true };
 }
 
 async function supabaseCommandReports() {
@@ -3927,7 +4173,21 @@ async function supabaseSetOfficerTraining(data) {
   if (!officer) return { ok: false, error: 'Officer not found.' };
   const fieldMap = { Taser: 'taser', MOE: 'moe', 'Blue Ticket': 'blue_ticket', Motorbike: 'motorbike' };
   const fieldName = fieldMap[data.Standard];
-  if (!fieldName) return { ok: false, error: 'Unknown specialist training.' };
+  if (!fieldName) {
+    const existing = await supabaseClient.from('training_records').select('training_id').eq('officer_id', officer.officer_id).eq('standard', data.Standard).eq('status', 'Passed');
+    if (existing.error) return { ok: false, error: existing.error.message };
+    const enabled = truthy(data.Enabled);
+    if (enabled && !existing.data?.length) {
+      const result = await supabaseClient.from('training_records').insert({ officer_id: officer.officer_id, standard: data.Standard, status: 'Passed', assessor: state.user?.RobloxUsername || '', date_completed: new Date().toISOString().slice(0, 10) });
+      if (result.error) return { ok: false, error: result.error.message };
+    }
+    if (!enabled && existing.data?.length) {
+      const result = await supabaseClient.from('training_records').delete().in('training_id', existing.data.map((row) => row.training_id));
+      if (result.error) return { ok: false, error: result.error.message };
+    }
+    await supabaseNotify(officer.member_id, 'Training updated', notificationDetails([detailLine('Training', data.Standard), detailLine('Status', enabled ? 'Added' : 'Removed'), detailLine('Updated by', state.user?.RobloxUsername)]), state.user?.UserID);
+    return { ok: true };
+  }
   const row = {
     officer_id: officer.officer_id,
     member_id: officer.member_id,
@@ -4158,7 +4418,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -4167,6 +4427,9 @@ async function supabaseTasks() {
     supabaseAll('profiles'),
     supabaseAll('training_courses'),
     supabaseAll('course_bookings'),
+    supabaseOptionalAll('probation_records'),
+    supabaseOptionalAll('performance_reviews'),
+    supabaseOptionalAll('officer_restrictions'),
   ]);
   const decorate = (row, type) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
@@ -4223,7 +4486,22 @@ async function supabaseTasks() {
       RequestedAt: booking.requested_at || '',
     };
   }).filter(Boolean);
-  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals];
+  const assignedOfficers = (officers || []).filter((officer) => officer.supervisor_user_id === state.user?.UserID && officer.status !== 'Archived');
+  const supervisorName = state.user?.RobloxUsername || '';
+  const probationReviews = (probation || []).filter((row) => row.status === 'Active' && Number(row.progress || 0) < 100 && assignedOfficers.some((officer) => officer.officer_id === row.officer_id)).map((row) => {
+    const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
+    return { TaskType: 'Probation Review', ProbationID: row.probation_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.stage} / ${row.progress}% complete`, Reason: row.requirements || row.notes || 'Probation record requires completion.', Status: row.status, StartDate: row.start_date, EndDate: row.target_date, Stage: row.stage, Progress: row.progress, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes, MySupervisee: true };
+  });
+  const performanceReviews = assignedOfficers.map((officer) => {
+    const latest = (performance || []).filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.review_date).localeCompare(String(a.review_date)))[0];
+    if (latest?.next_review_date && new Date(latest.next_review_date) > new Date()) return null;
+    return { TaskType: 'Performance Review', ReviewID: latest?.review_id || '', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: latest ? 'Scheduled performance review due' : 'No performance review recorded', Reason: latest?.objectives || 'A performance review should be completed.', Status: latest ? 'Due' : 'Not Started', ReviewDate: latest?.review_date || '', PeriodStart: latest?.period_start || '', PeriodEnd: latest?.period_end || '', Rating: latest?.rating || 'Meets Expectations', ActivitySummary: latest?.activity_summary || '', Strengths: latest?.strengths || '', Improvements: latest?.improvements || '', Objectives: latest?.objectives || '', NextReviewDate: latest?.next_review_date || '', MySupervisee: true };
+  }).filter(Boolean);
+  const restrictionReviews = (restrictions || []).filter((row) => row.status === 'Active' && assignedOfficers.some((officer) => officer.officer_id === row.officer_id)).map((row) => {
+    const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
+    return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true };
+  });
+  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews];
   return {
     ok: true,
     pendingLoa,
@@ -4231,12 +4509,16 @@ async function supabaseTasks() {
     pendingSupervisorRequests,
     pendingCourseBookings,
     pendingAppeals,
+    probationReviews,
+    performanceReviews,
+    restrictionReviews,
     counts: {
       pendingLoa: pendingLoa.length,
       pendingTransfers: pendingTransfers.length,
       pendingSupervisorRequests: pendingSupervisorRequests.length,
       pendingCourseBookings: pendingCourseBookings.length,
       pendingAppeals: pendingAppeals.length,
+      developmentReviews: probationReviews.length + performanceReviews.length + restrictionReviews.length,
       mySuperviseeTasks: all.filter((row) => row.MySupervisee).length,
       total: all.length,
     },
