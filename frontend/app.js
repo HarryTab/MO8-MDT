@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-23-5';
+const APP_VERSION = '2026-06-23-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -170,6 +170,7 @@ document.addEventListener('pointercancel', handleDashboardPointerUp);
 
 elements.loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  elements.loginStatus.classList.remove('success');
   elements.loginStatus.textContent = 'Signing in...';
   const form = new FormData(elements.loginForm);
   const response = await api('login', {
@@ -194,13 +195,13 @@ elements.loginForm.addEventListener('submit', async (event) => {
 
 document.querySelector('#requestAccountButton')?.addEventListener('click', () => {
   const form = document.querySelector('#accountRequestForm');
+  elements.loginStatus.classList.remove('success');
+  elements.loginStatus.textContent = '';
   form.reset();
   document.querySelector('#accountRequestRank').innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
   document.querySelector('#accountRequestStatus').textContent = '';
   form.querySelector('button[value="submit"]').disabled = false;
   form.querySelector('.dialog-intro').textContent = 'Requests are reviewed by MO8 Inspector+ before an account is created.';
-  document.querySelector('#accountRequestEntry').hidden = false;
-  document.querySelector('#accountRequestSuccess').hidden = true;
   document.querySelector('#accountRequestDialog').showModal();
 });
 document.querySelector('#accountRequestForm')?.addEventListener('submit', async (event) => {
@@ -218,10 +219,9 @@ document.querySelector('#accountRequestForm')?.addEventListener('submit', async 
     return;
   }
   event.currentTarget.reset();
-  document.querySelector('#accountRequestEntry').hidden = true;
-  document.querySelector('#accountRequestSuccess').hidden = false;
-  document.querySelector('#accountRequestReference').textContent = response.RequestID ? `Reference: ${response.RequestID}` : '';
-  document.querySelector('#accountRequestDmStatus').textContent = response.dmSent ? 'A confirmation has also been sent to you on Discord.' : 'Your request was saved, but a Discord DM could not be delivered.';
+  document.querySelector('#accountRequestDialog').close();
+  elements.loginStatus.classList.add('success');
+  elements.loginStatus.textContent = `Account request successfully sent${response.RequestID ? ` (${response.RequestID})` : ''}.${response.dmSent ? ' A Discord confirmation has also been sent.' : ''}`;
 });
 
 elements.logoutButton.addEventListener('click', async () => {
@@ -934,7 +934,7 @@ function showCalendarEvent(eventId) {
 
 async function openCalendarEventEditor(record = {}) {
   await ensureOfficerRecords();
-  const audienceTypes = ['Everyone', 'Role', 'Minimum Rank', 'Tag', 'My Supervisees'];
+  const audienceTypes = ['Everyone', 'Role', 'Ranks', 'Minimum Rank', 'Tag', 'My Supervisees'];
   if (can('FULL_ACCESS')) audienceTypes.push('Specific Officers');
   const selectedAudience = record.AudienceType || 'Everyone';
   openEditor(record.ID ? 'Edit calendar assignment' : 'Add calendar assignment', [
@@ -945,9 +945,11 @@ async function openCalendarEventEditor(record = {}) {
     field('Location', 'Location', 'text', false, record.Location || ''), field('Details', 'Details', 'textarea', true, record.Detail || ''),
     calendarAudienceSelectField(audienceTypes, selectedAudience),
     calendarAudienceField('Role', checkboxGroupField('AudienceRoles', 'System roles', SYSTEM_ROLES, record.AudienceType === 'Role' ? record.AudienceValues : ''), selectedAudience),
+    calendarAudienceField('Ranks', checkboxGroupField('AudienceRanks', 'Exact ranks', OFFICER_RANKS, record.AudienceType === 'Ranks' ? record.AudienceValues : ''), selectedAudience),
     calendarAudienceField('Minimum Rank', selectField('AudienceRank', 'Minimum rank', OFFICER_RANKS, record.AudienceType === 'Minimum Rank' ? record.AudienceValues?.[0] : 'Police Constable'), selectedAudience),
     calendarAudienceField('Tag', checkboxGroupField('AudienceTags', 'Officer tags', OFFICER_TAGS, record.AudienceType === 'Tag' ? record.AudienceValues : ''), selectedAudience),
-    calendarAudienceField('Specific Officers', officerCheckboxGroupField('AssignedOfficerIDs', 'Specific officers', state.officers, record.AssignedOfficerIDs), selectedAudience),
+    calendarAudienceField('My Supervisees', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Select supervisees', state.officers.filter((officer) => officer.SupervisorUserID === state.user.UserID), record.AudienceType === 'My Supervisees' ? record.AssignedOfficerIDs : ''), selectedAudience),
+    calendarAudienceField('Specific Officers', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Specific officers', state.officers, record.AudienceType === 'Specific Officers' ? record.AssignedOfficerIDs : ''), selectedAudience),
   ], async (values) => {
     if (new Date(values.EndsAt) <= new Date(values.StartsAt)) return { ok: false, error: 'The event end must be after its start.' };
     if (values.AudienceType === 'Specific Officers' && !can('FULL_ACCESS')) return { ok: false, error: 'Only Inspector+ can assign specific officers.' };
@@ -965,9 +967,10 @@ function calendarAudienceField(type, definition, selected) {
   return { html: `<div class="wide" data-calendar-audience-field="${escapeHtml(type)}"${type === selected ? '' : ' hidden'}>${definition.html}</div>` };
 }
 
-function officerCheckboxGroupField(name, label, officers, selected = '') {
+function searchableOfficerCheckboxGroupField(name, label, officers, selected = '') {
   const selectedIds = splitTags(selected);
-  return { html: `<fieldset class="wide checkbox-group"><legend>${escapeHtml(label)}</legend>${officers.map((officer) => `<label class="training-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(officer.OfficerID)}"${selectedIds.includes(officer.OfficerID) ? ' checked' : ''}><span>${escapeHtml(officer.RobloxUsername)} - ${escapeHtml(officer.Rank)}${officer.Callsign ? ` / ${escapeHtml(officer.Callsign)}` : ''}</span></label>`).join('')}</fieldset>` };
+  const choices = officers.map((officer) => `<label class="training-check" data-calendar-officer-choice><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(officer.OfficerID)}"${selectedIds.includes(officer.OfficerID) ? ' checked' : ''}><span>${escapeHtml(officer.RobloxUsername)} - ${escapeHtml(officer.Rank)}${officer.Callsign ? ` / ${escapeHtml(officer.Callsign)}` : ''}</span></label>`).join('');
+  return { html: `<fieldset class="wide checkbox-group searchable-calendar-officers"><legend>${escapeHtml(label)}</legend><input type="search" data-calendar-officer-search placeholder="Search by username, callsign or rank" autocomplete="off"><div class="calendar-officer-choices">${choices || '<p class="empty">No officers are currently assigned to you.</p>'}</div></fieldset>` };
 }
 
 function updateCalendarAudienceFields(audienceType) {
@@ -2352,10 +2355,6 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
-  if (event.target.closest('[data-close-account-request]')) {
-    document.querySelector('#accountRequestDialog').close();
-    return;
-  }
   if (event.target.closest('[data-widget-drag], [data-widget-resize]')) return;
   if (!event.target.closest('.notification-shell')) {
     closeNotificationMenu();
@@ -2924,6 +2923,14 @@ async function handleDocumentChange(event) {
 }
 
 function handleSearchableOfficerInput(event) {
+  const calendarSearch = event.target.closest('[data-calendar-officer-search]');
+  if (calendarSearch) {
+    const query = calendarSearch.value.trim().toLowerCase();
+    calendarSearch.closest('.searchable-calendar-officers').querySelectorAll('[data-calendar-officer-choice]').forEach((choice) => {
+      choice.hidden = Boolean(query) && !choice.textContent.toLowerCase().includes(query);
+    });
+    return;
+  }
   const input = event.target.closest('[data-officer-search]');
   if (!input) return;
   const field = input.closest('.searchable-officer-field');
@@ -3950,11 +3957,11 @@ async function supabaseOperationalCalendar() {
 async function supabaseSaveCalendarEvent(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
   const audienceType = data.AudienceType || 'Everyone';
-  const audienceValues = audienceType === 'Role' ? splitTags(data.AudienceRoles || '') : audienceType === 'Minimum Rank' ? [data.AudienceRank || 'Police Constable'] : audienceType === 'Tag' ? splitTags(data.AudienceTags || '') : [];
-  const assignedOfficerIds = audienceType === 'Specific Officers' ? splitTags(data.AssignedOfficerIDs || '') : [];
+  const audienceValues = audienceType === 'Role' ? splitTags(data.AudienceRoles || '') : audienceType === 'Ranks' ? splitTags(data.AudienceRanks || '') : audienceType === 'Minimum Rank' ? [data.AudienceRank || 'Police Constable'] : audienceType === 'Tag' ? splitTags(data.AudienceTags || '') : [];
+  const assignedOfficerIds = ['Specific Officers', 'My Supervisees'].includes(audienceType) ? splitTags(data.AssignedOfficerIDs || '') : [];
   if (audienceType === 'Specific Officers' && !can('FULL_ACCESS')) return { ok: false, error: 'Only Inspector+ can assign specific officers.' };
-  if (['Role', 'Tag'].includes(audienceType) && !audienceValues.length) return { ok: false, error: `Select at least one ${audienceType.toLowerCase()}.` };
-  if (audienceType === 'Specific Officers' && !assignedOfficerIds.length) return { ok: false, error: 'Select at least one officer.' };
+  if (['Role', 'Ranks', 'Tag'].includes(audienceType) && !audienceValues.length) return { ok: false, error: `Select at least one ${audienceType.toLowerCase()}.` };
+  if (['Specific Officers', 'My Supervisees'].includes(audienceType) && !assignedOfficerIds.length) return { ok: false, error: 'Select at least one officer.' };
   const existing = data.EventID ? await supabaseById('calendar_events', 'event_id', data.EventID) : null;
   const record = { title: data.Title, event_type: data.EventType, priority: data.Priority || 'Normal', starts_at: data.StartsAt, ends_at: data.EndsAt || null, location: data.Location || '', details: data.Details || '', audience_type: audienceType, audience_values: audienceValues, assigned_officer_ids: assignedOfficerIds, created_by: existing?.created_by || me.user.UserID, updated_at: new Date().toISOString() };
   const query = data.EventID ? supabaseClient.from('calendar_events').update(record).eq('event_id', data.EventID) : supabaseClient.from('calendar_events').insert(record);
@@ -3983,9 +3990,10 @@ function calendarEventRecipients(event, officers, profiles) {
   let selected = [];
   if (audienceType === 'Everyone') selected = officers;
   if (audienceType === 'Role') selected = officers.filter((officer) => values.includes(profiles.find((profile) => profile.member_id === officer.member_id)?.role));
+  if (audienceType === 'Ranks') selected = officers.filter((officer) => values.includes(officer.rank));
   if (audienceType === 'Minimum Rank') selected = officers.filter((officer) => OFFICER_RANKS.indexOf(officer.rank) >= OFFICER_RANKS.indexOf(values[0] || 'Police Constable'));
   if (audienceType === 'Tag') selected = officers.filter((officer) => (officer.tags || []).some((tag) => values.includes(tag)));
-  if (audienceType === 'My Supervisees') selected = officers.filter((officer) => officer.supervisor_user_id === event.created_by);
+  if (audienceType === 'My Supervisees') selected = officers.filter((officer) => officer.supervisor_user_id === event.created_by && (!(event.assigned_officer_ids || []).length || event.assigned_officer_ids.includes(officer.officer_id)));
   if (audienceType === 'Specific Officers') selected = officers.filter((officer) => (event.assigned_officer_ids || []).includes(officer.officer_id));
   const memberIds = new Set(selected.map((officer) => officer.member_id));
   return profiles.filter((profile) => memberIds.has(profile.member_id));
@@ -3994,9 +4002,10 @@ function calendarEventRecipients(event, officers, profiles) {
 function calendarAudienceSummary(event, officers) {
   const type = event.audience_type || 'Everyone';
   if (type === 'Role') return `Roles: ${(event.audience_values || []).join(', ')}`;
+  if (type === 'Ranks') return `Ranks: ${(event.audience_values || []).join(', ')}`;
   if (type === 'Minimum Rank') return `${event.audience_values?.[0] || 'Police Constable'}+`;
   if (type === 'Tag') return `Tags: ${(event.audience_values || []).join(', ')}`;
-  if (type === 'My Supervisees') return 'My supervisees';
+  if (type === 'My Supervisees') return `Supervisees: ${(event.assigned_officer_ids || []).map((id) => officers.find((officer) => officer.officer_id === id)?.roblox_username).filter(Boolean).join(', ') || 'All'}`;
   if (type === 'Specific Officers') return `Officers: ${(event.assigned_officer_ids || []).map((id) => officers.find((officer) => officer.officer_id === id)?.roblox_username).filter(Boolean).join(', ')}`;
   return 'All officers';
 }

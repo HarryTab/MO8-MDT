@@ -742,6 +742,18 @@ textarea {
   font-size: 13px;
 }
 
+#loginStatus.success {
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid #8bc9ae;
+  border-radius: 8px;
+  color: #075f41;
+  background: #e2f6ed;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .stats-grid {
   display: grid;
   gap: 12px;
@@ -1142,46 +1154,6 @@ dialog .section-head .ghost:hover {
   border-color: var(--blue);
 }
 
-.request-success {
-  min-height: 330px;
-  padding: 44px 24px 28px;
-  text-align: center;
-}
-
-.request-success-mark {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 7px 14px;
-  border: 1px solid #91cfb6;
-  border-radius: 999px;
-  color: #086344;
-  background: #e1f6ec;
-  font-size: 12px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.request-success h3 {
-  margin: 22px 0 10px;
-  color: #15365f;
-  font-size: 30px;
-}
-
-.request-success p {
-  margin: 8px auto;
-  max-width: 430px;
-  color: #42536b;
-  font-size: 15px;
-  line-height: 1.55;
-}
-
-.request-success strong {
-  display: block;
-  margin: 22px 0;
-  color: var(--blue-dark);
-  font-size: 18px;
-}
 
 .form-grid {
   display: grid;
@@ -2024,6 +1996,19 @@ dialog .section-head .ghost:hover {
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.searchable-calendar-officers > input {
+  width: 100%;
+  margin-bottom: 9px;
+}
+
+.calendar-officer-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 7px;
+  max-height: 250px;
+  overflow-y: auto;
 }
 
 .report-grid {

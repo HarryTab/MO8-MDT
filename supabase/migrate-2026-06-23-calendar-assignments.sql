@@ -10,7 +10,7 @@ alter table public.calendar_events
   drop constraint if exists calendar_events_audience_type_check;
 alter table public.calendar_events
   add constraint calendar_events_audience_type_check
-  check (audience_type in ('Everyone', 'Role', 'Minimum Rank', 'Tag', 'My Supervisees', 'Specific Officers'));
+  check (audience_type in ('Everyone', 'Role', 'Ranks', 'Minimum Rank', 'Tag', 'My Supervisees', 'Specific Officers'));
 
 drop policy if exists "calendar read authenticated" on public.calendar_events;
 drop policy if exists "calendar manage supervisors" on public.calendar_events;
@@ -29,6 +29,10 @@ using (
       select 1 from public.profiles p
       where p.auth_user_id = auth.uid() and p.role = any(audience_values)
     ))
+    or (audience_type = 'Ranks' and exists (
+      select 1 from public.profiles p
+      where p.auth_user_id = auth.uid() and p.rank = any(audience_values)
+    ))
     or (audience_type = 'Minimum Rank' and exists (
       select 1 from public.profiles p
       where p.auth_user_id = auth.uid()
@@ -41,7 +45,9 @@ using (
     ))
     or (audience_type = 'My Supervisees' and exists (
       select 1 from public.officers o
-      where o.member_id = public.current_member_id() and o.supervisor_user_id = calendar_events.created_by
+      where o.member_id = public.current_member_id()
+        and o.supervisor_user_id = calendar_events.created_by
+        and (cardinality(assigned_officer_ids) = 0 or o.officer_id = any(assigned_officer_ids))
     ))
     or (audience_type = 'Specific Officers' and exists (
       select 1 from public.officers o
