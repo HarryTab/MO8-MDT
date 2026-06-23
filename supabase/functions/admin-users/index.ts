@@ -10,9 +10,10 @@ const corsHeaders = {
 };
 
 type SaveUserPayload = {
-  action: 'saveUser' | 'resetPassword' | 'deleteUser' | 'changePassword' | 'reviewAccountRequest';
+  action: 'saveUser' | 'resetPassword' | 'deleteUser' | 'changePassword' | 'reviewAccountRequest' | 'submitAccountRequest';
   UserID?: string;
   RobloxUsername?: string;
+  Callsign?: string;
   DiscordID?: string;
   Rank?: string;
   Role?: string;
@@ -36,16 +37,20 @@ Deno.serve(async (request) => {
       return json({ ok: false, error: 'Supabase function secrets are not configured.' }, 500);
     }
 
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    const payload = await request.json() as SaveUserPayload;
+    if (payload.action === 'submitAccountRequest') {
+      return await submitAccountRequest(adminClient, payload);
+    }
+
     const authorization = request.headers.get('Authorization') || '';
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } },
     });
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return json({ ok: false, error: 'Not signed in.' }, 401);
 
-    const payload = await request.json() as SaveUserPayload;
     const { data: actorProfile } = await adminClient
       .from('profiles')
       .select('*')
@@ -145,6 +150,7 @@ async function saveUser(adminClient: DynamicSupabaseClient, payload: SaveUserPay
     member_id: memberId,
     roblox_username: username,
     discord_id: payload.DiscordID || '',
+    callsign: payload.Callsign || existingOfficer?.callsign || '',
     rank: payload.Rank || 'Police Constable',
     status: payload.Status || 'Active',
   };
@@ -181,12 +187,14 @@ async function reviewAccountRequest(adminClient: DynamicSupabaseClient, payload:
 
   if (payload.Status === 'Denied') {
     const { error } = await adminClient.from('account_requests').update({ status: 'Denied', review_notes: payload.ReviewNotes || '', reviewed_by: actorUserId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('request_id', payload.RequestID);
+    if (!error) await sendNoticeDm(request.discord_id, 'MO8 MDT account request declined', payload.ReviewNotes || 'Your account request was not approved. Please contact MO8 Command if you need more information.', 0xac3428);
     return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true });
   }
 
   const accountResponse = await saveUser(adminClient, {
     action: 'saveUser',
     RobloxUsername: payload.RobloxUsername || request.roblox_username,
+    Callsign: payload.Callsign || request.callsign,
     DiscordID: payload.DiscordID || request.discord_id,
     Rank: payload.Rank || request.rank,
     Status: 'Active',
@@ -194,8 +202,23 @@ async function reviewAccountRequest(adminClient: DynamicSupabaseClient, payload:
   const accountBody = await accountResponse.clone().json();
   if (!accountResponse.ok || !accountBody.ok) return accountResponse;
 
-  const { error } = await adminClient.from('account_requests').update({ status: 'Approved', roblox_username: payload.RobloxUsername || request.roblox_username, rank: payload.Rank || request.rank, discord_id: payload.DiscordID || request.discord_id, review_notes: payload.ReviewNotes || '', reviewed_by: actorUserId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('request_id', payload.RequestID);
+  const { error } = await adminClient.from('account_requests').update({ status: 'Approved', roblox_username: payload.RobloxUsername || request.roblox_username, callsign: payload.Callsign || request.callsign, rank: payload.Rank || request.rank, discord_id: payload.DiscordID || request.discord_id, review_notes: payload.ReviewNotes || '', reviewed_by: actorUserId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('request_id', payload.RequestID);
   return error ? json({ ok: false, error: error.message }, 400) : json(accountBody);
+}
+
+async function submitAccountRequest(adminClient: DynamicSupabaseClient, payload: SaveUserPayload) {
+  const username = String(payload.RobloxUsername || '').trim();
+  const callsign = String(payload.Callsign || '').trim();
+  const discordId = digitsOnly(payload.DiscordID);
+  const ranks = ['Police Constable', 'Sergeant', 'Inspector', 'Chief Inspector', 'Superintendent', 'Chief Superintendent', 'Commander', 'Deputy Assistant Commissioner', 'Assistant Commissioner', 'Deputy Commissioner', 'Commissioner'];
+  if (!username || !callsign || !ranks.includes(String(payload.Rank || '')) || !/^\d{15,22}$/.test(discordId)) return json({ ok: false, error: 'Enter a valid Roblox username, callsign, rank, and Discord user ID.' }, 400);
+
+  const { data, error } = await adminClient.from('account_requests').insert({ roblox_username: username, callsign, rank: payload.Rank, discord_id: discordId, status: 'Pending' }).select('request_id').single();
+  if (error?.code === '23505') return json({ ok: false, error: 'A pending request already exists for that Roblox username.' }, 409);
+  if (error) return json({ ok: false, error: error.message }, 400);
+
+  const dm = await sendNoticeDm(discordId, 'MO8 MDT account request received', `Your request has been added to the Inspector+ review queue.\n\nRoblox username: **${username}**\nCallsign: **${callsign}**\nRank: **${payload.Rank}**`, 0x1267d8);
+  return json({ ok: true, RequestID: data.request_id, dmSent: dm.ok === true });
 }
 
 function onboardingNote(rank: string) {
@@ -326,6 +349,19 @@ async function sendCredentialDm({ discordId, title, username, password, note }: 
   const messageBody = await messageResponse.json().catch(() => ({}));
   if (!messageResponse.ok) return { ok: false, error: discordError(messageResponse, messageBody) };
   return { ok: true };
+}
+
+async function sendNoticeDm(discordId: string, title: string, description: string, color: number) {
+  const botToken = Deno.env.get('DISCORD_BOT_TOKEN');
+  const targetId = digitsOnly(discordId);
+  if (!botToken || !targetId) return { ok: false, skipped: true };
+  const channelResponse = await discordFetch(botToken, 'https://discord.com/api/v10/users/@me/channels', { method: 'POST', body: JSON.stringify({ recipient_id: targetId }) });
+  const channelBody = await channelResponse.json().catch(() => ({}));
+  if (!channelResponse.ok) return { ok: false, error: discordError(channelResponse, channelBody) };
+  const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
+  const messageResponse = await discordFetch(botToken, `https://discord.com/api/v10/channels/${channelBody.id}/messages`, { method: 'POST', body: JSON.stringify({ embeds: [{ title, description, color, fields: [{ name: 'Open MDT', value: `[Launch MO8 MDT](${mdtUrl})` }], footer: { text: 'MO8 MDT Account Access' }, timestamp: new Date().toISOString() }] }) });
+  const messageBody = await messageResponse.json().catch(() => ({}));
+  return messageResponse.ok ? { ok: true } : { ok: false, error: discordError(messageResponse, messageBody) };
 }
 
 function credentialEmbed(title: string, username: string, password: string, note: string) {

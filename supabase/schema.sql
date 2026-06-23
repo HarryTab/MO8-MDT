@@ -76,6 +76,7 @@ create table public.training_courses (
   trainer_user_id text references public.profiles(user_id) on delete set null,
   co_trainer_user_ids text[] not null default '{}',
   course_date timestamptz,
+  duration_minutes integer not null default 60 check (duration_minutes between 15 and 1440),
   location text,
   capacity integer not null default 0,
   status text not null default 'Scheduled',

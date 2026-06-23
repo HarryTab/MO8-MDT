@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-23-3';
+const APP_VERSION = '2026-06-23-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -113,6 +113,7 @@ const state = {
   shifts: [],
   shiftStatus: null,
   users: [],
+  accountRequests: [],
   supervisorOptions: [],
   supervisorDashboard: null,
   permissionConfig: null,
@@ -197,6 +198,9 @@ document.querySelector('#requestAccountButton')?.addEventListener('click', () =>
   document.querySelector('#accountRequestRank').innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
   document.querySelector('#accountRequestStatus').textContent = '';
   form.querySelector('button[value="submit"]').disabled = false;
+  form.querySelector('.form-grid').hidden = false;
+  form.querySelector('.dialog-intro').textContent = 'Requests are reviewed by MO8 Inspector+ before an account is created.';
+  form.querySelector('button[value="submit"]').hidden = false;
   document.querySelector('#accountRequestDialog').showModal();
 });
 document.querySelector('#accountRequestForm')?.addEventListener('submit', async (event) => {
@@ -213,9 +217,11 @@ document.querySelector('#accountRequestForm')?.addEventListener('submit', async 
     status.textContent = response.error || 'Could not send account request.';
     return;
   }
-  status.textContent = 'Request sent. An Inspector+ will review your details.';
-  event.currentTarget.querySelector('button[type="submit"]').disabled = true;
-  setTimeout(() => document.querySelector('#accountRequestDialog').close(), 1400);
+  status.textContent = `Request ${response.RequestID || ''} received.${response.dmSent ? ' A Discord confirmation has been sent.' : ''}`;
+  event.currentTarget.reset();
+  event.currentTarget.querySelector('.form-grid').hidden = true;
+  event.currentTarget.querySelector('.dialog-intro').textContent = `Your request has been received and added to the Inspector+ review queue.${response.dmSent ? ' A confirmation has also been sent to you on Discord.' : ''}`;
+  event.currentTarget.querySelector('button[value="submit"]').hidden = true;
 });
 
 elements.logoutButton.addEventListener('click', async () => {
@@ -851,7 +857,7 @@ function renderCalendar() {
     });
     state.calendarInstance.render();
   } else {
-    state.calendarInstance.removeAllEvents();
+    state.calendarInstance.removeAllEventSources();
     state.calendarInstance.addEventSource(events);
     state.calendarInstance.updateSize();
   }
@@ -1543,7 +1549,7 @@ function renderAnnouncementsTable(rows) {
 }
 
 function renderCoursesTable(rows) {
-  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CoTrainers', 'CourseDate', 'Location', 'Capacity', 'BookedSeats', 'PendingRequests', 'Waitlist', 'Status', 'MyBookingStatus'], {
+  renderTable('#coursesTable', rows, ['Title', 'Standard', 'Trainer', 'CoTrainers', 'CourseDate', 'Duration', 'Location', 'Capacity', 'BookedSeats', 'PendingRequests', 'Waitlist', 'Status', 'MyBookingStatus'], {
     actions: (row) => [
       can('VIEW_COURSES') && !row.MyBookingStatus ? `<button class="mini" data-request-course="${escapeHtml(row.CourseID)}">Request seat</button>` : '',
       canManageCourse(row) ? `<button class="mini ${Number(row.PendingRequests || 0) > 0 ? 'warning-action' : 'ghost'}" data-course-bookings="${escapeHtml(row.CourseID)}">Review${Number(row.PendingRequests || 0) > 0 ? ` (${escapeHtml(row.PendingRequests)})` : ''}</button>` : '',
@@ -1653,9 +1659,24 @@ function renderTrainingSpreadsheet(rows) {
 
 async function loadUsers() {
   await showViewOnly('users');
-  const response = await apiCached('listUsers', {});
+  const [response, requestsResponse] = await Promise.all([
+    apiCached('listUsers', {}),
+    can('REVIEW_ACCOUNT_REQUESTS') ? api('listAccountRequests', {}) : Promise.resolve({ ok: true, rows: [] }),
+  ]);
   state.users = response.rows || [];
+  state.accountRequests = requestsResponse.rows || [];
   renderSearchableView('users');
+  renderAccountRequestsTable();
+}
+
+function renderAccountRequestsTable() {
+  const table = document.querySelector('#accountRequestsTable');
+  if (!table) return;
+  const pending = state.accountRequests.filter((row) => row.Status === 'Pending');
+  document.querySelector('#accountRequestsCount').textContent = `${pending.length} pending`;
+  renderTable('#accountRequestsTable', state.accountRequests, ['RobloxUsername', 'Callsign', 'Rank', 'DiscordID', 'Status', 'ReviewNotes', 'ReviewedBy', 'CreatedAt', 'ReviewedAt'], {
+    actions: (row) => row.Status === 'Pending' ? `<button class="mini" data-open-account-request="${escapeHtml(row.RequestID)}">Review</button>` : '',
+  });
 }
 
 function renderUsersTable(rows) {
@@ -1883,6 +1904,7 @@ async function openCourseEditor(course = {}) {
     trainerSelectField('TrainerUserID', 'Trainer', trainers, course.TrainerUserID || state.user.UserID),
     userCheckboxGroupField('CoTrainerUserIDs', 'Co-trainers', trainers, course.CoTrainerUserIDs),
     field('CourseDate', 'Course date/time', 'datetime-local', false, localDateTimeValue(course.CourseDate)),
+    field('DurationMinutes', 'Duration (minutes)', 'number', false, course.DurationMinutes || 60),
     field('Location', 'Location', 'text', false, course.Location),
     field('Capacity', 'Capacity', 'number', false, course.Capacity || '4'),
     selectField('Status', 'Status', ['Scheduled', 'Completed', 'Cancelled'], course.Status || 'Scheduled'),
@@ -2052,6 +2074,7 @@ function openAccountRequestReview(record) {
   openEditor('Review account request', [
     hiddenField('RequestID', record.RequestID),
     field('RobloxUsername', 'Roblox username', 'text', false, record.RobloxUsername),
+    field('Callsign', 'Callsign', 'text', false, record.Callsign),
     selectField('Rank', 'Rank', OFFICER_RANKS, record.Rank),
     field('DiscordID', 'Discord user ID', 'text', false, record.DiscordID),
     selectField('Status', 'Decision', ['Approved', 'Denied'], 'Approved'),
@@ -2060,7 +2083,8 @@ function openAccountRequestReview(record) {
     successMessage: 'Account request reviewed.',
     onSuccess: async (response) => {
       invalidateCache('tasks');
-      await loadTasks();
+      if (state.activeView === 'users') await loadUsers();
+      else await loadTasks();
       if (response?.temporaryPassword) showInfo('Account created', `<p>The account was created and its temporary credentials were sent by Discord.</p>`);
     },
   });
@@ -2401,7 +2425,8 @@ async function handleDocumentClick(event) {
   }
   const accountRequest = event.target.closest('[data-open-account-request]');
   if (accountRequest) {
-    const record = state.tasks.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
+    const record = state.tasks.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest)
+      || state.accountRequests.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
     if (record) openAccountRequestReview(record);
     return;
   }
@@ -2635,6 +2660,7 @@ async function handleDocumentClick(event) {
       return;
     }
     invalidateCache('listTrainingCourses');
+    invalidateCache('operationalCalendar');
     await loadCourses();
     return;
   }
@@ -2670,6 +2696,7 @@ async function handleDocumentClick(event) {
     }
     invalidateCache('listTrainingCourses');
     invalidateCache('dashboard');
+    invalidateCache('operationalCalendar');
     await loadCourses();
     return;
   }
@@ -3636,6 +3663,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       saveAnnouncement: supabaseSaveAnnouncement,
       deleteAnnouncement: supabaseDeleteAnnouncement,
       listUsers: supabaseListUsers,
+      listAccountRequests: supabaseListAccountRequests,
       saveUser: supabaseSaveUser,
       deleteUser: supabaseDeleteUser,
       bulkUpdateOfficers: supabaseBulkUpdateOfficers,
@@ -3854,11 +3882,16 @@ async function supabaseSaveSavedView(data) {
 }
 
 async function supabaseOperationalCalendar() {
-  const [events, courses, loa, reviews, checkins, officers] = await Promise.all([supabaseOptionalAll('calendar_events'), supabaseAll('training_courses'), supabaseAll('loa_requests'), supabaseOptionalAll('performance_reviews'), supabaseAll('supervisor_checkins'), supabaseAll('officers')]);
+  const [events, courses, bookings, loa, reviews, checkins, officers, profile] = await Promise.all([supabaseOptionalAll('calendar_events'), supabaseAll('training_courses'), supabaseAll('course_bookings'), supabaseAll('loa_requests'), supabaseOptionalAll('performance_reviews'), supabaseAll('supervisor_checkins'), supabaseAll('officers'), supabaseProfileByUserId(state.user.UserID)]);
   const officerName = (id) => officers.find((row) => row.officer_id === id)?.roblox_username || 'Officer';
+  const myOfficer = officers.find((row) => row.member_id === profile?.member_id);
+  const visibleCourses = courses.filter((course) => {
+    if (course.trainer_user_id === state.user.UserID || (course.co_trainer_user_ids || []).includes(state.user.UserID)) return true;
+    return bookings.some((booking) => booking.course_id === course.course_id && booking.officer_id === myOfficer?.officer_id && ['Approved', 'Waitlist', 'Completed'].includes(booking.status));
+  });
   return { ok: true, rows: [
     ...events.map((row) => ({ ID: row.event_id, Type: row.event_type, Title: row.title, Start: row.starts_at, End: row.ends_at, Detail: row.details, Location: row.location, Editable: can('VIEW_TASKS') })),
-    ...courses.map((row) => ({ ID: row.course_id, Type: 'Training', Title: row.title, Start: row.course_date, Detail: row.standard, Location: row.location })),
+    ...visibleCourses.filter((row) => row.status !== 'Cancelled').map((row) => ({ ID: `course-${row.course_id}`, Type: 'Training', Title: row.title, Start: row.course_date, End: addMinutesIso(row.course_date, row.duration_minutes || 60), Detail: `${row.standard} / ${row.duration_minutes || 60} minutes`, Location: row.location })),
     ...loa.filter((row) => row.status === 'Approved').map((row) => ({ ID: row.request_id, Type: 'LOA', Title: `${officerName(row.officer_id)} on LOA`, Start: row.start_date, End: row.end_date, Detail: row.reason })),
     ...reviews.filter((row) => row.next_review_date).map((row) => ({ ID: row.review_id, Type: 'Review', Title: `${officerName(row.officer_id)} review`, Start: row.next_review_date, Detail: row.rating })),
     ...checkins.filter((row) => row.follow_up_date).map((row) => ({ ID: row.checkin_id, Type: 'Follow-up', Title: `${officerName(row.officer_id)} check-in`, Start: row.follow_up_date, Detail: row.development_goals })),
@@ -4154,6 +4187,7 @@ async function supabaseSaveTrainingCourse(data) {
     trainer_user_id: data.TrainerUserID || state.user?.UserID || null,
     co_trainer_user_ids: splitTags(data.CoTrainerUserIDs || '').filter((id) => id !== (data.TrainerUserID || state.user?.UserID || '')),
     course_date: data.CourseDate || null,
+    duration_minutes: Math.max(15, Math.min(1440, Number(data.DurationMinutes || 60))),
     location: data.Location || '',
     capacity: Number(data.Capacity || 0),
     status: data.Status || 'Scheduled',
@@ -4645,7 +4679,7 @@ async function supabaseTasks() {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
     return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true };
   });
-  const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
+  const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
   const retrospectiveShifts = (retrospectiveRows || []).filter((row) => row.status === 'Pending').map((row) => {
     const task = decorate(row, 'Retrospective Shift');
     return Object.assign(task, { StartedAt: row.started_at, EndedAt: row.ended_at, Summary: row.summary || '', Reason: row.reason || '' });
@@ -4937,20 +4971,24 @@ async function supabaseListUsers() {
   return error ? { ok: false, error: error.message } : { ok: true, rows: (data || []).map(supabaseUser) };
 }
 
+async function supabaseListAccountRequests() {
+  const [{ data, error }, profiles] = await Promise.all([supabaseClient.from('account_requests').select('*').order('created_at', { ascending: false }), supabaseAll('profiles')]);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data || []).map((row) => ({ RequestID: row.request_id, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, DiscordID: row.discord_id, Status: row.status, ReviewNotes: row.review_notes || '', ReviewedBy: profiles.find((profile) => profile.user_id === row.reviewed_by)?.roblox_username || '', ReviewedAt: row.reviewed_at || '', CreatedAt: row.created_at })) };
+}
+
 async function supabaseRequestAccount(data) {
   const username = String(data.RobloxUsername || '').trim();
+  const callsign = String(data.Callsign || '').trim();
   const discordId = String(data.DiscordID || '').trim();
-  if (!username || !OFFICER_RANKS.includes(data.Rank || '') || !/^\d{15,22}$/.test(discordId)) {
-    return { ok: false, error: 'Enter a valid Roblox username, rank, and Discord user ID.' };
-  }
-  const { error } = await supabaseClient.from('account_requests').insert({
-    roblox_username: username,
-    rank: data.Rank,
-    discord_id: discordId,
-    status: 'Pending',
-  });
-  if (error?.code === '23505') return { ok: false, error: 'A pending request already exists for that Roblox username.' };
-  return error ? { ok: false, error: error.message } : { ok: true };
+  if (!username || !callsign || !OFFICER_RANKS.includes(data.Rank || '') || !/^\d{15,22}$/.test(discordId)) return { ok: false, error: 'Enter a valid Roblox username, callsign, rank, and Discord user ID.' };
+  return supabaseInvokePublicAdminUsers({ action: 'submitAccountRequest', RobloxUsername: username, Callsign: callsign, Rank: data.Rank, DiscordID: discordId });
+}
+
+async function supabaseInvokePublicAdminUsers(payload) {
+  const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/admin-users`, { method: 'POST', headers: { Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`, apikey: SUPABASE_CONFIG.anonKey, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  return response.ok ? body : { ok: false, error: body.error || `Account request failed with HTTP ${response.status}.` };
 }
 
 async function supabaseSaveUser(data) {
@@ -5502,6 +5540,8 @@ function supabaseCourse(row, trainer = {}, coTrainers = []) {
     CoTrainerUserIDs: (row.co_trainer_user_ids || []).join(', '),
     CoTrainers: coTrainers.map((profile) => profile.roblox_username).filter(Boolean).join(', '),
     CourseDate: row.course_date || '',
+    DurationMinutes: Number(row.duration_minutes || 60),
+    Duration: durationText(Number(row.duration_minutes || 60) * 60000),
     Location: row.location || '',
     Capacity: row.capacity || 0,
     Status: row.status,
@@ -5799,6 +5839,13 @@ function durationText(ms) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return `${hours}h ${mins}m`;
+}
+
+function addMinutesIso(value, minutes) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || '';
+  date.setMinutes(date.getMinutes() + Number(minutes || 0));
+  return date.toISOString();
 }
 
 function isTodayInRange(start, end) {
