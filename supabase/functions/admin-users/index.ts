@@ -1,5 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// This function intentionally works across dynamic public tables without a generated Database type.
+type DynamicSupabaseClient = any;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -7,7 +10,7 @@ const corsHeaders = {
 };
 
 type SaveUserPayload = {
-  action: 'saveUser' | 'resetPassword' | 'deleteUser' | 'changePassword';
+  action: 'saveUser' | 'resetPassword' | 'deleteUser' | 'changePassword' | 'reviewAccountRequest';
   UserID?: string;
   RobloxUsername?: string;
   DiscordID?: string;
@@ -16,6 +19,8 @@ type SaveUserPayload = {
   Status?: string;
   TemporaryPassword?: string;
   NewPassword?: string;
+  RequestID?: string;
+  ReviewNotes?: string;
 };
 
 Deno.serve(async (request) => {
@@ -52,7 +57,7 @@ Deno.serve(async (request) => {
       return await changeOwnPassword(adminClient, authData.user.id, payload, actorProfile);
     }
 
-    const requiredPermission = payload.action === 'resetPassword' ? 'RESET_PASSWORDS' : 'MANAGE_USERS';
+    const requiredPermission = payload.action === 'resetPassword' ? 'RESET_PASSWORDS' : payload.action === 'reviewAccountRequest' ? 'REVIEW_ACCOUNT_REQUESTS' : 'MANAGE_USERS';
     const { data: allowed, error: permissionError } = await userClient.rpc('has_permission', {
       permission_name: requiredPermission,
     });
@@ -65,13 +70,16 @@ Deno.serve(async (request) => {
     if (payload.action === 'deleteUser') {
       return await deleteUser(adminClient, payload);
     }
+    if (payload.action === 'reviewAccountRequest') {
+      return await reviewAccountRequest(adminClient, payload, actorProfile?.user_id || null);
+    }
     return await saveUser(adminClient, payload, actorProfile?.user_id || null);
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
 
-async function saveUser(adminClient: ReturnType<typeof createClient>, payload: SaveUserPayload, actorUserId: string | null) {
+async function saveUser(adminClient: DynamicSupabaseClient, payload: SaveUserPayload, actorUserId: string | null) {
   const username = String(payload.RobloxUsername || '').trim();
   if (!username) return json({ ok: false, error: 'Roblox username is required.' }, 400);
 
@@ -152,7 +160,7 @@ async function saveUser(adminClient: ReturnType<typeof createClient>, payload: S
       title: existingProfile ? 'MO8 MDT password changed' : 'MO8 MDT account created',
       username,
       password: passwordForMessage,
-      note: existingProfile ? 'Your MDT login password has been changed.' : 'Your MDT login account has been created.',
+      note: existingProfile ? 'Your MDT login password has been changed.' : onboardingNote(profileRecord.rank),
     });
   }
 
@@ -166,7 +174,38 @@ async function saveUser(adminClient: ReturnType<typeof createClient>, payload: S
   });
 }
 
-async function resetPassword(adminClient: ReturnType<typeof createClient>, payload: SaveUserPayload) {
+async function reviewAccountRequest(adminClient: DynamicSupabaseClient, payload: SaveUserPayload, actorUserId: string | null) {
+  if (!payload.RequestID) return json({ ok: false, error: 'RequestID is required.' }, 400);
+  const request = await byId(adminClient, 'account_requests', 'request_id', payload.RequestID);
+  if (!request || request.status !== 'Pending') return json({ ok: false, error: 'This account request is no longer pending.' }, 409);
+
+  if (payload.Status === 'Denied') {
+    const { error } = await adminClient.from('account_requests').update({ status: 'Denied', review_notes: payload.ReviewNotes || '', reviewed_by: actorUserId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('request_id', payload.RequestID);
+    return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true });
+  }
+
+  const accountResponse = await saveUser(adminClient, {
+    action: 'saveUser',
+    RobloxUsername: payload.RobloxUsername || request.roblox_username,
+    DiscordID: payload.DiscordID || request.discord_id,
+    Rank: payload.Rank || request.rank,
+    Status: 'Active',
+  }, actorUserId);
+  const accountBody = await accountResponse.clone().json();
+  if (!accountResponse.ok || !accountBody.ok) return accountResponse;
+
+  const { error } = await adminClient.from('account_requests').update({ status: 'Approved', roblox_username: payload.RobloxUsername || request.roblox_username, rank: payload.Rank || request.rank, discord_id: payload.DiscordID || request.discord_id, review_notes: payload.ReviewNotes || '', reviewed_by: actorUserId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('request_id', payload.RequestID);
+  return error ? json({ ok: false, error: error.message }, 400) : json(accountBody);
+}
+
+function onboardingNote(rank: string) {
+  const base = 'Your MO8 MDT account has been approved. Start with My Profile, Documents, Requests, Shifts and Training.';
+  if (['Sergeant'].includes(rank)) return `${base} As a Sergeant, you can also use Tasks and Supervisor tools to manage assigned officers.`;
+  if (['Inspector', 'Chief Inspector', 'Superintendent', 'Chief Superintendent', 'Commander', 'Deputy Assistant Commissioner', 'Assistant Commissioner', 'Deputy Commissioner', 'Commissioner'].includes(rank)) return `${base} Your command access also includes officer administration, task reviews, reports, handovers and role-appropriate management tools.`;
+  return base;
+}
+
+async function resetPassword(adminClient: DynamicSupabaseClient, payload: SaveUserPayload) {
   if (!payload.UserID) return json({ ok: false, error: 'UserID is required.' }, 400);
   const profile = await byId(adminClient, 'profiles', 'user_id', payload.UserID);
   if (!profile) return json({ ok: false, error: 'User profile not found.' }, 404);
@@ -203,7 +242,7 @@ async function resetPassword(adminClient: ReturnType<typeof createClient>, paylo
   return json({ ok: true, temporaryPassword });
 }
 
-async function changeOwnPassword(adminClient: ReturnType<typeof createClient>, authUserId: string, payload: SaveUserPayload, actorProfile: Record<string, unknown> | null) {
+async function changeOwnPassword(adminClient: DynamicSupabaseClient, authUserId: string, payload: SaveUserPayload, actorProfile: Record<string, unknown> | null) {
   const newPassword = String(payload.NewPassword || payload.TemporaryPassword || '').trim();
   if (!newPassword) return json({ ok: false, error: 'New password is required.' }, 400);
 
@@ -224,7 +263,7 @@ async function changeOwnPassword(adminClient: ReturnType<typeof createClient>, a
   return json({ ok: true });
 }
 
-async function deleteUser(adminClient: ReturnType<typeof createClient>, payload: SaveUserPayload) {
+async function deleteUser(adminClient: DynamicSupabaseClient, payload: SaveUserPayload) {
   if (!payload.UserID) return json({ ok: false, error: 'UserID is required.' }, 400);
   const profile = await byId(adminClient, 'profiles', 'user_id', payload.UserID);
   const email = profile?.roblox_username
@@ -247,20 +286,20 @@ async function deleteUser(adminClient: ReturnType<typeof createClient>, payload:
   return json({ ok: true });
 }
 
-async function findAuthUserByEmail(adminClient: ReturnType<typeof createClient>, email: string) {
+async function findAuthUserByEmail(adminClient: DynamicSupabaseClient, email: string) {
   const target = String(email || '').toLowerCase();
   if (!target) return null;
   for (let page = 1; page <= 20; page += 1) {
     const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) throw error;
-    const match = data.users.find((user) => String(user.email || '').toLowerCase() === target);
+    const match = data.users.find((user: { email?: string }) => String(user.email || '').toLowerCase() === target);
     if (match) return match;
     if (data.users.length < 1000) return null;
   }
   return null;
 }
 
-async function byId(adminClient: ReturnType<typeof createClient>, table: string, column: string, value: string) {
+async function byId(adminClient: DynamicSupabaseClient, table: string, column: string, value: string) {
   const { data, error } = await adminClient.from(table).select('*').eq(column, value).limit(1).maybeSingle();
   if (error) throw error;
   return data;

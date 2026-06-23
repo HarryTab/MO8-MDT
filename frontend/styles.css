@@ -1768,8 +1768,6 @@ dialog .section-head .ghost:hover {
 }
 
 .calendar-grid {
-  display: grid;
-  gap: 0;
   overflow-x: auto;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -1778,11 +1776,71 @@ dialog .section-head .ghost:hover {
 
 .calendar-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(150px, 190px) auto auto minmax(170px, 240px);
+  grid-template-columns: auto minmax(150px, 190px) auto auto minmax(120px, 160px) minmax(170px, 240px);
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
 }
+
+.calendar-grid .fc {
+  min-width: 780px;
+  padding: 14px;
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.calendar-grid .fc .fc-toolbar-title {
+  color: #173762;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.calendar-grid .fc-theme-standard td,
+.calendar-grid .fc-theme-standard th,
+.calendar-grid .fc-theme-standard .fc-scrollgrid {
+  border-color: var(--line);
+}
+
+.calendar-grid .fc .fc-col-header-cell-cushion,
+.calendar-grid .fc .fc-daygrid-day-number {
+  color: #45536a;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.calendar-grid .fc .fc-day-today {
+  background: #eef5ff;
+}
+
+.calendar-grid .fc .fc-day-today .fc-daygrid-day-number {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--blue-dark);
+}
+
+.calendar-grid .fc .fc-event {
+  padding: 2px 5px;
+  border: 1px solid #9bbce5;
+  border-radius: 4px;
+  color: #123d70;
+  background: #dcecff;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.calendar-grid .fc .calendar-event-loa { color: #59358a; background: #eee4fb; border-color: #c7afe8; }
+.calendar-grid .fc .calendar-event-review,
+.calendar-grid .fc .calendar-event-follow-up { color: #8a4d08; background: #fff0d7; border-color: #efc47d; }
+.calendar-grid .fc .calendar-event-training { color: #17633d; background: #dcf5e7; border-color: #9ed5b7; }
+.calendar-grid .fc .fc-timegrid-event { color: #fff; background: #2861a7; border-color: #1d4e89; }
+.calendar-grid .fc .fc-timegrid-slot { height: 34px; }
+.calendar-grid .fc .fc-more-link { color: var(--blue-dark); font-weight: 850; }
 
 .calendar-month-title {
   min-width: 780px;
@@ -2648,8 +2706,9 @@ body.is-authenticated .profile-actions button.ghost {
     grid-template-columns: 1fr 1fr;
   }
 
-  .calendar-toolbar #calendarMonth,
-  .calendar-toolbar #calendarTypeFilter {
+  .calendar-toolbar #calendarDatePicker,
+  .calendar-toolbar #calendarTypeFilter,
+  .calendar-toolbar #calendarViewMode {
     grid-column: 1 / -1;
   }
 

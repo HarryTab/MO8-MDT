@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-23-2">
+    <link rel="stylesheet" href="styles.css?v=2026-06-23-3">
   </head>
   <body>
     <main class="terminal-shell">
@@ -109,6 +109,7 @@
                 <input name="password" type="password" autocomplete="current-password" required>
               </label>
               <button type="submit">Authenticate</button>
+              <button class="ghost" id="requestAccountButton" type="button">Request an account</button>
               <p class="form-status" id="loginStatus"></p>
             </form>
           </section>
@@ -146,10 +147,11 @@
               <button id="newCalendarEventButton" data-permission="VIEW_TASKS">Add event</button>
             </div>
             <div class="calendar-toolbar">
-              <button class="ghost" id="calendarPreviousButton" type="button" aria-label="Previous month">Previous</button>
-              <input id="calendarMonth" type="month">
+              <button class="ghost" id="calendarPreviousButton" type="button" aria-label="Previous period">Previous</button>
+              <input id="calendarDatePicker" type="date">
               <button class="ghost" id="calendarTodayButton" type="button">Today</button>
-              <button class="ghost" id="calendarNextButton" type="button" aria-label="Next month">Next</button>
+              <button class="ghost" id="calendarNextButton" type="button" aria-label="Next period">Next</button>
+              <select id="calendarViewMode"><option value="dayGridMonth">Month</option><option value="timeGridWeek">Week</option><option value="timeGridDay">Day</option></select>
               <select id="calendarTypeFilter"><option value="">All event types</option></select>
             </div>
             <div id="calendarGrid" class="calendar-grid"></div>
@@ -177,6 +179,7 @@
               <div class="profile-actions">
                 <button id="startShiftButton">Start shift</button>
                 <button class="ghost" id="endShiftButton">End shift</button>
+                <button class="ghost" id="requestRetrospectiveShiftButton">Request retrospective shift</button>
               </div>
             </div>
             <div id="shiftSummary" class="stat-row"></div>
@@ -447,8 +450,23 @@
       </div>
     </dialog>
 
+    <dialog id="accountRequestDialog">
+      <form method="dialog" class="dialog-card" id="accountRequestForm">
+        <div class="section-head"><h2>Request an MDT account</h2><button class="ghost" value="cancel" formnovalidate>Close</button></div>
+        <p class="dialog-intro">Requests are reviewed by MO8 Inspectors before an account is created.</p>
+        <div class="form-grid">
+          <label>Roblox username<input name="RobloxUsername" required autocomplete="username"></label>
+          <label>Rank<select name="Rank" id="accountRequestRank" required></select></label>
+          <label class="wide">Discord user ID<input name="DiscordID" required inputmode="numeric" pattern="[0-9]{15,22}"></label>
+        </div>
+        <p class="form-status" id="accountRequestStatus"></p>
+        <button value="submit">Submit request</button>
+      </form>
+    </dialog>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-23-2"></script>
+    <script src="app.js?v=2026-06-23-3"></script>
   </body>
 </html>

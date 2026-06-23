@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-23-2';
+const APP_VERSION = '2026-06-23-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -53,6 +53,7 @@ const ALL_PERMISSIONS = [
   'VIEW_ANNOUNCEMENTS',
   'MANAGE_ANNOUNCEMENTS',
   'MANAGE_USERS',
+  'REVIEW_ACCOUNT_REQUESTS',
   'RESET_PASSWORDS',
   'VIEW_AUDIT_LOG',
   'MANAGE_PERMISSIONS',
@@ -121,6 +122,7 @@ const state = {
   selectedBulkOfficerIds: [],
   selectedCourseId: '',
   dashboardInteraction: null,
+  calendarInstance: null,
   operations: { actions: [], search: [], savedViews: [], calendar: [], probation: [], reviews: [], restrictions: [], handovers: [] },
 };
 
@@ -189,6 +191,33 @@ elements.loginForm.addEventListener('submit', async (event) => {
   await initializeSession();
 });
 
+document.querySelector('#requestAccountButton')?.addEventListener('click', () => {
+  const form = document.querySelector('#accountRequestForm');
+  form.reset();
+  document.querySelector('#accountRequestRank').innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
+  document.querySelector('#accountRequestStatus').textContent = '';
+  form.querySelector('button[value="submit"]').disabled = false;
+  document.querySelector('#accountRequestDialog').showModal();
+});
+document.querySelector('#accountRequestForm')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === 'cancel') {
+    document.querySelector('#accountRequestDialog').close();
+    return;
+  }
+  const status = document.querySelector('#accountRequestStatus');
+  status.textContent = 'Sending request...';
+  const values = Object.fromEntries(new FormData(event.currentTarget));
+  const response = await api('requestAccount', values, false);
+  if (!response.ok) {
+    status.textContent = response.error || 'Could not send account request.';
+    return;
+  }
+  status.textContent = 'Request sent. An Inspector+ will review your details.';
+  event.currentTarget.querySelector('button[type="submit"]').disabled = true;
+  setTimeout(() => document.querySelector('#accountRequestDialog').close(), 1400);
+});
+
 elements.logoutButton.addEventListener('click', async () => {
   await api('logout', {});
   localStorage.removeItem('mo8_token');
@@ -246,20 +275,19 @@ document.querySelector('#newAnnouncementButton').addEventListener('click', () =>
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
 document.querySelector('#startShiftButton').addEventListener('click', startShift);
 document.querySelector('#endShiftButton').addEventListener('click', openEndShiftEditor);
+document.querySelector('#requestRetrospectiveShiftButton')?.addEventListener('click', openRetrospectiveShiftEditor);
 document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
 document.querySelector('#savedViewSelect')?.addEventListener('change', applySavedView);
 document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
-document.querySelector('#calendarMonth')?.addEventListener('change', renderCalendar);
+document.querySelector('#calendarDatePicker')?.addEventListener('change', (event) => state.calendarInstance?.gotoDate(event.target.value));
 document.querySelector('#calendarTypeFilter')?.addEventListener('change', renderCalendar);
-document.querySelector('#calendarPreviousButton')?.addEventListener('click', () => changeCalendarMonth(-1));
-document.querySelector('#calendarNextButton')?.addEventListener('click', () => changeCalendarMonth(1));
-document.querySelector('#calendarTodayButton')?.addEventListener('click', () => {
-  document.querySelector('#calendarMonth').value = localMonthValue(new Date());
-  renderCalendar();
-});
+document.querySelector('#calendarViewMode')?.addEventListener('change', (event) => state.calendarInstance?.changeView(event.target.value));
+document.querySelector('#calendarPreviousButton')?.addEventListener('click', () => state.calendarInstance?.prev());
+document.querySelector('#calendarNextButton')?.addEventListener('click', () => state.calendarInstance?.next());
+document.querySelector('#calendarTodayButton')?.addEventListener('click', () => state.calendarInstance?.today());
 document.querySelector('#newCalendarEventButton')?.addEventListener('click', () => openCalendarEventEditor());
 document.querySelector('#developmentSearch')?.addEventListener('input', renderDevelopmentTables);
 document.querySelector('#newProbationButton')?.addEventListener('click', () => openProbationEditor());
@@ -785,8 +813,6 @@ function openSavedViewEditor() {
 
 async function loadCalendar() {
   await showViewOnly('calendar');
-  const month = document.querySelector('#calendarMonth');
-  if (month && !month.value) month.value = new Date().toISOString().slice(0, 7);
   const response = await apiCached('operationalCalendar', {});
   if (!response.ok) return renderError(document.querySelector('#calendarGrid'), response.error);
   state.operations.calendar = response.rows || [];
@@ -798,54 +824,63 @@ async function loadCalendar() {
 function renderCalendar() {
   const container = document.querySelector('#calendarGrid');
   if (!container) return;
-  const month = document.querySelector('#calendarMonth').value || localMonthValue(new Date());
-  const type = document.querySelector('#calendarTypeFilter').value;
-  const [year, monthNumber] = month.split('-').map(Number);
-  const monthStart = new Date(year, monthNumber - 1, 1);
-  const leadingDays = (monthStart.getDay() + 6) % 7;
-  const gridStart = new Date(year, monthNumber - 1, 1 - leadingDays);
-  const rows = state.operations.calendar
-    .filter((row) => !type || row.Type === type)
-    .sort((a, b) => calendarDate(row.Start) - calendarDate(b.Start));
-  const weekdayHead = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    .map((day) => `<span>${day}</span>`).join('');
-  const weeks = Array.from({ length: 6 }, (_, weekIndex) => {
-    const weekStart = addCalendarDays(gridStart, weekIndex * 7);
-    const weekEnd = addCalendarDays(weekStart, 6);
-    const days = Array.from({ length: 7 }, (_, dayIndex) => {
-      const date = addCalendarDays(weekStart, dayIndex);
-      const key = calendarDateKey(date);
-      const inMonth = date.getMonth() === monthNumber - 1;
-      const today = key === calendarDateKey(new Date());
-      const count = rows.filter((row) => calendarEventIncludes(row, date)).length;
-      return `<button class="calendar-day${inMonth ? '' : ' outside'}${today ? ' today' : ''}" data-calendar-day="${key}" style="grid-column:${dayIndex + 1}">
-        <strong>${date.getDate()}</strong>${count ? `<small>${count} item${count === 1 ? '' : 's'}</small>` : ''}
-      </button>`;
-    }).join('');
-    const weekEvents = rows.filter((row) => calendarDate(row.Start) <= weekEnd && calendarDate(row.End || row.Start) >= weekStart);
-    const trackEnds = [];
-    const eventBars = weekEvents.map((row) => {
-      const start = calendarDate(row.Start) < weekStart ? weekStart : calendarDate(row.Start);
-      const end = calendarDate(row.End || row.Start) > weekEnd ? weekEnd : calendarDate(row.End || row.Start);
-      let track = trackEnds.findIndex((trackEnd) => trackEnd < start);
-      if (track < 0) track = trackEnds.length;
-      trackEnds[track] = end;
-      if (track > 3) return '';
-      const startColumn = ((start.getDay() + 6) % 7) + 1;
-      const span = calendarDayNumber(end) - calendarDayNumber(start) + 1;
-      const typeClass = String(row.Type || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      return `<button class="calendar-span type-${escapeHtml(typeClass)}" data-calendar-event-detail="${escapeHtml(row.ID)}" style="grid-column:${startColumn} / span ${span};--event-track:${track}">${escapeHtml(row.Title)}</button>`;
-    }).join('');
-    return `<section class="calendar-week" style="--calendar-tracks:${Math.min(4, Math.max(1, trackEnds.length))}">${days}${eventBars}</section>`;
-  }).join('');
-  container.innerHTML = `<div class="calendar-month-title">${monthStart.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</div><div class="calendar-weekdays">${weekdayHead}</div>${weeks}`;
+  if (!window.FullCalendar) return renderCalendarFallback(container);
+  const events = calendarEvents();
+  if (!state.calendarInstance) {
+    state.calendarInstance = new FullCalendar.Calendar(container, {
+      initialView: document.querySelector('#calendarViewMode')?.value || 'dayGridMonth',
+      headerToolbar: { start: 'title', center: '', end: '' },
+      firstDay: 1,
+      allDaySlot: true,
+      allDayText: 'All day',
+      dayMaxEvents: true,
+      nowIndicator: true,
+      slotMinTime: '06:00:00',
+      slotMaxTime: '24:00:00',
+      slotDuration: '00:30:00',
+      height: 'auto',
+      events,
+      datesSet(info) {
+        const picker = document.querySelector('#calendarDatePicker');
+        if (picker) picker.value = calendarDateKey(info.view.currentStart);
+        const mode = document.querySelector('#calendarViewMode');
+        if (mode) mode.value = info.view.type;
+      },
+      dateClick(info) { showCalendarDay(info.dateStr.slice(0, 10)); },
+      eventClick(info) { showCalendarEvent(info.event.id); },
+    });
+    state.calendarInstance.render();
+  } else {
+    state.calendarInstance.removeAllEvents();
+    state.calendarInstance.addEventSource(events);
+    state.calendarInstance.updateSize();
+  }
 }
 
-function changeCalendarMonth(offset) {
-  const input = document.querySelector('#calendarMonth');
-  const [year, month] = (input.value || localMonthValue(new Date())).split('-').map(Number);
-  input.value = localMonthValue(new Date(year, month - 1 + offset, 1));
-  renderCalendar();
+function calendarEvents() {
+  const type = document.querySelector('#calendarTypeFilter')?.value || '';
+  return state.operations.calendar.filter((row) => !type || row.Type === type).map((row) => {
+    const allDay = calendarIsAllDay(row);
+    const typeClass = String(row.Type || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return {
+      id: row.ID,
+      title: row.Title,
+      start: row.Start,
+      end: allDay && row.End ? calendarDateKey(addCalendarDays(calendarDate(row.End), 1)) : row.End || undefined,
+      allDay,
+      classNames: [`calendar-event-${typeClass}`],
+      extendedProps: { type: row.Type, detail: row.Detail, location: row.Location },
+    };
+  });
+}
+
+function calendarIsAllDay(row) {
+  if (row.Type === 'LOA') return true;
+  return !String(row.Start || '').includes('T') && !String(row.Start || '').match(/\d{2}:\d{2}/);
+}
+
+function renderCalendarFallback(container) {
+  container.innerHTML = emptyState('The calendar component could not load. Refresh the page to try again.');
 }
 
 function localMonthValue(date) {
@@ -1007,12 +1042,13 @@ function renderHandoverBoard() {
   const query = document.querySelector('#handoverSearch')?.value.toLowerCase() || '';
   const status = document.querySelector('#handoverStatusFilter')?.value || '';
   const rows = state.operations.handovers.filter((row) => (!status || row.Status === status) && Object.values(row).some((value) => String(value || '').toLowerCase().includes(query)));
-  container.innerHTML = rows.length ? ['Critical', 'High', 'Normal', 'Low'].map((priority) => `<section class="handover-column"><h3>${priority}</h3>${rows.filter((row) => row.Priority === priority).map((row) => `<article class="handover-card status-${escapeHtml(row.Status.toLowerCase().replaceAll(' ', '-'))}"><span>${escapeHtml(row.Category)}</span><h4>${escapeHtml(row.Title)}</h4><p>${escapeHtml(row.Details)}</p><small>${escapeHtml(row.Owner || 'Unassigned')} ${row.DueAt ? `/ ${formatDisplayDateTime(row.DueAt)}` : ''}</small><button class="mini" data-edit-handover="${escapeHtml(row.HandoverID)}">Open</button></article>`).join('') || '<p class="empty">None.</p>'}</section>`).join('') : emptyState('No handover entries found.');
+  container.innerHTML = rows.length ? ['Critical', 'High', 'Normal', 'Low'].map((priority) => `<section class="handover-column"><h3>${priority}</h3>${rows.filter((row) => row.Priority === priority).map((row) => `<article class="handover-card status-${escapeHtml(row.Status.toLowerCase().replaceAll(' ', '-'))}"><span>${escapeHtml(row.Category)}</span><h4>${escapeHtml(row.Title)}</h4><p>${escapeHtml(row.Details)}</p><small>Owner: ${escapeHtml(row.Owner || 'Unassigned')}${row.Recipients ? ` / Sent to: ${escapeHtml(row.Recipients)}` : ''}${row.DueAt ? ` / ${formatDisplayDateTime(row.DueAt)}` : ''}</small><div class="row-actions"><button class="mini" data-edit-handover="${escapeHtml(row.HandoverID)}">Open</button><button class="mini danger" data-delete-handover="${escapeHtml(row.HandoverID)}">Delete</button></div></article>`).join('') || '<p class="empty">None.</p>'}</section>`).join('') : emptyState('No handover entries found.');
 }
 
 async function openHandoverEditor(record = {}) {
-  const owners = await loadSupervisorOptions();
-  openEditor(record.HandoverID ? 'Edit handover' : 'Add handover', [hiddenField('HandoverID', record.HandoverID || ''), field('Title', 'Title', 'text', false, record.Title || ''), selectField('Category', 'Category', ['Operational', 'Staffing', 'Training', 'Conduct', 'Welfare', 'System', 'Other'], record.Category || 'Operational'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], record.Priority || 'Normal'), supervisorSelectField('OwnerUserID', 'Owner', owners, record.OwnerUserID || state.user?.UserID || ''), field('Details', 'Details', 'textarea', true, record.Details || ''), field('DueAt', 'Due at', 'datetime-local', false, localDateTimeValue(record.DueAt)), selectField('Status', 'Status', ['Open', 'In Progress', 'Resolved'], record.Status || 'Open'), field('Resolution', 'Resolution', 'textarea', true, record.Resolution || '')], async (values) => api('saveHandover', values), operationsSaveOptions('Handover saved.', loadHandover));
+  const response = await apiCached('listUsers', {});
+  const users = response.ok ? response.rows || [] : [state.user].filter(Boolean);
+  openEditor(record.HandoverID ? 'Edit handover' : 'Add handover', [hiddenField('HandoverID', record.HandoverID || ''), field('Title', 'Title', 'text', false, record.Title || ''), selectField('Category', 'Category', ['Operational', 'Staffing', 'Training', 'Conduct', 'Welfare', 'System', 'Other'], record.Category || 'Operational'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], record.Priority || 'Normal'), supervisorSelectField('OwnerUserID', 'Owner', users, record.OwnerUserID || state.user?.UserID || ''), userCheckboxGroupField('RecipientUserIDs', 'Send to officers', users, record.RecipientUserIDs || ''), field('Details', 'Details', 'textarea', true, record.Details || ''), field('DueAt', 'Due at', 'datetime-local', false, localDateTimeValue(record.DueAt)), selectField('Status', 'Status', ['Open', 'In Progress', 'Resolved'], record.Status || 'Open'), field('Resolution', 'Resolution', 'textarea', true, record.Resolution || '')], async (values) => api('saveHandover', values), operationsSaveOptions('Handover saved.', loadHandover));
 }
 
 function operationsSaveOptions(message, loader) {
@@ -1102,6 +1138,8 @@ async function loadTasks() {
     ...(response.probationReviews || []),
     ...(response.performanceReviews || []),
     ...(response.restrictionReviews || []),
+    ...(response.accountRequests || []),
+    ...(response.retrospectiveShifts || []),
   ];
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
@@ -1111,6 +1149,8 @@ async function loadTasks() {
     stat('Course Requests', counts.pendingCourseBookings || 0),
     stat('Appeals', counts.pendingAppeals || 0),
     stat('Development Reviews', counts.developmentReviews || 0),
+    stat('Account Requests', counts.accountRequests || 0),
+    stat('Shift Requests', counts.retrospectiveShifts || 0),
     stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
@@ -1121,6 +1161,8 @@ async function loadTasks() {
 }
 
 function taskOpenAttr(row) {
+  if (row.TaskType === 'Account Request') return `data-open-account-request="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Retrospective Shift') return `data-open-retrospective-shift="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Probation Review') return `data-edit-probation="${escapeHtml(row.ProbationID)}"`;
   if (row.TaskType === 'Performance Review') return `data-task-performance-review="${escapeHtml(row.OfficerID)}"${row.ReviewID ? ` data-review-id="${escapeHtml(row.ReviewID)}"` : ''}`;
   if (row.TaskType === 'Restriction Review') return `data-edit-restriction="${escapeHtml(row.RestrictionID)}"`;
@@ -1183,11 +1225,14 @@ async function loadShift() {
   document.querySelector('#shiftSummary').innerHTML = [
     stat('Your Status', onDuty ? 'On Duty' : 'Off Duty'),
     stat('On Duty Now', teamResponse.active ? teamResponse.active.length : 0),
-    stat('Recent Shifts', teamResponse.recent ? teamResponse.recent.length : 0),
+    stat('Your Shifts', teamResponse.myStats?.Shifts || 0),
+    stat('Your Duration', teamResponse.myStats?.Duration || '0h 0m'),
   ].join('');
 
   renderTable('#activeShiftsTable', teamResponse.active || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'StartedAt']);
-  renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Duration', 'Summary']);
+  renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Duration', 'Summary'], {
+    actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-shift="${escapeHtml(row.ShiftID)}">Edit</button>` : '',
+  });
   renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'Shifts', 'Duration', 'LastShift', 'ActivityFlag']);
   applyPermissions();
 }
@@ -1975,6 +2020,65 @@ function openTransferReviewEditor(record) {
   });
 }
 
+function openRetrospectiveShiftEditor() {
+  openEditor('Request retrospective shift', [
+    field('StartedAt', 'Shift started', 'datetime-local'),
+    field('EndedAt', 'Shift ended', 'datetime-local'),
+    field('Summary', 'Shift summary', 'textarea', true),
+    field('Reason', 'Why was the shift not logged?', 'textarea', true),
+  ], async (values) => api('requestRetrospectiveShift', values), {
+    successMessage: 'Retrospective shift sent to your supervisor.',
+    onSuccess: async () => { invalidateCache('tasks'); invalidateCache('teamShifts'); await loadShift(); },
+  });
+}
+
+function openRetrospectiveShiftReview(record) {
+  openEditor('Review retrospective shift', [
+    hiddenField('RequestID', record.RequestID),
+    field('Officer', 'Officer', 'text', false, record.Officer),
+    field('StartedAt', 'Shift started', 'datetime-local', false, localDateTimeValue(record.StartedAt)),
+    field('EndedAt', 'Shift ended', 'datetime-local', false, localDateTimeValue(record.EndedAt)),
+    field('Summary', 'Shift summary', 'textarea', true, record.Summary),
+    field('Reason', 'Request reason', 'textarea', true, record.Reason),
+    selectField('Status', 'Decision', ['Approved', 'Denied'], 'Approved'),
+    field('ReviewReason', 'Decision notes', 'textarea', true, record.ReviewReason),
+  ], async (values) => api('reviewRetrospectiveShift', values), {
+    successMessage: 'Retrospective shift reviewed.',
+    onSuccess: async () => { invalidateCache('tasks'); invalidateCache('teamShifts'); await loadTasks(); },
+  });
+}
+
+function openAccountRequestReview(record) {
+  openEditor('Review account request', [
+    hiddenField('RequestID', record.RequestID),
+    field('RobloxUsername', 'Roblox username', 'text', false, record.RobloxUsername),
+    selectField('Rank', 'Rank', OFFICER_RANKS, record.Rank),
+    field('DiscordID', 'Discord user ID', 'text', false, record.DiscordID),
+    selectField('Status', 'Decision', ['Approved', 'Denied'], 'Approved'),
+    field('ReviewNotes', 'Decision notes', 'textarea', true, record.ReviewNotes),
+  ], async (values) => supabaseInvokeAdminUsers(Object.assign({ action: 'reviewAccountRequest' }, values)), {
+    successMessage: 'Account request reviewed.',
+    onSuccess: async (response) => {
+      invalidateCache('tasks');
+      await loadTasks();
+      if (response?.temporaryPassword) showInfo('Account created', `<p>The account was created and its temporary credentials were sent by Discord.</p>`);
+    },
+  });
+}
+
+function openShiftEditor(record) {
+  openEditor('Edit shift', [
+    hiddenField('ShiftID', record.ShiftID),
+    field('Officer', 'Officer', 'text', false, record.RobloxUsername),
+    field('StartedAt', 'Started at', 'datetime-local', false, localDateTimeValue(record.StartedAt)),
+    field('EndedAt', 'Ended at', 'datetime-local', false, localDateTimeValue(record.EndedAt)),
+    field('Summary', 'Summary', 'textarea', true, record.Summary),
+  ], async (values) => api('saveShift', values), {
+    successMessage: 'Shift updated.',
+    onSuccess: async () => { invalidateCache('teamShifts'); await loadShift(); },
+  });
+}
+
 async function startShift() {
   const response = await api('startShift', {});
   if (!response.ok) {
@@ -2281,6 +2385,29 @@ async function handleDocumentClick(event) {
   if (editHandover) {
     const record = state.operations.handovers.find((row) => row.HandoverID === editHandover.dataset.editHandover);
     if (record) openHandoverEditor(record);
+    return;
+  }
+  const editShift = event.target.closest('[data-edit-shift]');
+  if (editShift) {
+    const record = state.shifts.find((row) => row.ShiftID === editShift.dataset.editShift);
+    if (record) openShiftEditor(record);
+    return;
+  }
+  const retrospectiveShift = event.target.closest('[data-open-retrospective-shift]');
+  if (retrospectiveShift) {
+    const record = state.tasks.find((row) => row.RequestID === retrospectiveShift.dataset.openRetrospectiveShift);
+    if (record) openRetrospectiveShiftReview(record);
+    return;
+  }
+  const accountRequest = event.target.closest('[data-open-account-request]');
+  if (accountRequest) {
+    const record = state.tasks.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
+    if (record) openAccountRequestReview(record);
+    return;
+  }
+  const deleteHandover = event.target.closest('[data-delete-handover]');
+  if (deleteHandover) {
+    await confirmDelete('Delete this handover?', 'deleteHandover', { HandoverID: deleteHandover.dataset.deleteHandover }, loadHandover);
     return;
   }
   if (event.target.closest('[data-export-report]')) {
@@ -3262,7 +3389,8 @@ function openEditor(title, fields, onSubmit, options = {}) {
 
     elements.editorDialog.close();
     invalidateCache();
-    await showView(state.activeView);
+    if (options.onSuccess) await options.onSuccess(response);
+    else await showView(state.activeView);
   };
 }
 
@@ -3460,6 +3588,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       commandReports: supabaseCommandReports,
       listHandovers: supabaseListHandovers,
       saveHandover: supabaseSaveHandover,
+      deleteHandover: supabaseDeleteHandover,
       tasks: supabaseTasks,
       supervisorDashboard: supabaseSupervisorDashboard,
       listOfficers: supabaseListOfficers,
@@ -3521,6 +3650,10 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       startShift: supabaseStartShift,
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
+      requestRetrospectiveShift: supabaseRequestRetrospectiveShift,
+      reviewRetrospectiveShift: supabaseReviewRetrospectiveShift,
+      saveShift: supabaseSaveShift,
+      requestAccount: supabaseRequestAccount,
     };
 
     if (!handlers[action]) {
@@ -3691,7 +3824,7 @@ async function supabaseMyActions() {
   reviews.filter((row) => row.next_review_date && inDays(row.next_review_date) <= 30).forEach((row) => rows.push({ Group: 'Due Soon', Priority: 'High', Type: 'Review', Title: 'Performance review due', Detail: `Due ${formatDisplayDate(row.next_review_date)}`, DueDate: row.next_review_date, View: 'myProfile' }));
   probation.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Information', Priority: 'Normal', Type: 'Probation', Title: `${row.stage} probation`, Detail: `${row.progress}% complete`, DueDate: row.target_date, View: 'myProfile' }));
   restrictions.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Urgent', Priority: 'High', Type: 'Restriction', Title: row.restriction_type, Detail: row.details || 'Active restriction on your officer record.', DueDate: row.ends_on, View: 'myProfile' }));
-  handovers.filter((row) => row.status !== 'Resolved' && (row.owner_user_id === me.user.UserID || !row.owner_user_id)).forEach((row) => rows.push({ Group: row.priority === 'Critical' ? 'Urgent' : 'Due Soon', Priority: row.priority, Type: 'Handover', Title: row.title, Detail: row.details, DueDate: row.due_at, View: 'handover' }));
+  handovers.filter((row) => row.status !== 'Resolved' && (row.owner_user_id === me.user.UserID || (row.recipient_user_ids || []).includes(me.user.UserID) || !row.owner_user_id)).forEach((row) => rows.push({ Group: row.priority === 'Critical' ? 'Urgent' : 'Due Soon', Priority: row.priority, Type: 'Handover', Title: row.title, Detail: row.details, DueDate: row.due_at, View: 'handover' }));
   return { ok: true, rows };
 }
 
@@ -3795,18 +3928,27 @@ async function supabaseCommandReports() {
 
 async function supabaseListHandovers() {
   const [rows, profiles] = await Promise.all([supabaseOptionalAll('handover_entries'), supabaseAll('profiles')]);
-  return { ok: true, rows: rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((row) => ({ HandoverID: row.handover_id, Title: row.title, Category: row.category, Priority: row.priority, Details: row.details, OwnerUserID: row.owner_user_id, Owner: profiles.find((profile) => profile.user_id === row.owner_user_id)?.roblox_username || '', DueAt: row.due_at, Status: row.status, Resolution: row.resolution, CreatedAt: row.created_at, UpdatedAt: row.updated_at })) };
+  return { ok: true, rows: rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((row) => ({ HandoverID: row.handover_id, Title: row.title, Category: row.category, Priority: row.priority, Details: row.details, OwnerUserID: row.owner_user_id, Owner: profiles.find((profile) => profile.user_id === row.owner_user_id)?.roblox_username || '', RecipientUserIDs: row.recipient_user_ids || [], Recipients: (row.recipient_user_ids || []).map((id) => profiles.find((profile) => profile.user_id === id)?.roblox_username).filter(Boolean).join(', '), DueAt: row.due_at, Status: row.status, Resolution: row.resolution, CreatedAt: row.created_at, UpdatedAt: row.updated_at })) };
 }
 
 async function supabaseSaveHandover(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
-  const record = { title: data.Title, category: data.Category, priority: data.Priority, details: data.Details, due_at: data.DueAt || null, status: data.Status, resolution: data.Resolution || '', owner_user_id: data.OwnerUserID || me.user.UserID, created_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const recipients = splitTags(data.RecipientUserIDs || '');
+  const record = { title: data.Title, category: data.Category, priority: data.Priority, details: data.Details, due_at: data.DueAt || null, status: data.Status, resolution: data.Resolution || '', owner_user_id: data.OwnerUserID || me.user.UserID, recipient_user_ids: recipients, created_by: me.user.UserID, updated_at: new Date().toISOString() };
   const query = data.HandoverID ? supabaseClient.from('handover_entries').update(record).eq('handover_id', data.HandoverID) : supabaseClient.from('handover_entries').insert(record);
   const { error } = await query;
   if (error) return { ok: false, error: error.message };
   const owner = record.owner_user_id ? await supabaseById('profiles', 'user_id', record.owner_user_id) : null;
   if (owner && owner.user_id !== me.user.UserID) await supabaseNotify(owner.member_id, 'Command handover assigned', `${data.Priority}: ${data.Title}. Due: ${data.DueAt ? formatDisplayDateTime(data.DueAt) : 'No deadline'}.`, me.user.UserID);
+  for (const userId of recipients.filter((id) => id !== me.user.UserID && id !== owner?.user_id)) {
+    const recipient = await supabaseById('profiles', 'user_id', userId);
+    if (recipient) await supabaseNotify(recipient.member_id, 'Handover sent to you', `${data.Priority}: ${data.Title}.`, me.user.UserID);
+  }
   return { ok: true };
+}
+
+async function supabaseDeleteHandover(data) {
+  return supabaseDeleteOperationsRecord('handover_entries', 'handover_id', data.HandoverID);
 }
 
 async function supabaseListOfficers() {
@@ -4418,7 +4560,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -4430,6 +4572,8 @@ async function supabaseTasks() {
     supabaseOptionalAll('probation_records'),
     supabaseOptionalAll('performance_reviews'),
     supabaseOptionalAll('officer_restrictions'),
+    can('REVIEW_ACCOUNT_REQUESTS') ? supabaseOptionalAll('account_requests') : [],
+    supabaseOptionalAll('retrospective_shift_requests'),
   ]);
   const decorate = (row, type) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
@@ -4501,7 +4645,12 @@ async function supabaseTasks() {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
     return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true };
   });
-  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews];
+  const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
+  const retrospectiveShifts = (retrospectiveRows || []).filter((row) => row.status === 'Pending').map((row) => {
+    const task = decorate(row, 'Retrospective Shift');
+    return Object.assign(task, { StartedAt: row.started_at, EndedAt: row.ended_at, Summary: row.summary || '', Reason: row.reason || '' });
+  }).filter((row) => row.MySupervisee || can('FULL_ACCESS'));
+  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...accountRequests, ...retrospectiveShifts];
   return {
     ok: true,
     pendingLoa,
@@ -4512,6 +4661,8 @@ async function supabaseTasks() {
     probationReviews,
     performanceReviews,
     restrictionReviews,
+    accountRequests,
+    retrospectiveShifts,
     counts: {
       pendingLoa: pendingLoa.length,
       pendingTransfers: pendingTransfers.length,
@@ -4519,6 +4670,8 @@ async function supabaseTasks() {
       pendingCourseBookings: pendingCourseBookings.length,
       pendingAppeals: pendingAppeals.length,
       developmentReviews: probationReviews.length + performanceReviews.length + restrictionReviews.length,
+      accountRequests: accountRequests.length,
+      retrospectiveShifts: retrospectiveShifts.length,
       mySuperviseeTasks: all.filter((row) => row.MySupervisee).length,
       total: all.length,
     },
@@ -4784,6 +4937,22 @@ async function supabaseListUsers() {
   return error ? { ok: false, error: error.message } : { ok: true, rows: (data || []).map(supabaseUser) };
 }
 
+async function supabaseRequestAccount(data) {
+  const username = String(data.RobloxUsername || '').trim();
+  const discordId = String(data.DiscordID || '').trim();
+  if (!username || !OFFICER_RANKS.includes(data.Rank || '') || !/^\d{15,22}$/.test(discordId)) {
+    return { ok: false, error: 'Enter a valid Roblox username, rank, and Discord user ID.' };
+  }
+  const { error } = await supabaseClient.from('account_requests').insert({
+    roblox_username: username,
+    rank: data.Rank,
+    discord_id: discordId,
+    status: 'Pending',
+  });
+  if (error?.code === '23505') return { ok: false, error: 'A pending request already exists for that Roblox username.' };
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
 async function supabaseSaveUser(data) {
   const response = await supabaseInvokeAdminUsers(Object.assign({ action: 'saveUser' }, data));
   return response;
@@ -4976,6 +5145,9 @@ async function supabaseTeamShifts(data = {}) {
       ActivityFlag: onLoa ? 'On LOA' : total > 0 ? 'Active' : 'No activity',
     };
   });
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const ownOfficer = (officers || []).find((officer) => officer.member_id === profile?.member_id);
+  const ownShifts = ownOfficer ? filtered.filter((shift) => shift.officer_id === ownOfficer.officer_id) : [];
   return {
     ok: true,
     active,
@@ -4985,7 +5157,47 @@ async function supabaseTeamShifts(data = {}) {
       return converted;
     }),
     metrics,
+    myStats: { Shifts: ownShifts.length, Duration: durationText(ownShifts.reduce((sum, shift) => sum + shiftMs(shift), 0)) },
   };
+}
+
+async function supabaseRequestRetrospectiveShift(data) {
+  const start = new Date(data.StartedAt);
+  const end = new Date(data.EndedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return { ok: false, error: 'The shift end must be after its start.' };
+  if (end > new Date()) return { ok: false, error: 'A retrospective shift cannot end in the future.' };
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: false, error: 'No linked officer profile.' };
+  const { error } = await supabaseClient.from('retrospective_shift_requests').insert({ officer_id: officer.officer_id, started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '', reason: data.Reason || '', status: 'Pending' });
+  if (error) return { ok: false, error: error.message };
+  const supervisor = officer.supervisor_user_id ? await supabaseById('profiles', 'user_id', officer.supervisor_user_id) : null;
+  if (supervisor) await supabaseNotify(supervisor.member_id, 'Retrospective shift requested', `${officer.roblox_username} submitted a shift for ${formatDisplayDateTime(start.toISOString())}.`, state.user.UserID);
+  return { ok: true };
+}
+
+async function supabaseReviewRetrospectiveShift(data) {
+  const request = await supabaseById('retrospective_shift_requests', 'request_id', data.RequestID);
+  if (!request || request.status !== 'Pending') return { ok: false, error: 'This request is no longer pending.' };
+  const start = new Date(data.StartedAt);
+  const end = new Date(data.EndedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return { ok: false, error: 'The shift end must be after its start.' };
+  const officer = await supabaseById('officers', 'officer_id', request.officer_id);
+  if (data.Status === 'Approved') {
+    const { error: shiftError } = await supabaseClient.from('shift_logs').insert({ officer_id: officer.officer_id, member_id: officer.member_id, roblox_username: officer.roblox_username, callsign: officer.callsign || '', rank: officer.rank || '', started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '', status: 'Completed' });
+    if (shiftError) return { ok: false, error: shiftError.message };
+  }
+  const { error } = await supabaseClient.from('retrospective_shift_requests').update({ status: data.Status, review_reason: data.ReviewReason || '', reviewed_by: state.user.UserID, reviewed_at: new Date().toISOString(), started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '' }).eq('request_id', data.RequestID);
+  if (!error) await supabaseNotify(officer.member_id, `Retrospective shift ${String(data.Status).toLowerCase()}`, data.ReviewReason || 'Your retrospective shift request has been reviewed.', state.user.UserID);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveShift(data) {
+  const start = new Date(data.StartedAt);
+  const end = new Date(data.EndedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return { ok: false, error: 'The shift end must be after its start.' };
+  const { error } = await supabaseClient.from('shift_logs').update({ started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '', status: 'Completed', updated_at: new Date().toISOString() }).eq('shift_id', data.ShiftID);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 async function supabaseVisibleDocuments() {
@@ -5569,14 +5781,15 @@ function filterShiftsByQuery(shifts, query) {
   const start = query.StartDate ? new Date(query.StartDate) : query.Period === 'month' ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const end = query.EndDate ? new Date(`${query.EndDate}T23:59:59`) : now;
   return shifts.filter((shift) => {
-    const date = new Date(shift.started_at);
+    const date = new Date(shift.started_at || shift.StartedAt);
     return !Number.isNaN(date.getTime()) && date >= start && date <= end;
   });
 }
 
 function shiftMs(shift) {
-  const start = new Date(shift.started_at);
-  const end = shift.ended_at ? new Date(shift.ended_at) : new Date();
+  const start = new Date(shift.started_at || shift.StartedAt);
+  const endedAt = shift.ended_at || shift.EndedAt;
+  const end = endedAt ? new Date(endedAt) : new Date();
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
   return Math.max(0, end.getTime() - start.getTime());
 }
