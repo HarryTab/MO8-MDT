@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-05-09-1';
+const APP_VERSION = '2026-06-23-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -70,6 +70,7 @@ const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
 const DEVELOPMENT_STATUSES = ['Open', 'In Progress', 'Completed', 'Paused'];
 const DASHBOARD_WIDGETS = [
+  ['myActions', 'My Actions'],
   ['activeLoa', 'Active LOA Status'],
   ['pendingLoa', 'Pending LOA'],
   ['announcements', 'Notice Board'],
@@ -120,6 +121,7 @@ const state = {
   selectedBulkOfficerIds: [],
   selectedCourseId: '',
   dashboardInteraction: null,
+  operations: { actions: [], search: [], savedViews: [], calendar: [], probation: [], reviews: [], restrictions: [], handovers: [] },
 };
 
 const elements = {
@@ -246,6 +248,19 @@ document.querySelector('#endShiftButton').addEventListener('click', openEndShift
 document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
+document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
+document.querySelector('#savedViewSelect')?.addEventListener('change', applySavedView);
+document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
+document.querySelector('#calendarMonth')?.addEventListener('change', renderCalendar);
+document.querySelector('#calendarTypeFilter')?.addEventListener('change', renderCalendar);
+document.querySelector('#newCalendarEventButton')?.addEventListener('click', () => openCalendarEventEditor());
+document.querySelector('#developmentSearch')?.addEventListener('input', renderDevelopmentTables);
+document.querySelector('#newProbationButton')?.addEventListener('click', () => openProbationEditor());
+document.querySelector('#newReviewButton')?.addEventListener('click', () => openPerformanceReviewEditor());
+document.querySelector('#newRestrictionButton')?.addEventListener('click', () => openRestrictionEditor());
+document.querySelector('#newHandoverButton')?.addEventListener('click', () => openHandoverEditor());
+document.querySelector('#handoverSearch')?.addEventListener('input', renderHandoverBoard);
+document.querySelector('#handoverStatusFilter')?.addEventListener('change', renderHandoverBoard);
 
 async function boot() {
   clearCacheForNewVersion();
@@ -334,6 +349,7 @@ function bootTasks() {
   const tasks = [
     { label: 'Loading operator profile', run: () => apiCached('myProfile', {}) },
     { label: 'Checking notifications', run: preloadNotifications },
+    { label: 'Checking personal actions', run: () => apiCached('myActions', {}) },
   ];
   if (can('VIEW_DASHBOARD')) tasks.push({ label: 'Preparing dashboard widgets', run: () => apiCached('dashboard', {}) });
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
@@ -386,7 +402,11 @@ function backgroundPreload() {
     can('VIEW_LOA') ? ['listLoa', {}] : null,
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
     ['teamShifts', { Period: 'week' }],
+    ['operationalCalendar', {}],
+    ['savedViews', {}],
     can('VIEW_TASKS') ? ['supervisorDashboard', {}] : null,
+    can('VIEW_TASKS') ? ['developmentRecords', {}] : null,
+    can('VIEW_TASKS') ? ['listHandovers', {}] : null,
   ].filter(Boolean);
 
   window.setTimeout(() => {
@@ -472,12 +492,16 @@ function defaultView() {
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
+    myActions: ['My Actions', 'Items requiring your attention'],
+    globalSearch: ['Search', 'Search across the MDT and open saved views'],
+    calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
     shift: ['Shift Log', 'Duty status and team activity'],
     tasks: ['Tasks', 'Outstanding approvals and command actions'],
     supervisor: ['Supervisor', 'Assigned officers, check-ins, development plans and workload'],
     officers: ['Officers', 'MO8 officer database'],
     officerProfile: ['Officer Profile', 'Individual record and linked history'],
+    development: ['Officer Development', 'Probation, performance and temporary restrictions'],
     rankChanges: ['Rank Change Log', 'Promotion and rank movement history'],
     training: ['Training', 'Training standards and status'],
     courses: ['Training Courses', 'Course bookings, waitlists and trainer outcomes'],
@@ -487,6 +511,8 @@ async function showView(view) {
     announcements: ['Notice Board', 'Operational updates and command notices'],
     users: ['Users', 'Sergeant+ login accounts'],
     permissions: ['Permissions', 'Role defaults and individual overrides'],
+    reports: ['Reports', 'Command performance and compliance reporting'],
+    handover: ['Command Handover', 'Outstanding operational matters and ownership'],
     audit: ['Audit Log', 'System activity trail'],
   };
 
@@ -504,12 +530,16 @@ async function showView(view) {
 
   const loaders = {
     dashboard: loadDashboard,
+    myActions: loadMyActions,
+    globalSearch: loadGlobalSearch,
+    calendar: loadCalendar,
     myProfile: loadMyProfile,
     shift: loadShift,
     tasks: loadTasks,
     supervisor: loadSupervisor,
     officers: loadOfficers,
     officerProfile: () => loadOfficerProfile(state.selectedOfficerId),
+    development: loadDevelopment,
     rankChanges: loadRankChanges,
     training: loadTraining,
     courses: loadCourses,
@@ -519,6 +549,8 @@ async function showView(view) {
     announcements: loadAnnouncements,
     users: loadUsers,
     permissions: loadPermissions,
+    reports: loadReports,
+    handover: loadHandover,
     audit: loadAudit,
   };
 
@@ -531,6 +563,25 @@ function renderViewLoading(view) {
   if (!section || isViewCached(view)) return;
   if (view === 'dashboard') {
     elements.dashboardView.innerHTML = loadingBlock('Loading dashboard widgets...');
+    return;
+  }
+  if (view === 'globalSearch') {
+    document.querySelector('#globalSearchResults').innerHTML = loadingBlock('Preparing global search...');
+    return;
+  }
+  if (view === 'calendar') {
+    document.querySelector('#calendarGrid').innerHTML = loadingBlock('Loading operational calendar...');
+    return;
+  }
+  if (view === 'development') {
+    document.querySelector('#developmentSummary').innerHTML = '';
+    ['#probationTable', '#performanceReviewsTable', '#restrictionsTable'].forEach((selector) => {
+      document.querySelector(selector).innerHTML = `<tbody><tr><td>${loadingBlock('Loading development records...')}</td></tr></tbody>`;
+    });
+    return;
+  }
+  if (view === 'handover') {
+    document.querySelector('#handoverBoard').innerHTML = loadingBlock('Loading command handover...');
     return;
   }
   if (view === 'tasks') document.querySelector('#tasksSummary').innerHTML = '';
@@ -594,11 +645,15 @@ function isViewCached(view) {
 function loaderActionForView(view) {
   const actions = {
     dashboard: 'dashboard',
+    myActions: 'myActions',
+    globalSearch: 'savedViews',
+    calendar: 'operationalCalendar',
     myProfile: 'myProfile',
     shift: 'teamShifts',
     tasks: 'tasks',
     supervisor: 'supervisorDashboard',
     officers: 'listOfficers',
+    development: 'developmentRecords',
     rankChanges: 'rankChangeLog',
     training: 'listTraining',
     courses: 'listTrainingCourses',
@@ -608,6 +663,8 @@ function loaderActionForView(view) {
     announcements: 'listAnnouncements',
     users: 'listUsers',
     permissions: 'permissionsConfig',
+    reports: 'commandReports',
+    handover: 'listHandovers',
     audit: 'auditLog',
   };
   return actions[view] || view;
@@ -628,6 +685,7 @@ async function loadDashboard() {
   const activeWidgets = response.widgets || DASHBOARD_WIDGETS.map(([key]) => key);
   const layout = getDashboardLayout(activeWidgets);
   const widgetBodies = {
+    myActions: ['My Actions', (response.myActions || []).length ? (response.myActions || []).slice(0, 6).map(actionCard).join('') : '<p class="empty">No outstanding actions.</p>'],
     activeLoa: ['Active LOA Status', dashboardRows(response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status'])],
     pendingLoa: ['Pending LOA', dashboardRows(response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate'])],
     announcements: ['Notice Board', announcementRows(response.announcements || [])],
@@ -667,6 +725,218 @@ async function loadDashboard() {
       ${renderedWidgets || emptyState('No dashboard widgets selected.')}
     </section>
   `;
+}
+
+async function loadMyActions() {
+  await showViewOnly('myActions');
+  const container = document.querySelector('#myActionsView');
+  const response = await apiCached('myActions', {});
+  if (!response.ok) return renderError(container, response.error);
+  state.operations.actions = response.rows || [];
+  const groups = ['Urgent', 'Due Soon', 'Upcoming', 'Information'];
+  container.innerHTML = `
+    <div class="section-head"><h2>My Actions</h2><span class="pill ${response.rows?.length ? 'warning' : 'success'}">${escapeHtml(response.rows?.length || 0)} items</span></div>
+    <div class="action-board">
+      ${groups.map((group) => {
+    const rows = state.operations.actions.filter((row) => row.Group === group);
+    return `<section class="action-column"><h3>${escapeHtml(group)} <span>${rows.length}</span></h3>${rows.length ? rows.map(actionCard).join('') : '<p class="empty">Nothing here.</p>'}</section>`;
+  }).join('')}
+    </div>`;
+}
+
+function actionCard(row) {
+  return `<article class="action-card priority-${escapeHtml(String(row.Priority || 'normal').toLowerCase())}" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}>
+    <span>${escapeHtml(row.Type || 'Action')}</span><strong>${escapeHtml(row.Title || '')}</strong>
+    <p>${escapeHtml(row.Detail || '')}</p><small>${row.DueDate ? formatDisplayDate(row.DueDate) : ''}</small>
+  </article>`;
+}
+
+async function loadGlobalSearch() {
+  await showViewOnly('globalSearch');
+  const response = await apiCached('savedViews', {});
+  state.operations.savedViews = response.rows || [];
+  renderSavedViewOptions();
+  await runGlobalSearch();
+}
+
+async function runGlobalSearch() {
+  const query = document.querySelector('#globalSearchInput')?.value.trim() || '';
+  const container = document.querySelector('#globalSearchResults');
+  if (!container) return;
+  container.innerHTML = loadingBlock('Searching the MDT...');
+  const response = await api('globalSearch', { Query: query });
+  if (!response.ok) return renderError(container, response.error);
+  state.operations.search = response.rows || [];
+  const grouped = Object.groupBy ? Object.groupBy(state.operations.search, (row) => row.Type) : state.operations.search.reduce((result, row) => {
+    (result[row.Type] ||= []).push(row); return result;
+  }, {});
+  container.innerHTML = state.operations.search.length ? Object.entries(grouped).map(([type, rows]) => `
+    <section class="search-result-group"><h3>${escapeHtml(type)}</h3><div class="search-result-list">${rows.map((row) => `
+      <article class="search-result" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}${row.OfficerID ? ` data-open-officer="${escapeHtml(row.OfficerID)}"` : ''}>
+        <strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Detail || '')}</p><span>${escapeHtml(row.Meta || '')}</span>
+      </article>`).join('')}</div></section>`).join('') : emptyState(query ? 'No matching records found.' : 'Enter a search term or select a saved view.');
+}
+
+function renderSavedViewOptions() {
+  const select = document.querySelector('#savedViewSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Saved views</option>' + state.operations.savedViews.map((row) => `<option value="${escapeHtml(row.ViewID)}">${escapeHtml(row.Name)}</option>`).join('');
+}
+
+function applySavedView(event) {
+  const saved = state.operations.savedViews.find((row) => row.ViewID === event.target.value);
+  if (!saved) return;
+  document.querySelector('#globalSearchInput').value = saved.Query || '';
+  runGlobalSearch();
+}
+
+function openSavedViewEditor() {
+  openEditor('Save search view', [field('Name', 'View name'), field('Query', 'Search query', 'text', false, document.querySelector('#globalSearchInput').value)], async (values) => api('saveSavedView', values), {
+    successMessage: 'Saved view created.', onSuccess: async () => { invalidateCache('savedViews'); await loadGlobalSearch(); },
+  });
+}
+
+async function loadCalendar() {
+  await showViewOnly('calendar');
+  const month = document.querySelector('#calendarMonth');
+  if (month && !month.value) month.value = new Date().toISOString().slice(0, 7);
+  const response = await apiCached('operationalCalendar', {});
+  if (!response.ok) return renderError(document.querySelector('#calendarGrid'), response.error);
+  state.operations.calendar = response.rows || [];
+  const types = [...new Set(state.operations.calendar.map((row) => row.Type).filter(Boolean))];
+  document.querySelector('#calendarTypeFilter').innerHTML = '<option value="">All event types</option>' + types.map((type) => `<option>${escapeHtml(type)}</option>`).join('');
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const container = document.querySelector('#calendarGrid');
+  if (!container) return;
+  const month = document.querySelector('#calendarMonth').value;
+  const type = document.querySelector('#calendarTypeFilter').value;
+  const rows = state.operations.calendar.filter((row) => (!month || String(row.Start).slice(0, 7) === month) && (!type || row.Type === type));
+  container.innerHTML = rows.length ? rows.sort((a, b) => String(a.Start).localeCompare(String(b.Start))).map((row) => `
+    <article class="calendar-event type-${escapeHtml(String(row.Type).toLowerCase().replaceAll(' ', '-'))}">
+      <time><strong>${escapeHtml(formatDisplayDate(row.Start))}</strong><span>${escapeHtml(formatDisplayDateTime(row.Start).split(' ')[1] || '')}</span></time>
+      <div><span>${escapeHtml(row.Type)}</span><h3>${escapeHtml(row.Title)}</h3><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml(row.Location || '')}</small></div>
+      ${row.Editable ? `<button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button>` : ''}
+    </article>`).join('') : emptyState('No events in this period.');
+}
+
+function openCalendarEventEditor(record = {}) {
+  openEditor(record.ID ? 'Edit calendar event' : 'Add calendar event', [
+    hiddenField('EventID', record.ID || ''), field('Title', 'Title', 'text', false, record.Title || ''),
+    selectField('EventType', 'Type', ['Operational', 'Meeting', 'Deadline', 'Training', 'Other'], record.Type || 'Operational'),
+    field('StartsAt', 'Starts at', 'datetime-local', false, localDateTimeValue(record.Start)), field('EndsAt', 'Ends at', 'datetime-local', false, localDateTimeValue(record.End)),
+    field('Location', 'Location', 'text', false, record.Location || ''), field('Details', 'Details', 'textarea', true, record.Detail || ''),
+  ], async (values) => api('saveCalendarEvent', values), { successMessage: 'Calendar event saved.', onSuccess: async () => { invalidateCache('operationalCalendar'); await loadCalendar(); } });
+}
+
+async function loadDevelopment() {
+  await showViewOnly('development');
+  const response = await apiCached('developmentRecords', {});
+  if (!response.ok) return renderError(document.querySelector('#developmentSummary'), response.error);
+  state.officers = response.officers || state.officers;
+  state.operations.probation = response.probation || [];
+  state.operations.reviews = response.reviews || [];
+  state.operations.restrictions = response.restrictions || [];
+  document.querySelector('#developmentSummary').innerHTML = [
+    stat('Active Probation', state.operations.probation.filter((row) => row.Status === 'Active').length),
+    stat('Reviews Due', state.operations.reviews.filter((row) => row.NextReviewDate && new Date(row.NextReviewDate) <= new Date()).length),
+    stat('Active Restrictions', state.operations.restrictions.filter((row) => row.Status === 'Active').length),
+  ].join('');
+  renderDevelopmentTables();
+}
+
+function renderDevelopmentTables() {
+  const query = document.querySelector('#developmentSearch')?.value.toLowerCase() || '';
+  const filter = (rows) => rows.filter((row) => Object.values(row).some((value) => String(value || '').toLowerCase().includes(query)));
+  renderTable('#probationTable', filter(state.operations.probation), ['Officer', 'Rank', 'Stage', 'Status', 'Progress', 'TargetDate', 'Reviewer'], { actions: (row) => `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button>` });
+  renderTable('#performanceReviewsTable', filter(state.operations.reviews), ['Officer', 'ReviewDate', 'Rating', 'Reviewer', 'NextReviewDate', 'Objectives'], { actions: (row) => `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button>` });
+  renderTable('#restrictionsTable', filter(state.operations.restrictions), ['Officer', 'RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button>` });
+}
+
+function officerRecordField(selected = '') {
+  const options = state.officers.map((row) => `<option value="${escapeHtml(row.OfficerID)}"${row.OfficerID === selected ? ' selected' : ''}>${escapeHtml(row.RobloxUsername)} - ${escapeHtml(row.Rank)}</option>`).join('');
+  return { html: `<label>Officer<select name="OfficerID" required><option value="">Select officer</option>${options}</select></label>` };
+}
+
+function openProbationEditor(record = {}) {
+  openEditor(record.ProbationID ? 'Edit probation record' : 'Add probation record', [hiddenField('ProbationID', record.ProbationID || ''), officerRecordField(record.OfficerID),
+    selectField('Stage', 'Stage', ['Initial', 'Foundation', 'Independent Patrol', 'Final Review'], record.Stage || 'Initial'), selectField('Status', 'Status', ['Active', 'Paused', 'Completed', 'Extended'], record.Status || 'Active'),
+    field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)), field('TargetDate', 'Target date', 'date', false, dateInputValue(record.TargetDate)), field('Progress', 'Progress %', 'number', false, record.Progress || 0),
+    field('Requirements', 'Requirements / sign-offs', 'textarea', true, record.Requirements || ''), field('Notes', 'Notes', 'textarea', true, record.Notes || ''),
+  ], async (values) => api('saveProbation', values), operationsSaveOptions('Probation record saved.', loadDevelopment));
+}
+
+function openPerformanceReviewEditor(record = {}) {
+  openEditor(record.ReviewID ? 'Edit performance review' : 'Add performance review', [hiddenField('ReviewID', record.ReviewID || ''), officerRecordField(record.OfficerID),
+    field('ReviewDate', 'Review date', 'date', false, dateInputValue(record.ReviewDate) || new Date().toISOString().slice(0, 10)), field('PeriodStart', 'Period start', 'date', false, dateInputValue(record.PeriodStart)), field('PeriodEnd', 'Period end', 'date', false, dateInputValue(record.PeriodEnd)),
+    selectField('Rating', 'Rating', ['Exceeds Expectations', 'Meets Expectations', 'Development Required', 'Unsatisfactory'], record.Rating || 'Meets Expectations'),
+    field('ActivitySummary', 'Activity summary', 'textarea', true, record.ActivitySummary || ''), field('Strengths', 'Strengths', 'textarea', true, record.Strengths || ''), field('Improvements', 'Improvements', 'textarea', true, record.Improvements || ''), field('Objectives', 'Objectives', 'textarea', true, record.Objectives || ''), field('NextReviewDate', 'Next review date', 'date', false, dateInputValue(record.NextReviewDate)),
+  ], async (values) => api('savePerformanceReview', values), operationsSaveOptions('Performance review saved.', loadDevelopment));
+}
+
+function openRestrictionEditor(record = {}) {
+  openEditor(record.RestrictionID ? 'Edit restriction' : 'Add restriction', [hiddenField('RestrictionID', record.RestrictionID || ''), officerRecordField(record.OfficerID),
+    selectField('RestrictionType', 'Restriction', ['No Driving', 'Modified Duties', 'Training Suspended', 'Operational Restriction', 'Temporary Attachment', 'Other'], record.RestrictionType || 'Modified Duties'),
+    field('Details', 'Details', 'textarea', true, record.Details || ''), field('StartsOn', 'Starts on', 'date', false, dateInputValue(record.StartsOn) || new Date().toISOString().slice(0, 10)), field('EndsOn', 'Ends on', 'date', false, dateInputValue(record.EndsOn)), selectField('Status', 'Status', ['Active', 'Expired', 'Removed'], record.Status || 'Active'),
+  ], async (values) => api('saveRestriction', values), operationsSaveOptions('Restriction saved.', loadDevelopment));
+}
+
+async function loadReports() {
+  await showViewOnly('reports');
+  const container = document.querySelector('#reportsView');
+  const response = await apiCached('commandReports', {});
+  if (!response.ok) return renderError(container, response.error);
+  const metrics = response.metrics || {};
+  container.innerHTML = `<div class="section-head"><h2>Command Reports</h2><button class="ghost" data-export-report>Export CSV</button></div>
+    <div class="stat-row">${[stat('Active Officers', metrics.ActiveOfficers || 0), stat('On LOA', metrics.OnLoa || 0), stat('Training Expiring', metrics.TrainingExpiring || 0), stat('Reviews Due', metrics.ReviewsDue || 0), stat('Active Restrictions', metrics.ActiveRestrictions || 0), stat('Open Handovers', metrics.OpenHandovers || 0)].join('')}</div>
+    <section class="report-grid">${reportPanel('Training expiry', response.trainingExpiry || [], ['Officer', 'Standard', 'ExpiryDate', 'DaysRemaining'])}${reportPanel('Officer activity', response.activity || [], ['Officer', 'Rank', 'Shifts', 'Hours', 'LastShift', 'Status'])}${reportPanel('Development compliance', response.development || [], ['Officer', 'Probation', 'LastReview', 'NextReview', 'Restriction'])}${reportPanel('Supervisor workload', response.supervisors || [], ['Supervisor', 'AssignedOfficers', 'OpenActions'])}</section>`;
+  state.operations.report = response;
+}
+
+function reportPanel(title, rows, columns) {
+  return `<article class="dashboard-panel report-panel"><h3>${escapeHtml(title)}</h3><div class="table-wrap compact"><table><thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map((row) => `<tr>${columns.map((column) => `<td data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="6">No records found.</td></tr>'}</tbody></table></div></article>`;
+}
+
+function exportCommandReport() {
+  const report = state.operations.report || {};
+  const rows = [['Section', 'Officer', 'Item', 'Value', 'Date']];
+  (report.trainingExpiry || []).forEach((row) => rows.push(['Training expiry', row.Officer, row.Standard, row.DaysRemaining, row.ExpiryDate]));
+  (report.activity || []).forEach((row) => rows.push(['Activity', row.Officer, row.Rank, row.Hours, row.LastShift]));
+  (report.development || []).forEach((row) => rows.push(['Development', row.Officer, row.Probation, row.Restriction, row.NextReview]));
+  const csv = rows.map((row) => row.map((value) => `"${String(value || '').replaceAll('"', '""')}"`).join(',')).join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  link.download = `mo8-command-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function loadHandover() {
+  await showViewOnly('handover');
+  const response = await apiCached('listHandovers', {});
+  if (!response.ok) return renderError(document.querySelector('#handoverBoard'), response.error);
+  state.operations.handovers = response.rows || [];
+  renderHandoverBoard();
+}
+
+function renderHandoverBoard() {
+  const container = document.querySelector('#handoverBoard');
+  if (!container) return;
+  const query = document.querySelector('#handoverSearch')?.value.toLowerCase() || '';
+  const status = document.querySelector('#handoverStatusFilter')?.value || '';
+  const rows = state.operations.handovers.filter((row) => (!status || row.Status === status) && Object.values(row).some((value) => String(value || '').toLowerCase().includes(query)));
+  container.innerHTML = rows.length ? ['Critical', 'High', 'Normal', 'Low'].map((priority) => `<section class="handover-column"><h3>${priority}</h3>${rows.filter((row) => row.Priority === priority).map((row) => `<article class="handover-card status-${escapeHtml(row.Status.toLowerCase().replaceAll(' ', '-'))}"><span>${escapeHtml(row.Category)}</span><h4>${escapeHtml(row.Title)}</h4><p>${escapeHtml(row.Details)}</p><small>${escapeHtml(row.Owner || 'Unassigned')} ${row.DueAt ? `/ ${formatDisplayDateTime(row.DueAt)}` : ''}</small><button class="mini" data-edit-handover="${escapeHtml(row.HandoverID)}">Open</button></article>`).join('') || '<p class="empty">None.</p>'}</section>`).join('') : emptyState('No handover entries found.');
+}
+
+async function openHandoverEditor(record = {}) {
+  const owners = await loadSupervisorOptions();
+  openEditor(record.HandoverID ? 'Edit handover' : 'Add handover', [hiddenField('HandoverID', record.HandoverID || ''), field('Title', 'Title', 'text', false, record.Title || ''), selectField('Category', 'Category', ['Operational', 'Staffing', 'Training', 'Conduct', 'Welfare', 'System', 'Other'], record.Category || 'Operational'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], record.Priority || 'Normal'), supervisorSelectField('OwnerUserID', 'Owner', owners, record.OwnerUserID || state.user?.UserID || ''), field('Details', 'Details', 'textarea', true, record.Details || ''), field('DueAt', 'Due at', 'datetime-local', false, localDateTimeValue(record.DueAt)), selectField('Status', 'Status', ['Open', 'In Progress', 'Resolved'], record.Status || 'Open'), field('Resolution', 'Resolution', 'textarea', true, record.Resolution || '')], async (values) => api('saveHandover', values), operationsSaveOptions('Handover saved.', loadHandover));
+}
+
+function operationsSaveOptions(message, loader) {
+  return { successMessage: message, onSuccess: async () => { invalidateCache(); await loader(); } };
 }
 
 async function loadMyProfile() {
@@ -722,6 +992,9 @@ async function loadMyProfile() {
     ${profileTable('My Supervisor Requests', response.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'])}
     ${profileTable('My Appeals / Reviews', response.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'])}
     ${profileTable('My Development Plans', response.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'])}
+    ${profileTable('My Probation / Competency', response.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'])}
+    ${profileTable('My Performance Reviews', response.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'])}
+    ${profileTable('My Temporary Restrictions', response.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'])}
     ${profileTable('My Supervisor Check-ins', response.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
   `;
@@ -1369,6 +1642,9 @@ function renderOfficerProfile(data) {
       ${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], {
         actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '',
       })}
+      ${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'])}
+      ${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'])}
+      ${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'])}
       ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
       ${profileTimeline(data.timeline || [])}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
@@ -1799,6 +2075,41 @@ async function handleDocumentClick(event) {
     && !event.target.closest('.module-dock')
     && !event.target.closest('.mobile-menu-button')) {
     closeMobileNav();
+  }
+
+  const editCalendar = event.target.closest('[data-edit-calendar]');
+  if (editCalendar) {
+    const record = state.operations.calendar.find((row) => row.ID === editCalendar.dataset.editCalendar);
+    if (record) openCalendarEventEditor(record);
+    return;
+  }
+  const editProbation = event.target.closest('[data-edit-probation]');
+  if (editProbation) {
+    const record = state.operations.probation.find((row) => row.ProbationID === editProbation.dataset.editProbation);
+    if (record) openProbationEditor(record);
+    return;
+  }
+  const editReview = event.target.closest('[data-edit-performance-review]');
+  if (editReview) {
+    const record = state.operations.reviews.find((row) => row.ReviewID === editReview.dataset.editPerformanceReview);
+    if (record) openPerformanceReviewEditor(record);
+    return;
+  }
+  const editRestriction = event.target.closest('[data-edit-restriction]');
+  if (editRestriction) {
+    const record = state.operations.restrictions.find((row) => row.RestrictionID === editRestriction.dataset.editRestriction);
+    if (record) openRestrictionEditor(record);
+    return;
+  }
+  const editHandover = event.target.closest('[data-edit-handover]');
+  if (editHandover) {
+    const record = state.operations.handovers.find((row) => row.HandoverID === editHandover.dataset.editHandover);
+    if (record) openHandoverEditor(record);
+    return;
+  }
+  if (event.target.closest('[data-export-report]')) {
+    exportCommandReport();
+    return;
   }
 
   const resetDashboardLayout = event.target.closest('[data-reset-dashboard-layout]');
@@ -2644,11 +2955,11 @@ function formatCell(value, column = '') {
 }
 
 function isDateColumn(column) {
-  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'ExpiresAt', 'CurrentLoaEnd', 'CheckinDate', 'FollowUpDate', 'DueDate'].includes(column);
+  return ['StartDate', 'EndDate', 'JoinDate', 'DateCompleted', 'ExpiryDate', 'ReviewDate', 'ExpiresAt', 'CurrentLoaEnd', 'CheckinDate', 'FollowUpDate', 'DueDate', 'TargetDate', 'NextReviewDate', 'PeriodStart', 'PeriodEnd', 'StartsOn', 'EndsOn', 'LastReview'].includes(column);
 }
 
 function isDateTimeColumn(column) {
-  return ['UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift', 'CourseDate', 'RequestedAt'].includes(column);
+  return ['UpdatedAt', 'CreatedAt', 'IssuedAt', 'ReviewedAt', 'ReadAt', 'Timestamp', 'LastLogin', 'ChangedAt', 'StartedAt', 'EndedAt', 'LastShift', 'CourseDate', 'RequestedAt', 'DueAt'].includes(column);
 }
 
 function formatDisplayDate(value) {
@@ -2898,6 +3209,19 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       markNotificationsRead: supabaseMarkNotificationsRead,
       dashboard: supabaseDashboard,
       saveDashboardWidgets: supabaseSaveDashboardWidgets,
+      myActions: supabaseMyActions,
+      globalSearch: supabaseGlobalSearch,
+      savedViews: supabaseSavedViews,
+      saveSavedView: supabaseSaveSavedView,
+      operationalCalendar: supabaseOperationalCalendar,
+      saveCalendarEvent: supabaseSaveCalendarEvent,
+      developmentRecords: supabaseDevelopmentRecords,
+      saveProbation: supabaseSaveProbation,
+      savePerformanceReview: supabaseSavePerformanceReview,
+      saveRestriction: supabaseSaveRestriction,
+      commandReports: supabaseCommandReports,
+      listHandovers: supabaseListHandovers,
+      saveHandover: supabaseSaveHandover,
       tasks: supabaseTasks,
       supervisorDashboard: supabaseSupervisorDashboard,
       listOfficers: supabaseListOfficers,
@@ -3009,7 +3333,7 @@ async function supabaseMyProfile() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers] = await Promise.all([
+  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers, probation, performanceReviews, restrictions] = await Promise.all([
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('training_matrix', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
@@ -3021,6 +3345,9 @@ async function supabaseMyProfile() {
     supabaseVisibleAnnouncements(),
     supabaseAll('profiles'),
     supabaseAll('officers'),
+    officer ? supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date') : [],
+    officer ? supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id) : [],
   ]);
   return {
     ok: true,
@@ -3034,6 +3361,9 @@ async function supabaseMyProfile() {
     appeals: [],
     checkins: [],
     developmentPlans: [],
+    probation: probation.map((row) => ({ Stage: row.stage, Status: row.status, Progress: `${row.progress}%`, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
+    performanceReviews: performanceReviews.map((row) => ({ ReviewDate: row.review_date, Rating: row.rating, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
+    restrictions: restrictions.map((row) => ({ RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
     shifts: shifts.map(supabaseShift),
     shiftStatus: await supabaseShiftStatus(),
     rankChanges: rankChanges.map(supabaseRankChange),
@@ -3044,11 +3374,13 @@ async function supabaseMyProfile() {
 }
 
 async function supabaseDashboard() {
-  const [officers, loa, documents, announcements] = await Promise.all([
+  const [officers, loa, documents, announcements, actions, widgetPreferences] = await Promise.all([
     supabaseClient.from('officers').select('*'),
     supabaseClient.from('loa_requests').select('*'),
     supabaseVisibleDocuments(),
     supabaseVisibleAnnouncements(),
+    supabaseMyActions(),
+    state.user?.UserID ? supabaseRows('dashboard_widgets', 'user_id', state.user.UserID) : [],
   ]);
   if (officers.error) return { ok: false, error: officers.error.message };
   if (loa.error) return { ok: false, error: loa.error.message };
@@ -3056,7 +3388,7 @@ async function supabaseDashboard() {
   const pendingLoa = (loa.data || []).filter((row) => row.status === 'Pending');
   return {
     ok: true,
-    widgets: DASHBOARD_WIDGETS.map(([key]) => key),
+    widgets: widgetPreferences.length ? widgetPreferences.filter((row) => row.enabled).map((row) => row.widget_key) : DASHBOARD_WIDGETS.map(([key]) => key),
     counts: {
       activeOfficers: (officers.data || []).filter((row) => row.status === 'Active').length,
       currentlyOnLoa: activeLoa.length,
@@ -3077,6 +3409,7 @@ async function supabaseDashboard() {
     lowActivity: [],
     documentAcknowledgements: [],
     upcomingTraining: [],
+    myActions: actions.rows || [],
   };
 }
 
@@ -3094,6 +3427,142 @@ async function supabaseSaveDashboardWidgets(data) {
   return error ? { ok: false, error: error.message } : { ok: true, widgets };
 }
 
+async function supabaseMyActions() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  const [documents, acknowledgements, courses, bookings, training, reviews, probation, restrictions, handovers, notifications] = await Promise.all([
+    supabaseVisibleDocuments(), supabaseAll('document_acknowledgements'), supabaseAll('training_courses'), supabaseAll('course_bookings'),
+    officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [], officer ? supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id) : [], officer ? supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id) : [],
+    can('VIEW_TASKS') ? supabaseOptionalAll('handover_entries') : [], supabaseNotificationRows(profile.member_id),
+  ]);
+  const now = new Date();
+  const inDays = (value) => Math.ceil((new Date(value) - now) / 86400000);
+  const rows = [];
+  (documents.rows || []).filter((doc) => truthy(doc.RequiresAcknowledgement) && !acknowledgements.some((ack) => ack.document_id === doc.DocumentID && ack.user_id === me.user.UserID)).forEach((doc) => rows.push({ Group: 'Urgent', Priority: 'High', Type: 'Document', Title: doc.Title, Detail: 'Acknowledgement required.', View: 'documents' }));
+  const expiringTraining = training.filter((row) => row.expiry_date && inDays(row.expiry_date) <= 60);
+  expiringTraining.forEach((row) => rows.push({ Group: inDays(row.expiry_date) < 0 ? 'Urgent' : 'Due Soon', Priority: inDays(row.expiry_date) < 0 ? 'Critical' : 'High', Type: 'Training', Title: `${row.standard} ${inDays(row.expiry_date) < 0 ? 'expired' : 'expires soon'}`, Detail: `Expiry: ${formatDisplayDate(row.expiry_date)}`, DueDate: row.expiry_date, View: 'myProfile' }));
+  await Promise.all(expiringTraining.map((row) => {
+    const marker = `${row.standard} / ${row.expiry_date}`;
+    if (notifications.some((notice) => String(notice.Message || '').includes(marker))) return null;
+    return supabaseNotify(profile.member_id, inDays(row.expiry_date) < 0 ? 'Training qualification expired' : 'Training qualification expiring', `${marker}. Please contact a trainer or your supervisor to arrange renewal.`, me.user.UserID);
+  }));
+  courses.filter((course) => new Date(course.course_date) >= now && bookings.some((booking) => booking.course_id === course.course_id && booking.officer_id === officer?.officer_id && ['Approved', 'Waitlist'].includes(booking.status))).forEach((course) => rows.push({ Group: 'Upcoming', Priority: 'Normal', Type: 'Course', Title: course.title, Detail: `${course.location || 'Location TBC'} / ${formatDisplayDateTime(course.course_date)}`, DueDate: course.course_date, View: 'courses' }));
+  reviews.filter((row) => row.next_review_date && inDays(row.next_review_date) <= 30).forEach((row) => rows.push({ Group: 'Due Soon', Priority: 'High', Type: 'Review', Title: 'Performance review due', Detail: `Due ${formatDisplayDate(row.next_review_date)}`, DueDate: row.next_review_date, View: 'myProfile' }));
+  probation.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Information', Priority: 'Normal', Type: 'Probation', Title: `${row.stage} probation`, Detail: `${row.progress}% complete`, DueDate: row.target_date, View: 'myProfile' }));
+  restrictions.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Urgent', Priority: 'High', Type: 'Restriction', Title: row.restriction_type, Detail: row.details || 'Active restriction on your officer record.', DueDate: row.ends_on, View: 'myProfile' }));
+  handovers.filter((row) => row.status !== 'Resolved' && (row.owner_user_id === me.user.UserID || !row.owner_user_id)).forEach((row) => rows.push({ Group: row.priority === 'Critical' ? 'Urgent' : 'Due Soon', Priority: row.priority, Type: 'Handover', Title: row.title, Detail: row.details, DueDate: row.due_at, View: 'handover' }));
+  return { ok: true, rows };
+}
+
+async function supabaseGlobalSearch(data) {
+  const query = String(data.Query || '').trim().toLowerCase();
+  if (!query) return { ok: true, rows: [] };
+  const [officers, documents, courses, announcements] = await Promise.all([supabaseAll('officers'), supabaseVisibleDocuments(), supabaseAll('training_courses'), supabaseVisibleAnnouncements()]);
+  const matches = (values) => values.some((value) => String(value || '').toLowerCase().includes(query));
+  return { ok: true, rows: [
+    ...officers.filter((row) => matches([row.roblox_username, row.callsign, row.rank, row.tags?.join(' ')])).map((row) => ({ Type: 'Officers', Title: row.roblox_username, Detail: `${row.rank} / ${row.callsign || 'No callsign'}`, Meta: row.status, OfficerID: row.officer_id })),
+    ...(documents.rows || []).filter((row) => matches([row.Title, row.Category, row.FileName])).map((row) => ({ Type: 'Documents', Title: row.Title, Detail: row.Category, Meta: row.FileName, View: 'documents' })),
+    ...courses.filter((row) => matches([row.title, row.standard, row.location])).map((row) => ({ Type: 'Courses', Title: row.title, Detail: `${row.standard} / ${formatDisplayDateTime(row.course_date)}`, Meta: row.status, View: 'courses' })),
+    ...(announcements.rows || []).filter((row) => matches([row.Title, row.Body, row.Audience])).map((row) => ({ Type: 'Notices', Title: row.Title, Detail: row.Body, Meta: row.Audience, View: 'announcements' })),
+  ].slice(0, 100) };
+}
+
+async function supabaseSavedViews() {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const rows = await supabaseOptionalRows('saved_views', 'user_id', me.user.UserID, 'created_at');
+  return { ok: true, rows: rows.map((row) => ({ ViewID: row.view_id, Name: row.name, Module: row.module, Query: row.query || '', Filters: row.filters })) };
+}
+
+async function supabaseSaveSavedView(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const { error } = await supabaseClient.from('saved_views').upsert({ user_id: me.user.UserID, name: data.Name, module: 'Search', query: data.Query || '', filters: {} }, { onConflict: 'user_id,name' });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseOperationalCalendar() {
+  const [events, courses, loa, reviews, checkins, officers] = await Promise.all([supabaseOptionalAll('calendar_events'), supabaseAll('training_courses'), supabaseAll('loa_requests'), supabaseOptionalAll('performance_reviews'), supabaseAll('supervisor_checkins'), supabaseAll('officers')]);
+  const officerName = (id) => officers.find((row) => row.officer_id === id)?.roblox_username || 'Officer';
+  return { ok: true, rows: [
+    ...events.map((row) => ({ ID: row.event_id, Type: row.event_type, Title: row.title, Start: row.starts_at, End: row.ends_at, Detail: row.details, Location: row.location, Editable: can('VIEW_TASKS') })),
+    ...courses.map((row) => ({ ID: row.course_id, Type: 'Training', Title: row.title, Start: row.course_date, Detail: row.standard, Location: row.location })),
+    ...loa.filter((row) => row.status === 'Approved').map((row) => ({ ID: row.request_id, Type: 'LOA', Title: `${officerName(row.officer_id)} on LOA`, Start: row.start_date, End: row.end_date, Detail: row.reason })),
+    ...reviews.filter((row) => row.next_review_date).map((row) => ({ ID: row.review_id, Type: 'Review', Title: `${officerName(row.officer_id)} review`, Start: row.next_review_date, Detail: row.rating })),
+    ...checkins.filter((row) => row.follow_up_date).map((row) => ({ ID: row.checkin_id, Type: 'Follow-up', Title: `${officerName(row.officer_id)} check-in`, Start: row.follow_up_date, Detail: row.development_goals })),
+  ].filter((row) => row.Start) };
+}
+
+async function supabaseSaveCalendarEvent(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { title: data.Title, event_type: data.EventType, starts_at: data.StartsAt, ends_at: data.EndsAt || null, location: data.Location || '', details: data.Details || '', created_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const query = data.EventID ? supabaseClient.from('calendar_events').update(record).eq('event_id', data.EventID) : supabaseClient.from('calendar_events').insert(record);
+  const { error } = await query; return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseDevelopmentRecords() {
+  const [officers, profiles, probation, reviews, restrictions] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('probation_records'), supabaseOptionalAll('performance_reviews'), supabaseOptionalAll('officer_restrictions')]);
+  const officer = (id) => officers.find((row) => row.officer_id === id) || {};
+  const profile = (id) => profiles.find((row) => row.user_id === id) || {};
+  return { ok: true, officers: officers.map(supabaseOfficer),
+    probation: probation.map((row) => ({ ProbationID: row.probation_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, Rank: officer(row.officer_id).rank, Stage: row.stage, Status: row.status, StartDate: row.start_date, TargetDate: row.target_date, Progress: row.progress, Requirements: row.requirements, Notes: row.notes, Reviewer: profile(row.reviewer_user_id).roblox_username || '', ReviewerUserID: row.reviewer_user_id })),
+    reviews: reviews.map((row) => ({ ReviewID: row.review_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, ReviewDate: row.review_date, PeriodStart: row.period_start, PeriodEnd: row.period_end, Rating: row.rating, ActivitySummary: row.activity_summary, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date, Reviewer: profile(row.reviewer_user_id).roblox_username || '' })),
+    restrictions: restrictions.map((row) => ({ RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+  };
+}
+
+async function supabaseSaveProbation(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { officer_id: data.OfficerID, stage: data.Stage, status: data.Status, start_date: data.StartDate || null, target_date: data.TargetDate || null, progress: Number(data.Progress || 0), requirements: data.Requirements || '', notes: data.Notes || '', reviewer_user_id: me.user.UserID, updated_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const query = data.ProbationID ? supabaseClient.from('probation_records').update(record).eq('probation_id', data.ProbationID) : supabaseClient.from('probation_records').insert(record);
+  const { error } = await query; if (error) return { ok: false, error: error.message };
+  const officer = await supabaseById('officers', 'officer_id', data.OfficerID); await supabaseNotify(officer?.member_id, 'Probation record updated', `${data.Stage}: ${data.Progress || 0}% complete.`, me.user.UserID); return { ok: true };
+}
+
+async function supabaseSavePerformanceReview(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { officer_id: data.OfficerID, review_date: data.ReviewDate, period_start: data.PeriodStart || null, period_end: data.PeriodEnd || null, rating: data.Rating, activity_summary: data.ActivitySummary || '', strengths: data.Strengths || '', improvements: data.Improvements || '', objectives: data.Objectives || '', next_review_date: data.NextReviewDate || null, reviewer_user_id: me.user.UserID, updated_at: new Date().toISOString() };
+  const query = data.ReviewID ? supabaseClient.from('performance_reviews').update(record).eq('review_id', data.ReviewID) : supabaseClient.from('performance_reviews').insert(record);
+  const { error } = await query; if (error) return { ok: false, error: error.message };
+  const officer = await supabaseById('officers', 'officer_id', data.OfficerID); await supabaseNotify(officer?.member_id, 'Performance review recorded', `Rating: ${data.Rating}. ${data.Objectives ? `Objectives: ${data.Objectives}` : ''}`, me.user.UserID); return { ok: true };
+}
+
+async function supabaseSaveRestriction(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { officer_id: data.OfficerID, restriction_type: data.RestrictionType, details: data.Details || '', starts_on: data.StartsOn, ends_on: data.EndsOn || null, status: data.Status, imposed_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const query = data.RestrictionID ? supabaseClient.from('officer_restrictions').update(record).eq('restriction_id', data.RestrictionID) : supabaseClient.from('officer_restrictions').insert(record);
+  const { error } = await query; if (error) return { ok: false, error: error.message };
+  const officer = await supabaseById('officers', 'officer_id', data.OfficerID); await supabaseNotify(officer?.member_id, `Restriction ${data.Status.toLowerCase()}`, `${data.RestrictionType}: ${data.Details || 'See your MDT profile.'}`, me.user.UserID); return { ok: true };
+}
+
+async function supabaseCommandReports() {
+  const [officers, loa, training, shifts, reviews, probation, restrictions, handovers, profiles] = await Promise.all([supabaseAll('officers'), supabaseAll('loa_requests'), supabaseAll('training_records'), supabaseAll('shift_logs'), supabaseOptionalAll('performance_reviews'), supabaseOptionalAll('probation_records'), supabaseOptionalAll('officer_restrictions'), supabaseOptionalAll('handover_entries'), supabaseAll('profiles')]);
+  const now = new Date(); const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 30);
+  const name = (id) => officers.find((row) => row.officer_id === id)?.roblox_username || id;
+  const expiry = training.filter((row) => row.expiry_date && (new Date(row.expiry_date) - now) / 86400000 <= 60).map((row) => ({ Officer: name(row.officer_id), Standard: row.standard, ExpiryDate: row.expiry_date, DaysRemaining: Math.ceil((new Date(row.expiry_date) - now) / 86400000) }));
+  const activity = officers.map((officer) => { const own = shifts.filter((row) => row.officer_id === officer.officer_id && new Date(row.started_at) >= cutoff); const ms = own.reduce((sum, row) => sum + Math.max(0, new Date(row.ended_at || Date.now()) - new Date(row.started_at)), 0); const last = shifts.filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))[0]; return { Officer: officer.roblox_username, Rank: officer.rank, Shifts: own.length, Hours: (ms / 3600000).toFixed(1), LastShift: last?.started_at || '', Status: officer.status }; });
+  const development = officers.map((officer) => { const ownReviews = reviews.filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.review_date).localeCompare(String(a.review_date))); const prob = probation.find((row) => row.officer_id === officer.officer_id && row.status === 'Active'); const restriction = restrictions.find((row) => row.officer_id === officer.officer_id && row.status === 'Active'); return { Officer: officer.roblox_username, Probation: prob ? `${prob.stage} (${prob.progress}%)` : '', LastReview: ownReviews[0]?.review_date || '', NextReview: ownReviews[0]?.next_review_date || '', Restriction: restriction?.restriction_type || '' }; });
+  const supervisors = profiles.filter((profile) => officers.some((officer) => officer.supervisor_user_id === profile.user_id)).map((profile) => ({ Supervisor: profile.roblox_username, AssignedOfficers: officers.filter((officer) => officer.supervisor_user_id === profile.user_id).length, OpenActions: handovers.filter((row) => row.owner_user_id === profile.user_id && row.status !== 'Resolved').length }));
+  return { ok: true, metrics: { ActiveOfficers: officers.filter((row) => row.status === 'Active').length, OnLoa: loa.filter((row) => row.status === 'Approved' && isTodayInRange(row.start_date, row.end_date)).length, TrainingExpiring: expiry.length, ReviewsDue: reviews.filter((row) => row.next_review_date && new Date(row.next_review_date) <= now).length, ActiveRestrictions: restrictions.filter((row) => row.status === 'Active').length, OpenHandovers: handovers.filter((row) => row.status !== 'Resolved').length }, trainingExpiry: expiry, activity, development, supervisors };
+}
+
+async function supabaseListHandovers() {
+  const [rows, profiles] = await Promise.all([supabaseOptionalAll('handover_entries'), supabaseAll('profiles')]);
+  return { ok: true, rows: rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((row) => ({ HandoverID: row.handover_id, Title: row.title, Category: row.category, Priority: row.priority, Details: row.details, OwnerUserID: row.owner_user_id, Owner: profiles.find((profile) => profile.user_id === row.owner_user_id)?.roblox_username || '', DueAt: row.due_at, Status: row.status, Resolution: row.resolution, CreatedAt: row.created_at, UpdatedAt: row.updated_at })) };
+}
+
+async function supabaseSaveHandover(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { title: data.Title, category: data.Category, priority: data.Priority, details: data.Details, due_at: data.DueAt || null, status: data.Status, resolution: data.Resolution || '', owner_user_id: data.OwnerUserID || me.user.UserID, created_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const query = data.HandoverID ? supabaseClient.from('handover_entries').update(record).eq('handover_id', data.HandoverID) : supabaseClient.from('handover_entries').insert(record);
+  const { error } = await query;
+  if (error) return { ok: false, error: error.message };
+  const owner = record.owner_user_id ? await supabaseById('profiles', 'user_id', record.owner_user_id) : null;
+  if (owner && owner.user_id !== me.user.UserID) await supabaseNotify(owner.member_id, 'Command handover assigned', `${data.Priority}: ${data.Title}. Due: ${data.DueAt ? formatDisplayDateTime(data.DueAt) : 'No deadline'}.`, me.user.UserID);
+  return { ok: true };
+}
+
 async function supabaseListOfficers() {
   const { data, error } = await supabaseClient.from('officers').select('*').order('rank').order('roblox_username');
   if (error) return { ok: false, error: error.message };
@@ -3109,7 +3578,7 @@ async function supabaseGetOfficerProfile(data) {
   const { data: officer, error } = await supabaseClient.from('officers').select('*').eq('officer_id', data.OfficerID).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!officer) return { ok: false, error: 'Officer not found.' };
-  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers] = await Promise.all([
+  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers, probation, performanceReviews, restrictions] = await Promise.all([
     supabaseRows('training_records', 'officer_id', officer.officer_id),
     supabaseRows('training_matrix', 'officer_id', officer.officer_id),
     supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id),
@@ -3123,6 +3592,9 @@ async function supabaseGetOfficerProfile(data) {
     supabaseRows('rank_changes', 'member_id', officer.member_id, 'changed_at'),
     supabaseAll('profiles'),
     supabaseAll('officers'),
+    supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id),
+    supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date'),
+    supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id),
   ]);
   const payload = {
     officer: decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }),
@@ -3136,6 +3608,9 @@ async function supabaseGetOfficerProfile(data) {
     developmentPlans: plans.map(supabaseDevelopmentPlan),
     shifts: shifts.map(supabaseShift),
     rankChanges: ranks.map(supabaseRankChange),
+    probation: probation.map((row) => ({ Stage: row.stage, Status: row.status, Progress: `${row.progress}%`, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
+    performanceReviews: performanceReviews.map((row) => ({ ReviewDate: row.review_date, Rating: row.rating, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
+    restrictions: restrictions.map((row) => ({ RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
   };
   payload.timeline = supabaseTimeline(payload);
   return Object.assign({ ok: true }, payload);
@@ -4270,6 +4745,24 @@ async function supabaseAll(table) {
   return data || [];
 }
 
+async function supabaseOptionalAll(table) {
+  try {
+    return await supabaseAll(table);
+  } catch (error) {
+    if (/does not exist|schema cache/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
+async function supabaseOptionalRows(table, column, value, orderColumn = '') {
+  try {
+    return await supabaseRows(table, column, value, orderColumn);
+  } catch (error) {
+    if (/does not exist|schema cache/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
 async function supabaseById(table, column, value) {
   if (!value) return null;
   const { data, error } = await supabaseClient.from(table).select('*').eq(column, value).limit(1).maybeSingle();
@@ -4938,6 +5431,14 @@ function truthy(value) {
 
 function splitTags(value) {
   return String(value || '').split(/[,\n;]+/).map((tag) => tag.trim()).filter(Boolean);
+}
+
+function debounce(callback, delay = 200) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => callback(...args), delay);
+  };
 }
 
 function escapeHtml(value) {

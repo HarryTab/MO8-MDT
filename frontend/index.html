@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-09-1">
+    <link rel="stylesheet" href="styles.css?v=2026-06-23-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -36,14 +36,21 @@
             <section class="nav-group">
               <span>Home</span>
               <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
+              <button class="nav-item" data-view="myActions">My Actions</button>
               <button class="nav-item" data-view="myProfile">My Profile</button>
               <button class="nav-item" data-view="shift">Shift</button>
+            </section>
+            <section class="nav-group">
+              <span>Workspace</span>
+              <button class="nav-item" data-view="globalSearch">Search</button>
+              <button class="nav-item" data-view="calendar">Calendar</button>
             </section>
             <section class="nav-group">
               <span>People</span>
               <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
               <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
               <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
+              <button class="nav-item" data-view="development" data-permission="VIEW_TASKS">Development</button>
               <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
             </section>
             <section class="nav-group">
@@ -62,6 +69,8 @@
               <span>Admin</span>
               <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
               <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
+              <button class="nav-item" data-view="reports" data-permission="VIEW_TASKS">Reports</button>
+              <button class="nav-item" data-view="handover" data-permission="VIEW_TASKS">Handover</button>
               <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
             </section>
           </nav>
@@ -119,6 +128,32 @@
 
         <section id="appView" hidden>
           <section class="stats-grid" id="dashboardView"></section>
+
+          <section class="data-view" id="myActionsView" hidden></section>
+
+          <section class="data-view" id="globalSearchView" hidden>
+            <div class="section-head">
+              <h2>Global Search</h2>
+              <button class="ghost" id="saveSearchViewButton">Save current view</button>
+            </div>
+            <div class="filter-row operations-search-bar">
+              <input id="globalSearchInput" placeholder="Search officers, documents, courses and notices">
+              <select id="savedViewSelect"><option value="">Saved views</option></select>
+            </div>
+            <div id="globalSearchResults" class="operations-results"></div>
+          </section>
+
+          <section class="data-view" id="calendarView" hidden>
+            <div class="section-head">
+              <h2>Operational Calendar</h2>
+              <button id="newCalendarEventButton" data-permission="VIEW_TASKS">Add event</button>
+            </div>
+            <div class="filter-row">
+              <input id="calendarMonth" type="month">
+              <select id="calendarTypeFilter"><option value="">All event types</option></select>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
 
           <section class="data-view" id="officersView" hidden>
             <div class="section-head">
@@ -232,6 +267,24 @@
           </section>
 
           <section class="data-view profile-view" id="officerProfileView" hidden></section>
+
+          <section class="data-view" id="developmentView" hidden>
+            <div class="section-head">
+              <h2>Officer Development</h2>
+              <div class="section-actions">
+                <button id="newProbationButton">Probation record</button>
+                <button id="newReviewButton">Performance review</button>
+                <button id="newRestrictionButton">Restriction</button>
+              </div>
+            </div>
+            <input class="search-input" id="developmentSearch" placeholder="Search officer development records">
+            <div id="developmentSummary" class="stat-row"></div>
+            <section class="operations-stack">
+              <article class="dashboard-panel supervisor-wide"><h3>Probation and Competency</h3><div class="table-wrap compact"><table id="probationTable"></table></div></article>
+              <article class="dashboard-panel supervisor-wide"><h3>Performance Reviews</h3><div class="table-wrap compact"><table id="performanceReviewsTable"></table></div></article>
+              <article class="dashboard-panel supervisor-wide"><h3>Temporary Duties and Restrictions</h3><div class="table-wrap compact"><table id="restrictionsTable"></table></div></article>
+            </section>
+          </section>
 
           <section class="data-view" id="rankChangesView" hidden>
             <div class="section-head">
@@ -353,6 +406,20 @@
               <table id="auditTable"></table>
             </div>
           </section>
+
+          <section class="data-view" id="reportsView" hidden></section>
+
+          <section class="data-view" id="handoverView" hidden>
+            <div class="section-head">
+              <h2>Command Handover</h2>
+              <button id="newHandoverButton">Add handover</button>
+            </div>
+            <div class="filter-row">
+              <input id="handoverSearch" placeholder="Search handover entries">
+              <select id="handoverStatusFilter"><option value="">All statuses</option><option>Open</option><option>In Progress</option><option>Resolved</option></select>
+            </div>
+            <div id="handoverBoard" class="handover-board"></div>
+          </section>
         </section>
         </section>
       </section>
@@ -382,6 +449,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-05-08-5"></script>
+    <script src="app.js?v=2026-06-23-1"></script>
   </body>
 </html>
