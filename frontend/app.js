@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-25-5';
+const APP_VERSION = '2026-06-25-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -321,6 +321,8 @@ document.querySelector('#opsStartShiftButton')?.addEventListener('click', () => 
 document.querySelector('#opsEndShiftButton')?.addEventListener('click', () => openEndShiftEditor('operations'));
 document.querySelector('#opsNewIncidentButton')?.addEventListener('click', () => openOpsIncidentEditor());
 document.querySelector('#opsNewBoloButton')?.addEventListener('click', () => openOpsBoloEditor());
+document.querySelector('#opsNewUnitButton')?.addEventListener('click', () => openOpsUnitEditor());
+document.querySelector('#opsNewBriefingButton')?.addEventListener('click', () => openOpsBriefingEditor());
 document.querySelector('#opsUnitStatusSelect')?.addEventListener('change', async (event) => {
   if (!event.target.value) return;
   const response = await api('updateOperationalStatus', { Status: event.target.value });
@@ -1449,6 +1451,9 @@ async function loadOperationsHub(force = false) {
   document.querySelector('#opsIncidents').innerHTML = (response.incidents || []).length ? response.incidents.map(opsIncidentCard).join('') : emptyState('No active CAD incidents.');
   document.querySelector('#opsBolos').innerHTML = (response.bolos || []).length ? response.bolos.map(opsBoloCard).join('') : emptyState('No active BOLOs.');
   document.querySelector('#opsAssigned').innerHTML = (response.assigned || []).length ? response.assigned.map(opsIncidentCard).join('') : emptyState('No incidents assigned to you.');
+  document.querySelector('#opsJoinRequests').innerHTML = (response.joinRequests || []).length ? response.joinRequests.map(opsJoinRequestCard).join('') : emptyState('No unit join requests.');
+  document.querySelector('#opsBriefings').innerHTML = (response.briefings || []).length ? response.briefings.map(opsBriefingCard).join('') : emptyState('No active briefings.');
+  document.querySelector('#opsCoverage').innerHTML = opsCoverageRows(response);
   applyPermissions();
 }
 
@@ -1459,9 +1464,14 @@ function opsStat(label, value) {
 function opsUnitCard(unit) {
   return `<article class="ops-unit status-${escapeHtml(String(unit.OperationalStatus || '').toLowerCase().replaceAll(' ', '-'))}">
     <strong>${escapeHtml(unit.Callsign || 'No callsign')}</strong>
-    <div><span>${escapeHtml(unit.RobloxUsername)}</span><small>${escapeHtml(unit.Rank || '')}</small></div>
+    <div><span>${escapeHtml(unit.Members || unit.RobloxUsername)}</span><small>${escapeHtml(unit.Capabilities || unit.Rank || '')}</small></div>
     <em>${escapeHtml(unit.OperationalStatus || 'Available')}</em>
     ${unit.CurrentIncident ? `<small>CAD: ${escapeHtml(unit.CurrentIncident)}</small>` : ''}
+    <div class="row-actions">
+      ${unit.CanJoin ? `<button class="mini ghost" data-request-join-unit="${escapeHtml(unit.UnitID)}">Request join</button>` : ''}
+      ${unit.IsMember ? `<button class="mini ghost" data-leave-unit="${escapeHtml(unit.UnitID)}">Leave</button>` : ''}
+      ${unit.IsLead ? `<button class="mini" data-request-unit-supervisor="${escapeHtml(unit.UnitID)}">Supervisor</button><button class="mini danger" data-close-unit="${escapeHtml(unit.UnitID)}">Close</button>` : ''}
+    </div>
   </article>`;
 }
 
@@ -1472,9 +1482,15 @@ function opsIncidentCard(row) {
       <strong>${escapeHtml(row.Title)}</strong>
       <p>${escapeHtml(row.Location || 'No location')} / ${escapeHtml(row.Description || '')}</p>
       <small>${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)} / Units: ${escapeHtml(row.AssignedUnits || 'Unassigned')}</small>
+      <small>Requires: ${escapeHtml(row.RequiredCapabilities || 'None')} / Area: ${escapeHtml(row.PatrolArea || 'Unspecified')}</small>
+      ${row.SuitableUnits ? `<small>Suitable: ${escapeHtml(row.SuitableUnits)}</small>` : ''}
+      <small>Logs: ${escapeHtml(String((row.Logs || []).length))} / Links: ${escapeHtml(String((row.Links || []).length))}</small>
     </div>
     <div class="row-actions">
       <button class="mini ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button>
+      <button class="mini ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Log</button>
+      <button class="mini ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Link</button>
+      <button class="mini warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assist</button>
       ${!['Resolved', 'Cancelled'].includes(row.Status) ? `<button class="mini" data-ops-incident-status="${escapeHtml(row.IncidentID)}" data-status="Resolved">Resolve</button>` : ''}
     </div>
   </article>`;
@@ -1490,8 +1506,46 @@ function opsBoloCard(row) {
   </article>`;
 }
 
+function opsJoinRequestCard(row) {
+  return `<article class="ops-incident">
+    <div><span>${escapeHtml(row.Callsign)}</span><strong>${escapeHtml(row.Officer)}</strong><p>${escapeHtml(row.Message || 'Requesting to join unit.')}</p><small>${escapeHtml(row.Status)}</small></div>
+    ${row.CanReview ? `<div class="row-actions"><button class="mini" data-review-unit-request="${escapeHtml(row.RequestID)}" data-status="Approved">Approve</button><button class="mini ghost" data-review-unit-request="${escapeHtml(row.RequestID)}" data-status="Denied">Deny</button></div>` : ''}
+  </article>`;
+}
+
+function opsBriefingCard(row) {
+  return `<article class="ops-incident">
+    <div><span>${escapeHtml(row.Status)} / ${escapeHtml(row.PatrolArea || 'No area')}</span><strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Objectives || '')}</p><small>${escapeHtml(row.RadioChannel || '')}${row.StartsAt ? ` / ${escapeHtml(formatDisplayDateTime(row.StartsAt))}` : ''}</small></div>
+    ${can('VIEW_TASKS') ? `<div class="row-actions"><button class="mini ghost" data-edit-ops-briefing="${escapeHtml(row.BriefingID)}">Edit</button></div>` : ''}
+  </article>`;
+}
+
+function opsCoverageRows(response) {
+  const rows = response.coverage || [];
+  const stats = response.stats || {};
+  return [
+    `<article class="ops-incident"><div><span>Operational stats</span><strong>${escapeHtml(String(stats.OpenIncidents || 0))} open CAD / ${escapeHtml(String(stats.ActiveUnits || 0))} active units</strong><p>${escapeHtml(String(stats.AvailableUnits || 0))} available units, ${escapeHtml(String(stats.UnassignedIncidents || 0))} unassigned incidents.</p></div></article>`,
+    ...rows.map((row) => `<article class="ops-incident"><div><span>Area coverage</span><strong>${escapeHtml(row.Area || 'Unassigned')}</strong><p>${escapeHtml(String(row.Units))} unit(s) covering this area.</p></div></article>`),
+  ].join('');
+}
+
+function openOpsUnitEditor(record = {}) {
+  openEditor(record.UnitID ? 'Edit unit / callsign' : 'Create unit / callsign', [
+    hiddenField('UnitID', record.UnitID || ''),
+    field('Callsign', 'Callsign', 'text', false, record.Callsign || state.shiftStatus?.activeShift?.Callsign || ''),
+    selectField('PatrolType', 'Patrol type', ['Roads Policing', 'Roads Crime Team', 'Traffic', 'Motorbike', 'Supervisor', 'Training', 'Other'], record.PatrolType || 'Roads Policing'),
+    selectField('Status', 'Status', ['Available', 'Assigned', 'En Route', 'On Scene', 'Transporting', 'At Station', 'Out of Service'], record.OperationalStatus || 'Available'),
+    field('PatrolArea', 'Patrol area', 'text', false, record.PatrolArea || ''),
+    field('RadioChannel', 'Radio channel', 'text', false, record.RadioChannel || ''),
+    field('Notes', 'Notes', 'textarea', true, record.Notes || ''),
+  ], async (values) => api('saveOperationalUnit', values), {
+    successMessage: 'Unit saved.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
+}
+
 function openOpsIncidentEditor(record = {}) {
-  const unitOptions = (state.operationsHub.units || []).map((unit) => ({ UserID: unit.OfficerID, RobloxUsername: `${unit.Callsign || 'Unit'} - ${unit.RobloxUsername}`, Rank: unit.OperationalStatus || unit.Rank }));
+  const unitOptions = (state.operationsHub.units || []).map((unit) => ({ UserID: unit.UnitID, RobloxUsername: `${unit.Callsign || 'Unit'} - ${unit.Members || 'No crew'}`, Rank: unit.OperationalStatus || '' }));
   openEditor(record.IncidentID ? 'Edit CAD incident' : 'Create CAD incident', [
     hiddenField('IncidentID', record.IncidentID || ''),
     field('Title', 'Title', 'text', false, record.Title || ''),
@@ -1499,11 +1553,55 @@ function openOpsIncidentEditor(record = {}) {
     selectField('Priority', 'Priority', ['Emergency', 'Immediate', 'Priority', 'Routine'], record.Priority || 'Routine'),
     selectField('Status', 'Status', ['Open', 'Assigned', 'En Route', 'On Scene', 'Resolved', 'Cancelled'], record.Status || 'Open'),
     field('Location', 'Location', 'text', false, record.Location || ''),
+    field('PatrolArea', 'Area / beat', 'text', false, record.PatrolArea || ''),
+    field('RadioChannel', 'Radio channel', 'text', false, record.RadioChannel || ''),
     field('Description', 'Description', 'textarea', true, record.Description || ''),
-    userCheckboxGroupField('AssignedOfficerIDs', 'Assigned units', unitOptions, record.AssignedOfficerIDs || ''),
+    checkboxGroupField('RequiredCapabilities', 'Required capabilities', ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC', 'Supervisor', 'Roads Crime Team'], record.RequiredCapabilities || ''),
+    userCheckboxGroupField('AssignedUnitIDs', 'Assigned units', unitOptions, record.AssignedUnitIDs || ''),
     field('Outcome', 'Outcome / closure notes', 'textarea', true, record.Outcome || ''),
   ], async (values) => api('saveOperationalIncident', values), {
     successMessage: 'CAD incident saved.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
+}
+
+function openOpsBriefingEditor(record = {}) {
+  const unitOptions = (state.operationsHub.units || []).map((unit) => ({ UserID: unit.UnitID, RobloxUsername: `${unit.Callsign} - ${unit.Members}`, Rank: unit.OperationalStatus }));
+  openEditor(record.BriefingID ? 'Edit operational briefing' : 'Create operational briefing', [
+    hiddenField('BriefingID', record.BriefingID || ''),
+    field('Title', 'Title', 'text', false, record.Title || ''),
+    selectField('Status', 'Status', ['Draft', 'Active', 'Completed', 'Cancelled'], record.Status || 'Active'),
+    field('PatrolArea', 'Patrol area', 'text', false, record.PatrolArea || ''),
+    field('RadioChannel', 'Radio channel', 'text', false, record.RadioChannel || ''),
+    field('StartsAt', 'Starts at', 'datetime-local', false, localDateTimeValue(record.StartsAt)),
+    field('EndsAt', 'Ends at', 'datetime-local', false, localDateTimeValue(record.EndsAt)),
+    userCheckboxGroupField('AssignedUnitIDs', 'Assigned units', unitOptions, record.AssignedUnitIDs || ''),
+    field('Objectives', 'Objectives / briefing', 'textarea', true, record.Objectives || ''),
+  ], async (values) => api('saveOperationalBriefing', values), {
+    successMessage: 'Briefing saved.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
+}
+
+function openOpsIncidentLogEditor(incidentId) {
+  const incident = state.operationsHub.incidents.find((row) => row.IncidentID === incidentId) || {};
+  openEditor('Add incident log entry', [
+    hiddenField('IncidentID', incidentId),
+    selectField('EntryType', 'Entry type', ['Note', 'Status', 'Radio', 'Evidence', 'Supervisor', 'Outcome'], 'Note'),
+    field('Body', `Log entry for ${incident.IncidentNumber || 'CAD'}`, 'textarea', true),
+  ], async (values) => api('addOperationalIncidentLog', values), {
+    successMessage: 'Incident log added.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
+}
+
+function openOpsIncidentLinkEditor(incidentId) {
+  openEditor('Add incident link', [
+    hiddenField('IncidentID', incidentId),
+    field('Title', 'Title', 'text', false),
+    field('Url', 'URL', 'url', false),
+  ], async (values) => api('addOperationalIncidentLink', values), {
+    successMessage: 'Incident link added.',
     onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
   });
 }
@@ -2663,12 +2761,66 @@ async function handleDocumentClick(event) {
     if (record) openOpsIncidentEditor(record);
     return;
   }
+  const requestJoinUnit = event.target.closest('[data-request-join-unit]');
+  if (requestJoinUnit) {
+    const response = await api('requestJoinOperationalUnit', { UnitID: requestJoinUnit.dataset.requestJoinUnit });
+    if (!response.ok) showInfo('Join request failed', `<p>${escapeHtml(response.error || 'Could not request to join unit.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+    return;
+  }
+  const leaveUnit = event.target.closest('[data-leave-unit]');
+  if (leaveUnit) {
+    const response = await api('leaveOperationalUnit', { UnitID: leaveUnit.dataset.leaveUnit });
+    if (!response.ok) showInfo('Leave unit failed', `<p>${escapeHtml(response.error || 'Could not leave unit.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+    return;
+  }
+  const closeUnit = event.target.closest('[data-close-unit]');
+  if (closeUnit) {
+    const response = await api('closeOperationalUnit', { UnitID: closeUnit.dataset.closeUnit });
+    if (!response.ok) showInfo('Close unit failed', `<p>${escapeHtml(response.error || 'Could not close unit.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+    return;
+  }
+  const requestUnitSupervisor = event.target.closest('[data-request-unit-supervisor]');
+  if (requestUnitSupervisor) {
+    const response = await api('requestOperationalSupervisor', { UnitID: requestUnitSupervisor.dataset.requestUnitSupervisor });
+    showInfo(response.ok ? 'Supervisor requested' : 'Request failed', `<p>${escapeHtml(response.message || response.error || 'Supervisors have been notified.')}</p>`);
+    return;
+  }
+  const reviewUnitRequest = event.target.closest('[data-review-unit-request]');
+  if (reviewUnitRequest) {
+    const response = await api('reviewOperationalUnitJoinRequest', { RequestID: reviewUnitRequest.dataset.reviewUnitRequest, Status: reviewUnitRequest.dataset.status });
+    if (!response.ok) showInfo('Review failed', `<p>${escapeHtml(response.error || 'Could not review join request.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+    return;
+  }
   const opsIncidentStatus = event.target.closest('[data-ops-incident-status]');
   if (opsIncidentStatus) {
     const response = await api('saveOperationalIncident', { IncidentID: opsIncidentStatus.dataset.opsIncidentStatus, Status: opsIncidentStatus.dataset.status, Outcome: 'Resolved from Operations Hub' });
     if (!response.ok) showInfo('Incident update failed', `<p>${escapeHtml(response.error || 'Could not update incident.')}</p>`);
     invalidateCache('operationsHub');
     await loadOperationsHub(true);
+    return;
+  }
+  const opsIncidentLog = event.target.closest('[data-open-ops-log]');
+  if (opsIncidentLog) {
+    openOpsIncidentLogEditor(opsIncidentLog.dataset.openOpsLog);
+    return;
+  }
+  const opsIncidentLink = event.target.closest('[data-add-ops-link]');
+  if (opsIncidentLink) {
+    openOpsIncidentLinkEditor(opsIncidentLink.dataset.addOpsLink);
+    return;
+  }
+  const opsAssistance = event.target.closest('[data-ops-assistance]');
+  if (opsAssistance) {
+    const response = await api('requestOperationalAssistance', { IncidentID: opsAssistance.dataset.opsAssistance });
+    showInfo(response.ok ? 'Assistance requested' : 'Request failed', `<p>${escapeHtml(response.message || response.error || 'On-duty supervisors and units have been notified.')}</p>`);
     return;
   }
   const editOpsBolo = event.target.closest('[data-edit-ops-bolo]');
@@ -2683,6 +2835,12 @@ async function handleDocumentClick(event) {
     if (!response.ok) showInfo('BOLO update failed', `<p>${escapeHtml(response.error || 'Could not update BOLO.')}</p>`);
     invalidateCache('operationsHub');
     await loadOperationsHub(true);
+    return;
+  }
+  const editOpsBriefing = event.target.closest('[data-edit-ops-briefing]');
+  if (editOpsBriefing) {
+    const record = state.operationsHub.briefings.find((row) => row.BriefingID === editOpsBriefing.dataset.editOpsBriefing);
+    if (record) openOpsBriefingEditor(record);
     return;
   }
   const deleteCalendar = event.target.closest('[data-delete-calendar]');
@@ -4081,8 +4239,18 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
       operationsHub: supabaseOperationsHub,
+      saveOperationalUnit: supabaseSaveOperationalUnit,
+      requestJoinOperationalUnit: supabaseRequestJoinOperationalUnit,
+      reviewOperationalUnitJoinRequest: supabaseReviewOperationalUnitJoinRequest,
+      leaveOperationalUnit: supabaseLeaveOperationalUnit,
+      closeOperationalUnit: supabaseCloseOperationalUnit,
+      requestOperationalSupervisor: supabaseRequestOperationalSupervisor,
+      requestOperationalAssistance: supabaseRequestOperationalAssistance,
       saveOperationalIncident: supabaseSaveOperationalIncident,
+      addOperationalIncidentLog: supabaseAddOperationalIncidentLog,
+      addOperationalIncidentLink: supabaseAddOperationalIncidentLink,
       saveOperationalBolo: supabaseSaveOperationalBolo,
+      saveOperationalBriefing: supabaseSaveOperationalBriefing,
       updateOperationalStatus: supabaseUpdateOperationalStatus,
       requestRetrospectiveShift: supabaseRequestRetrospectiveShift,
       reviewRetrospectiveShift: supabaseReviewRetrospectiveShift,
@@ -5968,7 +6136,16 @@ async function supabaseEndShift(data) {
     status: 'Completed',
     updated_at: new Date().toISOString(),
   }).eq('shift_id', active.ShiftID);
+  if (!error) await leaveUnitsForOfficer(active.OfficerID);
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function leaveUnitsForOfficer(officerId) {
+  const memberships = await supabaseOptionalRows('operational_unit_members', 'officer_id', officerId);
+  const activeMemberships = memberships.filter((row) => row.status === 'Active');
+  if (!activeMemberships.length) return;
+  await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).eq('officer_id', officerId).eq('status', 'Active');
+  await Promise.all(activeMemberships.map((row) => closeUnitIfEmpty(row.unit_id)));
 }
 
 async function supabaseTeamShifts(data = {}) {
@@ -6008,37 +6185,60 @@ async function supabaseTeamShifts(data = {}) {
 }
 
 async function supabaseOperationsHub() {
-  const [shiftStatus, shifts, incidents, bolos, officers, profiles] = await Promise.all([
+  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix] = await Promise.all([
     supabaseShiftStatus(),
     supabaseAll('shift_logs'),
     supabaseOptionalAll('operational_incidents'),
     supabaseOptionalAll('operational_bolos'),
     supabaseAll('officers'),
     supabaseAll('profiles'),
+    supabaseOptionalAll('operational_units'),
+    supabaseOptionalAll('operational_unit_members'),
+    supabaseOptionalAll('operational_unit_join_requests'),
+    supabaseOptionalAll('operational_incident_logs'),
+    supabaseOptionalAll('operational_incident_links'),
+    supabaseOptionalAll('operational_briefings'),
+    supabaseAll('training_matrix'),
   ]);
-  const activeUnits = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at).map((row) => {
-    const converted = supabaseShift(row);
-    const incident = (incidents || []).find((item) => item.incident_id === converted.CurrentIncidentID);
-    converted.CurrentIncident = incident?.incident_number || '';
-    return converted;
-  });
+  const activeShifts = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at);
+  const activeUnits = (units || [])
+    .filter((row) => !row.closed_at)
+    .map((row) => supabaseOperationalUnit(row, members || [], officers || [], incidents || [], trainingMatrix || []));
+  const unitOfficerIds = new Set((members || []).filter((row) => row.status === 'Active').map((row) => row.officer_id));
+  const unassignedShiftUnits = activeShifts
+    .filter((row) => !unitOfficerIds.has(row.officer_id))
+    .map((row) => {
+      const converted = supabaseShift(row);
+      return { ...converted, UnitID: '', IsShiftOnly: true, Members: converted.RobloxUsername, Capabilities: 'Create a unit to receive CAD assignments', CanJoin: false, IsLead: false, IsMember: false };
+    });
   const activeIncidents = (incidents || [])
     .filter((row) => !['Resolved', 'Cancelled'].includes(row.status))
     .sort((a, b) => opsPriorityWeight(b.priority) - opsPriorityWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
-    .map((row) => supabaseOperationalIncident(row, officers, profiles));
+    .map((row) => supabaseOperationalIncident(row, officers, profiles, activeUnits, logs || [], links || []));
   const activeBolos = (bolos || [])
     .filter((row) => row.status === 'Active' && (!row.expires_at || new Date(row.expires_at) > new Date()))
     .sort((a, b) => opsBoloWeight(b.priority) - opsBoloWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
     .map((row) => supabaseOperationalBolo(row, profiles));
   const profile = await supabaseProfileByUserId(state.user.UserID);
   const officer = (officers || []).find((row) => row.member_id === profile?.member_id);
+  const myUnitIds = activeUnits.filter((unit) => unit.MemberIDs.includes(officer?.officer_id)).map((unit) => unit.UnitID);
+  const relevantJoinRequests = (joinRequests || []).filter((row) => row.status === 'Pending').map((row) => supabaseUnitJoinRequest(row, activeUnits, officers, officer)).filter((row) => row.CanReview || row.OfficerID === officer?.officer_id);
   return {
     ok: true,
     shiftStatus,
-    units: activeUnits,
+    units: [...activeUnits.map((unit) => decorateOperationalUnitForUser(unit, officer)), ...unassignedShiftUnits],
     incidents: activeIncidents,
     bolos: activeBolos,
-    assigned: activeIncidents.filter((row) => (row.AssignedOfficerIDs || []).includes(officer?.officer_id)),
+    assigned: activeIncidents.filter((row) => (row.AssignedUnitIDs || []).some((id) => myUnitIds.includes(id))),
+    joinRequests: relevantJoinRequests,
+    briefings: (briefings || []).filter((row) => ['Active', 'Draft'].includes(row.status)).map((row) => supabaseOperationalBriefing(row, profiles, activeUnits)),
+    coverage: operationalCoverage(activeUnits),
+    stats: {
+      ActiveUnits: activeUnits.length,
+      AvailableUnits: activeUnits.filter((unit) => unit.OperationalStatus === 'Available').length,
+      OpenIncidents: activeIncidents.length,
+      UnassignedIncidents: activeIncidents.filter((row) => !(row.AssignedUnitIDs || []).length).length,
+    },
   };
 }
 
@@ -6051,21 +6251,198 @@ async function supabaseUpdateOperationalStatus(data) {
     current_incident_id: data.Status === 'Available' ? null : active.CurrentIncidentID || null,
     updated_at: new Date().toISOString(),
   }).eq('shift_id', active.ShiftID);
+  if (!error) {
+    const units = await supabaseOptionalAll('operational_units');
+    const members = await supabaseOptionalAll('operational_unit_members');
+    const myUnit = units.find((unit) => !unit.closed_at && members.some((member) => member.unit_id === unit.unit_id && member.officer_id === active.OfficerID && member.status === 'Active'));
+    if (myUnit) await supabaseClient.from('operational_units').update({ status: data.Status || 'Available', updated_at: new Date().toISOString() }).eq('unit_id', myUnit.unit_id);
+  }
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveOperationalUnit(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: false, error: 'No linked officer profile.' };
+  const shiftStatus = await supabaseShiftStatus();
+  if (!shiftStatus.onDuty) return { ok: false, error: 'Start a shift before creating or joining a unit.' };
+  const record = {
+    callsign: data.Callsign || officer.callsign || officer.roblox_username,
+    status: data.Status || 'Available',
+    patrol_area: data.PatrolArea || '',
+    patrol_type: data.PatrolType || 'Roads Policing',
+    radio_channel: data.RadioChannel || '',
+    lead_officer_id: officer.officer_id,
+    created_by: me.user.UserID,
+    notes: data.Notes || '',
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.UnitID ? supabaseClient.from('operational_units').update(record).eq('unit_id', data.UnitID).select('*').maybeSingle() : supabaseClient.from('operational_units').insert(record).select('*').maybeSingle();
+  const { data: saved, error } = await query;
+  if (error) return { ok: false, error: error.message };
+  const unitId = saved?.unit_id || data.UnitID;
+  await supabaseClient.from('operational_unit_members').upsert({ unit_id: unitId, officer_id: officer.officer_id, role: 'Lead', status: 'Active' }, { onConflict: 'unit_id,officer_id' });
+  await supabaseClient.from('shift_logs').update({ operational_status: record.status, patrol_type: record.patrol_type, updated_at: new Date().toISOString() }).eq('shift_id', shiftStatus.activeShift.ShiftID);
+  await supabaseAddOperationalUnitLog(unitId, 'Unit', `${officer.roblox_username} created/updated unit ${record.callsign}.`);
+  return { ok: true, UnitID: unitId };
+}
+
+async function supabaseRequestJoinOperationalUnit(data) {
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: false, error: 'No linked officer profile.' };
+  const shiftStatus = await supabaseShiftStatus();
+  if (!shiftStatus.onDuty) return { ok: false, error: 'Start a shift before joining a unit.' };
+  const unit = await supabaseById('operational_units', 'unit_id', data.UnitID);
+  if (!unit || unit.closed_at) return { ok: false, error: 'Unit is not active.' };
+  const { error } = await supabaseClient.from('operational_unit_join_requests').insert({ unit_id: data.UnitID, officer_id: officer.officer_id, message: data.Message || '' });
+  if (error) return { ok: false, error: error.message };
+  const lead = unit.lead_officer_id ? await supabaseById('officers', 'officer_id', unit.lead_officer_id) : null;
+  if (lead) await supabaseNotify(lead.member_id, 'Unit join request', `${officer.roblox_username} has requested to join ${unit.callsign}.`, state.user.UserID);
+  await supabaseNotify(officer.member_id, 'Unit join request sent', `Your request to join ${unit.callsign} has been sent to the unit lead.`, state.user.UserID);
+  return { ok: true };
+}
+
+async function supabaseReviewOperationalUnitJoinRequest(data) {
+  const request = await supabaseById('operational_unit_join_requests', 'request_id', data.RequestID);
+  if (!request || request.status !== 'Pending') return { ok: false, error: 'Join request is no longer pending.' };
+  const unit = await supabaseById('operational_units', 'unit_id', request.unit_id);
+  const officer = await supabaseById('officers', 'officer_id', request.officer_id);
+  const { error } = await supabaseClient.from('operational_unit_join_requests').update({ status: data.Status, review_reason: data.ReviewReason || '', reviewed_by: state.user.UserID, reviewed_at: new Date().toISOString() }).eq('request_id', data.RequestID);
+  if (error) return { ok: false, error: error.message };
+  if (data.Status === 'Approved') {
+    await supabaseClient.from('operational_unit_members').upsert({ unit_id: request.unit_id, officer_id: request.officer_id, role: 'Crew', status: 'Active' }, { onConflict: 'unit_id,officer_id' });
+    await supabaseAddOperationalUnitLog(request.unit_id, 'Unit', `${officer.roblox_username} joined ${unit.callsign}.`);
+  }
+  await supabaseNotify(officer.member_id, `Unit join request ${String(data.Status).toLowerCase()}`, `Your request to join ${unit.callsign} was ${String(data.Status).toLowerCase()}.`, state.user.UserID);
+  return { ok: true };
+}
+
+async function supabaseLeaveOperationalUnit(data) {
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: false, error: 'No linked officer profile.' };
+  const { error } = await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).eq('unit_id', data.UnitID).eq('officer_id', officer.officer_id);
+  if (error) return { ok: false, error: error.message };
+  await closeUnitIfEmpty(data.UnitID);
+  return { ok: true };
+}
+
+async function supabaseCloseOperationalUnit(data) {
+  const { error } = await supabaseClient.from('operational_units').update({ closed_at: new Date().toISOString(), status: 'Out of Service', updated_at: new Date().toISOString() }).eq('unit_id', data.UnitID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).eq('unit_id', data.UnitID).eq('status', 'Active');
+  return { ok: true };
+}
+
+async function closeUnitIfEmpty(unitId) {
+  const members = await supabaseOptionalRows('operational_unit_members', 'unit_id', unitId);
+  if (!members.some((member) => member.status === 'Active')) await supabaseCloseOperationalUnit({ UnitID: unitId });
+}
+
+function supabaseOperationalUnit(row, members, officers, incidents, matrix) {
+  const activeMembers = (members || []).filter((member) => member.unit_id === row.unit_id && member.status === 'Active');
+  const memberOfficers = activeMembers.map((member) => officers.find((officer) => officer.officer_id === member.officer_id)).filter(Boolean);
+  const capabilities = unitCapabilities(memberOfficers, matrix);
+  const incident = incidents.find((item) => item.incident_id === row.current_incident_id);
+  return {
+    UnitID: row.unit_id,
+    Callsign: row.callsign,
+    OperationalStatus: row.status || 'Available',
+    PatrolArea: row.patrol_area || '',
+    PatrolType: row.patrol_type || '',
+    RadioChannel: row.radio_channel || '',
+    LeadOfficerID: row.lead_officer_id || '',
+    CurrentIncidentID: row.current_incident_id || '',
+    CurrentIncident: incident?.incident_number || '',
+    Notes: row.notes || '',
+    MemberIDs: memberOfficers.map((officer) => officer.officer_id),
+    Members: memberOfficers.map((officer) => officer.callsign ? `${officer.callsign} ${officer.roblox_username}` : officer.roblox_username).join(', ') || 'No active crew',
+    Capabilities: capabilities.join(', ') || 'No recorded capabilities',
+    CapabilityList: capabilities,
+    CreatedAt: row.created_at,
+  };
+}
+
+function decorateOperationalUnitForUser(unit, officer) {
+  const isMember = unit.MemberIDs.includes(officer?.officer_id);
+  return { ...unit, IsMember: isMember, IsLead: unit.LeadOfficerID === officer?.officer_id, CanJoin: Boolean(officer?.officer_id && !isMember && !unit.IsShiftOnly) };
+}
+
+function unitCapabilities(officers, matrix) {
+  const officerIds = new Set((officers || []).map((officer) => officer.officer_id));
+  const rows = (matrix || []).filter((row) => officerIds.has(row.officer_id));
+  const caps = [];
+  if (rows.some((row) => row.taser)) caps.push('Taser');
+  if (rows.some((row) => row.moe)) caps.push('MOE');
+  if (rows.some((row) => row.blue_ticket)) caps.push('Blue Ticket');
+  if (rows.some((row) => row.motorbike)) caps.push('Motorbike');
+  const driving = highestDrivingStandard(rows.map((row) => row.driving_standard).filter(Boolean));
+  if (driving) caps.push(driving);
+  if ((officers || []).some((officer) => rankIndex(officer.rank) >= rankIndex('Sergeant'))) caps.push('Supervisor');
+  if ((officers || []).some((officer) => (officer.tags || []).includes('Roads Crime Team'))) caps.push('Roads Crime Team');
+  return caps;
+}
+
+function highestDrivingStandard(standards) {
+  return standards.sort((a, b) => DRIVING_STANDARDS.indexOf(b) - DRIVING_STANDARDS.indexOf(a))[0] || '';
+}
+
+function rankIndex(rank) {
+  return OFFICER_RANKS.indexOf(rank || 'Police Constable');
+}
+
+function operationalCoverage(units) {
+  const counts = new Map();
+  (units || []).forEach((unit) => {
+    const area = unit.PatrolArea || 'Unassigned';
+    counts.set(area, (counts.get(area) || 0) + 1);
+  });
+  return [...counts.entries()].map(([Area, Units]) => ({ Area, Units })).sort((a, b) => String(a.Area).localeCompare(String(b.Area)));
+}
+
+function suitableUnits(required, units) {
+  const needs = required || [];
+  if (!needs.length) return '';
+  return (units || [])
+    .filter((unit) => needs.every((need) => (unit.CapabilityList || []).includes(need)))
+    .map((unit) => unit.Callsign)
+    .join(', ');
+}
+
+function supabaseUnitJoinRequest(row, units, officers, currentOfficer) {
+  const unit = units.find((item) => item.UnitID === row.unit_id) || {};
+  const officer = officers.find((item) => item.officer_id === row.officer_id) || {};
+  return {
+    RequestID: row.request_id,
+    UnitID: row.unit_id,
+    Callsign: unit.Callsign || row.unit_id,
+    OfficerID: row.officer_id,
+    Officer: officer.roblox_username || row.officer_id,
+    Message: row.message || '',
+    Status: row.status || 'Pending',
+    CanReview: unit.LeadOfficerID === currentOfficer?.officer_id,
+  };
 }
 
 async function supabaseSaveOperationalIncident(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
   const existing = data.IncidentID ? await supabaseById('operational_incidents', 'incident_id', data.IncidentID) : null;
+  const assignedUnitIds = splitTags(data.AssignedUnitIDs || existing?.assigned_unit_ids?.join(',') || '');
   const assignedOfficerIds = splitTags(data.AssignedOfficerIDs || existing?.assigned_officer_ids?.join(',') || '');
   const record = {
     title: data.Title || existing?.title || 'CAD incident',
     incident_type: data.IncidentType || existing?.incident_type || 'Traffic',
     priority: data.Priority || existing?.priority || 'Routine',
     location: data.Location || existing?.location || '',
+    patrol_area: data.PatrolArea || existing?.patrol_area || '',
+    radio_channel: data.RadioChannel || existing?.radio_channel || '',
     description: data.Description || existing?.description || '',
-    status: data.Status || existing?.status || (assignedOfficerIds.length ? 'Assigned' : 'Open'),
+    status: data.Status || existing?.status || (assignedUnitIds.length || assignedOfficerIds.length ? 'Assigned' : 'Open'),
     assigned_officer_ids: assignedOfficerIds,
+    assigned_unit_ids: assignedUnitIds,
+    required_capabilities: splitTags(data.RequiredCapabilities || existing?.required_capabilities?.join(',') || ''),
     outcome: data.Outcome || existing?.outcome || '',
     created_by: existing?.created_by || me.user.UserID,
     closed_by: ['Resolved', 'Cancelled'].includes(data.Status || '') ? me.user.UserID : existing?.closed_by || null,
@@ -6076,33 +6453,39 @@ async function supabaseSaveOperationalIncident(data) {
   const { data: saved, error } = await query;
   if (error) return { ok: false, error: error.message };
   const incident = saved || { ...record, incident_id: data.IncidentID };
-  await syncIncidentUnitAssignments(incident, assignedOfficerIds);
-  await notifyIncidentAssignments(incident, assignedOfficerIds, existing?.assigned_officer_ids || [], me.user);
+  await syncIncidentUnitAssignments(incident, assignedUnitIds);
+  await notifyIncidentUnitAssignments(incident, assignedUnitIds, existing?.assigned_unit_ids || [], me.user);
+  if (data.IncidentID) await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Update', Body: `Incident updated: ${record.status}` });
   return { ok: true, IncidentID: incident.incident_id };
 }
 
-async function syncIncidentUnitAssignments(incident, assignedOfficerIds) {
+async function syncIncidentUnitAssignments(incident, assignedUnitIds) {
   if (['Resolved', 'Cancelled'].includes(incident.status)) {
-    await supabaseClient.from('shift_logs').update({ current_incident_id: null, operational_status: 'Available', updated_at: new Date().toISOString() }).eq('current_incident_id', incident.incident_id).eq('status', 'On Duty');
+    await supabaseClient.from('operational_units').update({ current_incident_id: null, status: 'Available', updated_at: new Date().toISOString() }).eq('current_incident_id', incident.incident_id);
     return;
   }
-  if (!assignedOfficerIds.length) return;
-  await supabaseClient.from('shift_logs').update({ current_incident_id: incident.incident_id, updated_at: new Date().toISOString() }).in('officer_id', assignedOfficerIds).eq('status', 'On Duty').is('ended_at', null);
+  if (!assignedUnitIds.length) return;
+  await supabaseClient.from('operational_units').update({ current_incident_id: incident.incident_id, status: incident.status === 'Open' ? 'Assigned' : incident.status, updated_at: new Date().toISOString() }).in('unit_id', assignedUnitIds);
 }
 
-async function notifyIncidentAssignments(incident, nextOfficerIds, previousOfficerIds, actor) {
-  const newAssignments = nextOfficerIds.filter((id) => !previousOfficerIds.includes(id));
+async function notifyIncidentUnitAssignments(incident, nextUnitIds, previousUnitIds, actor) {
+  const newAssignments = nextUnitIds.filter((id) => !previousUnitIds.includes(id));
   if (!newAssignments.length) return;
+  const [units, members] = await Promise.all([supabaseOptionalAll('operational_units'), supabaseOptionalAll('operational_unit_members')]);
   const officers = await supabaseAll('officers');
-  await Promise.all(newAssignments.map(async (officerId) => {
-    const officer = officers.find((row) => row.officer_id === officerId);
-    if (!officer) return;
-    await supabaseNotify(officer.member_id, 'CAD incident assigned', notificationDetails([
-      detailLine('Incident', incident.title),
-      detailLine('Priority', incident.priority),
-      detailLine('Location', incident.location),
-      detailLine('Assigned by', actor?.RobloxUsername),
-    ]), actor?.UserID);
+  await Promise.all(newAssignments.flatMap((unitId) => {
+    const unit = units.find((row) => row.unit_id === unitId) || {};
+    return members.filter((member) => member.unit_id === unitId && member.status === 'Active').map(async (member) => {
+      const officer = officers.find((row) => row.officer_id === member.officer_id);
+      if (!officer) return;
+      await supabaseNotify(officer.member_id, 'CAD incident assigned', notificationDetails([
+        detailLine('Unit', unit.callsign),
+        detailLine('Incident', incident.title),
+        detailLine('Priority', incident.priority),
+        detailLine('Location', incident.location),
+        detailLine('Assigned by', actor?.RobloxUsername),
+      ]), actor?.UserID);
+    });
   }));
 }
 
@@ -6135,8 +6518,115 @@ async function supabaseSaveOperationalBolo(data) {
   return { ok: true };
 }
 
-function supabaseOperationalIncident(row, officers, profiles) {
+async function supabaseAddOperationalIncidentLog(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!data.IncidentID || !data.Body) return { ok: false, error: 'Incident and log entry are required.' };
+  const { error } = await supabaseClient.from('operational_incident_logs').insert({
+    incident_id: data.IncidentID,
+    unit_id: data.UnitID || null,
+    author_user_id: me.user.UserID,
+    entry_type: data.EntryType || 'Note',
+    body: data.Body,
+  });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseAddOperationalIncidentLink(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!data.IncidentID || !data.Url) return { ok: false, error: 'Incident and URL are required.' };
+  const { error } = await supabaseClient.from('operational_incident_links').insert({
+    incident_id: data.IncidentID,
+    title: data.Title || data.Url,
+    url: data.Url,
+    created_by: me.user.UserID,
+  });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveOperationalBriefing(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Only Sergeant+ can manage briefings.' };
+  const record = {
+    title: data.Title || 'Operational briefing',
+    objectives: data.Objectives || '',
+    patrol_area: data.PatrolArea || '',
+    radio_channel: data.RadioChannel || '',
+    commander_user_id: me.user.UserID,
+    assigned_unit_ids: splitTags(data.AssignedUnitIDs || ''),
+    starts_at: data.StartsAt || null,
+    ends_at: data.EndsAt || null,
+    status: data.Status || 'Active',
+    created_by: me.user.UserID,
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.BriefingID ? supabaseClient.from('operational_briefings').update(record).eq('briefing_id', data.BriefingID) : supabaseClient.from('operational_briefings').insert(record);
+  const { error } = await query;
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+async function supabaseRequestOperationalSupervisor(data) {
+  const unit = await supabaseById('operational_units', 'unit_id', data.UnitID);
+  if (!unit) return { ok: false, error: 'Unit not found.' };
+  const supervisors = await onDutySupervisors(unit.lead_officer_id);
+  await Promise.all(supervisors.map((officer) => supabaseNotify(officer.member_id, 'Supervisor requested', `${unit.callsign} has requested a supervisor. Area: ${unit.patrol_area || 'Not specified'}.`, state.user?.UserID)));
+  const lead = unit.lead_officer_id ? await supabaseById('officers', 'officer_id', unit.lead_officer_id) : null;
+  if (lead) await supabaseNotify(lead.member_id, 'Supervisor request sent', 'A message has been sent to on-duty supervisors and the rank above where available.', state.user?.UserID);
+  return { ok: true, message: 'A message has been sent to on-duty supervisors and the rank above where available.' };
+}
+
+async function supabaseRequestOperationalAssistance(data) {
+  const incident = await supabaseById('operational_incidents', 'incident_id', data.IncidentID);
+  if (!incident) return { ok: false, error: 'Incident not found.' };
+  const units = await supabaseOptionalAll('operational_units');
+  const members = await supabaseOptionalAll('operational_unit_members');
+  const officers = await supabaseAll('officers');
+  const activeUnitIds = units.filter((unit) => !unit.closed_at).map((unit) => unit.unit_id);
+  const memberOfficerIds = new Set(members.filter((member) => activeUnitIds.includes(member.unit_id) && member.status === 'Active').map((member) => member.officer_id));
+  await Promise.all(officers.filter((officer) => memberOfficerIds.has(officer.officer_id)).map((officer) => supabaseNotify(officer.member_id, 'Urgent assistance requested', notificationDetails([
+    detailLine('Incident', incident.title),
+    detailLine('Priority', incident.priority),
+    detailLine('Location', incident.location),
+  ]), state.user?.UserID)));
+  await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Assistance', Body: 'Urgent assistance requested.' });
+  return { ok: true, message: 'On-duty operational units have been notified.' };
+}
+
+async function supabaseAddOperationalUnitLog(unitId, type, body) {
+  try {
+    await supabaseClient.from('operational_messages').insert({ target_unit_id: unitId, sender_user_id: state.user?.UserID || null, priority: 'Normal', message: `${type}: ${body}` });
+  } catch (error) {
+    // Unit message logging is best effort.
+  }
+}
+
+async function onDutySupervisors(leadOfficerId = '') {
+  const [shifts, officers] = await Promise.all([supabaseAll('shift_logs'), supabaseAll('officers')]);
+  const lead = leadOfficerId ? officers.find((officer) => officer.officer_id === leadOfficerId) : null;
+  const minimumRank = lead ? OFFICER_RANKS[Math.min(OFFICER_RANKS.length - 1, rankIndex(lead.rank) + 1)] : 'Sergeant';
+  const activeOfficerIds = new Set((shifts || []).filter((shift) => shift.status === 'On Duty' && !shift.ended_at).map((shift) => shift.officer_id));
+  return officers.filter((officer) => activeOfficerIds.has(officer.officer_id) && rankIndex(officer.rank) >= rankIndex(minimumRank));
+}
+
+function supabaseOperationalBriefing(row, profiles, units) {
+  return {
+    BriefingID: row.briefing_id,
+    Title: row.title,
+    Objectives: row.objectives || '',
+    PatrolArea: row.patrol_area || '',
+    RadioChannel: row.radio_channel || '',
+    AssignedUnitIDs: row.assigned_unit_ids || [],
+    AssignedUnits: (row.assigned_unit_ids || []).map((id) => units.find((unit) => unit.UnitID === id)?.Callsign).filter(Boolean).join(', '),
+    StartsAt: row.starts_at || '',
+    EndsAt: row.ends_at || '',
+    Status: row.status || '',
+    Commander: profiles.find((profile) => profile.user_id === row.commander_user_id)?.roblox_username || '',
+  };
+}
+
+function supabaseOperationalIncident(row, officers, profiles, units = [], logs = [], links = []) {
   const assignedIds = row.assigned_officer_ids || [];
+  const assignedUnitIds = row.assigned_unit_ids || [];
   return {
     IncidentID: row.incident_id,
     IncidentNumber: row.incident_number,
@@ -6147,10 +6637,17 @@ function supabaseOperationalIncident(row, officers, profiles) {
     Description: row.description,
     Status: row.status,
     AssignedOfficerIDs: assignedIds,
+    AssignedUnitIDs: assignedUnitIds,
     AssignedUnits: assignedIds.map((id) => {
       const officer = officers.find((item) => item.officer_id === id) || {};
       return officer.callsign ? `${officer.callsign} ${officer.roblox_username}` : officer.roblox_username;
-    }).filter(Boolean).join(', '),
+    }).concat(assignedUnitIds.map((id) => units.find((unit) => unit.UnitID === id)?.Callsign).filter(Boolean)).filter(Boolean).join(', '),
+    RequiredCapabilities: (row.required_capabilities || []).join(', '),
+    SuitableUnits: suitableUnits(row.required_capabilities || [], units),
+    PatrolArea: row.patrol_area || '',
+    RadioChannel: row.radio_channel || '',
+    Logs: (logs || []).filter((log) => log.incident_id === row.incident_id).map((log) => ({ LogID: log.log_id, EntryType: log.entry_type, Body: log.body, CreatedAt: log.created_at })),
+    Links: (links || []).filter((link) => link.incident_id === row.incident_id).map((link) => ({ LinkID: link.link_id, Title: link.title, Url: link.url, CreatedAt: link.created_at })),
     CreatedBy: profiles.find((profile) => profile.user_id === row.created_by)?.roblox_username || '',
     CreatedAt: row.created_at,
     Outcome: row.outcome || '',

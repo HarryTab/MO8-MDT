@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-25-5">
+    <link rel="stylesheet" href="styles.css?v=2026-06-25-6">
   </head>
   <body>
     <main class="terminal-shell">
@@ -501,7 +501,8 @@
             <section class="ops-grid">
               <article class="ops-panel ops-wide">
                 <div class="ops-panel-head">
-                  <h3>Live Units</h3>
+                  <h3>Live Units / Callsigns</h3>
+                  <button id="opsNewUnitButton">Create unit</button>
                   <select id="opsUnitStatusSelect">
                     <option value="">Set my status</option>
                     <option>Available</option>
@@ -513,6 +514,13 @@
                   </select>
                 </div>
                 <div id="opsUnits" class="ops-unit-board"></div>
+              </article>
+
+              <article class="ops-panel">
+                <div class="ops-panel-head">
+                  <h3>Unit Requests</h3>
+                </div>
+                <div id="opsJoinRequests" class="ops-incident-list"></div>
               </article>
 
               <article class="ops-panel ops-wide">
@@ -534,6 +542,19 @@
               <article class="ops-panel">
                 <h3>Assigned To You</h3>
                 <div id="opsAssigned" class="ops-incident-list"></div>
+              </article>
+
+              <article class="ops-panel">
+                <div class="ops-panel-head">
+                  <h3>Briefings</h3>
+                  <button id="opsNewBriefingButton" data-permission="VIEW_TASKS">Create briefing</button>
+                </div>
+                <div id="opsBriefings" class="ops-incident-list"></div>
+              </article>
+
+              <article class="ops-panel">
+                <h3>Coverage & Stats</h3>
+                <div id="opsCoverage" class="ops-incident-list"></div>
               </article>
             </section>
           </section>
@@ -584,6 +605,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-25-5"></script>
+    <script src="app.js?v=2026-06-25-6"></script>
   </body>
 </html>
