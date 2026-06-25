@@ -2079,6 +2079,37 @@ dialog .section-head .ghost:hover {
   line-height: 1.45;
 }
 
+.calendar-rsvp-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.calendar-rsvp-panel > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.calendar-rsvp-panel .rsvp-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.calendar-rsvp-panel .rsvp-list span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #31445e;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .searchable-calendar-officers > input {
   width: 100%;
   margin-bottom: 9px;

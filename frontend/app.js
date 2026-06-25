@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-25-2';
+const APP_VERSION = '2026-06-25-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -107,6 +107,7 @@ const state = {
   profileSupervisorRequests: [],
   profileCheckins: [],
   profileDevelopmentPlans: [],
+  profileOfficerNotes: [],
   documents: [],
   documentFolder: '',
   announcements: [],
@@ -404,6 +405,7 @@ function bootTasks() {
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
+  if (can('VIEW_TASKS')) tasks.push({ label: 'Processing calendar reminders', run: () => api('processCalendarReminders', {}) });
   if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
@@ -994,7 +996,18 @@ function showCalendarDay(dateKey) {
 function showCalendarEvent(eventId) {
   const row = state.operations.calendar.find((item) => item.ID === eventId);
   if (!row) return;
-  showInfo(row.Title, `<div class="calendar-day-details"><article><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(formatDisplayDateTime(row.Start))}${row.End ? ` to ${escapeHtml(formatDisplayDateTime(row.End))}` : ''}</strong><p>${escapeHtml(row.Detail || 'No additional details.')}</p><small>${escapeHtml(row.Location || '')}${row.Audience ? ` / Assigned to ${escapeHtml(row.Audience)}` : ''}</small>${row.Editable ? `<div class="row-actions"><button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button><button class="mini danger" data-delete-calendar="${escapeHtml(row.ID)}">Delete</button></div>` : ''}</article></div>`);
+  showInfo(row.Title, `<div class="calendar-day-details"><article><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(formatDisplayDateTime(row.Start))}${row.End ? ` to ${escapeHtml(formatDisplayDateTime(row.End))}` : ''}</strong><p>${escapeHtml(row.Detail || 'No additional details.')}</p><small>${escapeHtml(row.Location || '')}${row.Audience ? ` / Assigned to ${escapeHtml(row.Audience)}` : ''}</small>${calendarRsvpPanel(row)}${row.Editable ? `<div class="row-actions"><button class="mini" data-edit-calendar="${escapeHtml(row.ID)}">Edit</button><button class="mini danger" data-delete-calendar="${escapeHtml(row.ID)}">Delete</button></div>` : ''}</article></div>`);
+}
+
+function calendarRsvpPanel(row) {
+  if (row.RequiresRsvp !== 'TRUE') return '';
+  const responses = ['Attending', 'Maybe', 'Not Attending'];
+  return `<div class="calendar-rsvp-panel">
+    <strong>RSVP: ${escapeHtml(row.MyRsvp || 'Pending')}</strong>
+    <div class="row-actions">${responses.map((response) => `<button class="mini ghost" data-calendar-rsvp="${escapeHtml(row.ID)}" data-rsvp-response="${escapeHtml(response)}">${escapeHtml(response)}</button>`).join('')}</div>
+    <small>${escapeHtml(row.RsvpSummary || '')}</small>
+    ${can('VIEW_TASKS') && (row.Rsvps || []).length ? `<div class="rsvp-list">${row.Rsvps.map((item) => `<span>${escapeHtml(item.Officer)}: ${escapeHtml(item.Response)}</span>`).join('')}</div>` : ''}
+  </div>`;
 }
 
 async function openCalendarEventEditor(record = {}) {
@@ -1015,11 +1028,13 @@ async function openCalendarEventEditor(record = {}) {
     calendarAudienceField('Tag', checkboxGroupField('AudienceTags', 'Officer tags', OFFICER_TAGS, record.AudienceType === 'Tag' ? record.AudienceValues : ''), selectedAudience),
     calendarAudienceField('My Supervisees', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Select supervisees', state.officers.filter((officer) => officer.SupervisorUserID === state.user.UserID), record.AudienceType === 'My Supervisees' ? record.AssignedOfficerIDs : ''), selectedAudience),
     calendarAudienceField('Specific Officers', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Specific officers', state.officers, record.AudienceType === 'Specific Officers' ? record.AssignedOfficerIDs : ''), selectedAudience),
+    selectField('RequiresRsvp', 'Require RSVP', ['Yes', 'No'], record.RequiresRsvp === 'FALSE' ? 'No' : 'Yes'),
+    checkboxGroupField('ReminderMinutes', 'Discord reminders', ['1440', '720', '60', '15'], record.ReminderMinutes || '1440,60'),
   ], async (values) => {
     if (new Date(values.EndsAt) <= new Date(values.StartsAt)) return { ok: false, error: 'The event end must be after its start.' };
     if (values.AudienceType === 'Specific Officers' && !can('FULL_ACCESS')) return { ok: false, error: 'Only Inspector+ can assign specific officers.' };
     return api('saveCalendarEvent', values);
-  }, { successMessage: 'Calendar assignment saved.', onSuccess: async () => { invalidateCache('operationalCalendar'); await loadCalendar(); } });
+  }, { successMessage: 'Calendar assignment saved.', onSuccess: async () => { invalidateCache('operationalCalendar'); invalidateCache('personalInbox'); await loadCalendar(); } });
   updateCalendarAudienceFields(selectedAudience);
 }
 
@@ -1219,6 +1234,7 @@ async function loadMyProfile() {
     actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="Transfer" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
   })}
     ${profileTable('My Supervisor Requests', response.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'])}
+    ${profileTable('Officer Notes', response.officerNotes || [], ['Visibility', 'Title', 'Body', 'Author', 'CreatedAt'])}
     ${profileTable('My Appeals / Reviews', response.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'])}
     ${profileTable('My Development Plans', response.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'])}
     ${profileTable('My Probation / Competency', response.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'])}
@@ -1263,7 +1279,7 @@ async function loadTasks() {
     stat('Your Supervisees', counts.mySuperviseeTasks || 0),
     stat('Total Tasks', counts.total || 0),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['TaskType', 'Officer', 'Rank', 'Supervisor', 'Course', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
+  renderTable('#tasksTable', state.tasks, ['Priority', 'TaskType', 'Officer', 'Rank', 'Supervisor', 'Course', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
     rowAction: (row) => `${row.MySupervisee ? 'class="supervisor-task"' : ''} ${taskOpenAttr(row)}`,
     actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Review</button>`,
   });
@@ -1875,6 +1891,7 @@ function renderOfficerProfile(data) {
   state.profileAppeals = data.appeals || [];
   state.profileCheckins = data.checkins || [];
   state.profileDevelopmentPlans = data.developmentPlans || [];
+  state.profileOfficerNotes = data.officerNotes || [];
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -1890,6 +1907,7 @@ function renderOfficerProfile(data) {
         <button data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA">Add LOA</button>
         <button data-add-checkin="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Check-in</button>
         <button data-add-plan="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Add goal</button>
+        <button data-add-officer-note="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Add note</button>
       </div>
     </div>
 
@@ -1911,6 +1929,9 @@ function renderOfficerProfile(data) {
     </section>
 
     <section class="profile-columns">
+      ${profileTable('Scoped Notes', data.officerNotes || [], ['Visibility', 'Title', 'Body', 'Author', 'CreatedAt'], {
+        actions: (row) => can('VIEW_TASKS') || can('FULL_ACCESS') ? `<button class="mini" data-edit-officer-note="${escapeHtml(row.NoteID)}">Edit</button><button class="mini ghost" data-delete-officer-note="${escapeHtml(row.NoteID)}">Delete</button>` : '',
+      })}
       ${profileTable('Training History', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
       ${profileTable('Rank History', data.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
       ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'], {
@@ -2128,6 +2149,21 @@ function openDevelopmentPlanEditor(officerIdOrRecord) {
     field('Notes', 'Notes', 'textarea', true, record.Notes),
   ], async (values) => api('saveDevelopmentPlan', values), {
     successMessage: 'Development plan saved.',
+  });
+}
+
+function openOfficerNoteEditor(officerIdOrRecord) {
+  const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
+  const officerId = record.OfficerID || officerIdOrRecord || '';
+  openEditor(record.NoteID ? 'Edit officer note' : 'Add officer note', [
+    hiddenField('NoteID', record.NoteID || ''),
+    hiddenField('OfficerID', officerId),
+    selectField('Visibility', 'Visibility', ['Visible to officer', 'Supervisor', 'Command', 'Training'], record.Visibility || 'Supervisor'),
+    field('Title', 'Title', 'text', false, record.Title || ''),
+    field('Body', 'Note', 'textarea', true, record.Body || ''),
+  ], async (values) => api('saveOfficerNote', values), {
+    successMessage: 'Officer note saved.',
+    onSuccess: async () => { invalidateCache(); await loadOfficerProfile(state.selectedOfficerId); },
   });
 }
 
@@ -2464,6 +2500,20 @@ async function handleDocumentClick(event) {
     await confirmDelete('Delete this calendar assignment?', 'deleteCalendarEvent', { EventID: deleteCalendar.dataset.deleteCalendar }, loadCalendar);
     return;
   }
+  const calendarRsvp = event.target.closest('[data-calendar-rsvp]');
+  if (calendarRsvp) {
+    const eventId = calendarRsvp.dataset.calendarRsvp;
+    const response = await api('setCalendarRsvp', { EventID: eventId, Response: calendarRsvp.dataset.rsvpResponse });
+    if (!response.ok) {
+      showInfo('RSVP failed', `<p>${escapeHtml(response.error || 'Could not update RSVP.')}</p>`);
+      return;
+    }
+    invalidateCache('operationalCalendar');
+    invalidateCache('personalInbox');
+    await loadCalendar();
+    showCalendarEvent(eventId);
+    return;
+  }
   const calendarDay = event.target.closest('[data-calendar-day]');
   if (calendarDay) {
     showCalendarDay(calendarDay.dataset.calendarDay);
@@ -2645,6 +2695,22 @@ async function handleDocumentClick(event) {
 
   const addPlan = event.target.closest('[data-add-plan]');
   if (addPlan) return openDevelopmentPlanEditor(addPlan.dataset.addPlan);
+
+  const addOfficerNote = event.target.closest('[data-add-officer-note]');
+  if (addOfficerNote) return openOfficerNoteEditor(addOfficerNote.dataset.addOfficerNote);
+
+  const editOfficerNote = event.target.closest('[data-edit-officer-note]');
+  if (editOfficerNote) {
+    const record = state.profileOfficerNotes.find((row) => row.NoteID === editOfficerNote.dataset.editOfficerNote);
+    if (record) openOfficerNoteEditor(record);
+    return;
+  }
+
+  const deleteOfficerNote = event.target.closest('[data-delete-officer-note]');
+  if (deleteOfficerNote) {
+    await confirmDelete('Delete this officer note?', 'deleteOfficerNote', { NoteID: deleteOfficerNote.dataset.deleteOfficerNote }, () => loadOfficerProfile(state.selectedOfficerId));
+    return;
+  }
 
   const editPlan = event.target.closest('[data-edit-plan]');
   if (editPlan) {
@@ -3745,6 +3811,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       operationalCalendar: supabaseOperationalCalendar,
       saveCalendarEvent: supabaseSaveCalendarEvent,
       deleteCalendarEvent: supabaseDeleteCalendarEvent,
+      setCalendarRsvp: supabaseSetCalendarRsvp,
+      processCalendarReminders: supabaseProcessCalendarReminders,
       developmentRecords: supabaseDevelopmentRecords,
       saveProbation: supabaseSaveProbation,
       deleteProbation: (payload) => supabaseDeleteOperationsRecord('probation_records', 'probation_id', payload.ProbationID),
@@ -3763,6 +3831,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       getOfficerProfile: supabaseGetOfficerProfile,
       saveOfficer: supabaseSaveOfficer,
       setOfficerSupervisor: supabaseSetOfficerSupervisor,
+      saveOfficerNote: supabaseSaveOfficerNote,
+      deleteOfficerNote: (payload) => supabaseDeleteOperationsRecord('officer_notes', 'note_id', payload.NoteID),
       supervisorOptions: supabaseSupervisorOptions,
       deleteOfficer: supabaseDeleteOfficer,
       listTraining: supabaseListTraining,
@@ -3873,7 +3943,7 @@ async function supabaseMyProfile() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers, probation, performanceReviews, restrictions] = await Promise.all([
+  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers, probation, performanceReviews, restrictions, officerNotes] = await Promise.all([
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('training_matrix', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
@@ -3888,6 +3958,7 @@ async function supabaseMyProfile() {
     officer ? supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id) : [],
     officer ? supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date') : [],
     officer ? supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id) : [],
+    officer ? supabaseOptionalRows('officer_notes', 'officer_id', officer.officer_id, 'created_at') : [],
   ]);
   return {
     ok: true,
@@ -3904,6 +3975,7 @@ async function supabaseMyProfile() {
     probation: probation.map((row) => ({ ProbationID: row.probation_id, OfficerID: row.officer_id, Stage: row.stage, Status: row.status, Progress: row.progress, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
     performanceReviews: performanceReviews.map((row) => ({ ReviewID: row.review_id, OfficerID: row.officer_id, ReviewDate: row.review_date, PeriodStart: row.period_start, PeriodEnd: row.period_end, Rating: row.rating, ActivitySummary: row.activity_summary, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
     restrictions: restrictions.map((row) => ({ RestrictionID: row.restriction_id, OfficerID: row.officer_id, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    officerNotes: officerNotes.map((row) => supabaseOfficerNote(row, profiles)),
     shifts: shifts.map(supabaseShift),
     shiftStatus: await supabaseShiftStatus(),
     rankChanges: rankChanges.map(supabaseRankChange),
@@ -4087,7 +4159,7 @@ async function supabasePersonalInbox() {
     ...(tasks.performanceReviews || []),
     ...(tasks.restrictionReviews || []),
     ...(tasks.retrospectiveShifts || []),
-  ].map((row) => ({ Type: row.TaskType, Priority: row.MySupervisee ? 'High' : 'Normal', Title: row.Officer || row.Course || row.Subject || row.TaskType, Detail: row.Subject || row.Reason || row.Status || '', DueDate: row.EndDate || row.TargetDate || row.NextReviewDate || row.RequestedAt || '', Status: row.Status, View: 'tasks' })) : [];
+  ].map((row) => ({ Type: row.TaskType, Priority: row.Priority || (row.MySupervisee ? 'High' : 'Normal'), Title: row.Officer || row.Course || row.Subject || row.TaskType, Detail: row.Subject || row.Reason || row.Status || '', DueDate: row.EndDate || row.TargetDate || row.NextReviewDate || row.RequestedAt || '', Status: row.Status, View: 'tasks' })) : [];
   const docRows = pendingDocs.map((doc) => ({ Type: 'Document', Priority: 'High', Title: doc.Title, Detail: `${doc.Category || 'Document'} acknowledgement required`, CreatedAt: doc.UpdatedAt, View: 'documents' }));
   const supervisorRows = (supervisorRequests || []).slice(0, 8).map((row) => ({ Type: 'Supervisor', Priority: row.status === 'Pending' ? 'High' : 'Normal', Title: row.subject || 'Supervisor request', Detail: `${row.category || 'General'} / ${row.status || 'Pending'}${row.review_reason ? ` / ${row.review_reason}` : ''}`, CreatedAt: row.created_at, Status: row.status, View: 'myProfile' }));
   const actionRows = (actions.rows || []).map((row) => ({ ...row, Type: row.Type || 'Action', View: row.View || 'dashboard' }));
@@ -4144,7 +4216,7 @@ async function supabaseSaveSavedView(data) {
 }
 
 async function supabaseOperationalCalendar() {
-  const [events, courses, bookings, loa, reviews, checkins, officers, profile, profiles] = await Promise.all([supabaseOptionalAll('calendar_events'), supabaseAll('training_courses'), supabaseAll('course_bookings'), supabaseAll('loa_requests'), supabaseOptionalAll('performance_reviews'), supabaseAll('supervisor_checkins'), supabaseAll('officers'), supabaseProfileByUserId(state.user.UserID), supabaseAll('profiles')]);
+  const [events, rsvps, courses, bookings, loa, reviews, checkins, officers, profile, profiles] = await Promise.all([supabaseOptionalAll('calendar_events'), supabaseOptionalAll('calendar_rsvps'), supabaseAll('training_courses'), supabaseAll('course_bookings'), supabaseAll('loa_requests'), supabaseOptionalAll('performance_reviews'), supabaseAll('supervisor_checkins'), supabaseAll('officers'), supabaseProfileByUserId(state.user.UserID), supabaseAll('profiles')]);
   const officerName = (id) => officers.find((row) => row.officer_id === id)?.roblox_username || 'Officer';
   const myOfficer = officers.find((row) => row.member_id === profile?.member_id);
   const visibleCourses = courses.filter((course) => {
@@ -4152,12 +4224,32 @@ async function supabaseOperationalCalendar() {
     return bookings.some((booking) => booking.course_id === course.course_id && booking.officer_id === myOfficer?.officer_id && ['Approved', 'Waitlist', 'Completed'].includes(booking.status));
   });
   return { ok: true, rows: [
-    ...events.map((row) => ({ ID: row.event_id, Type: row.event_type, Title: row.title, Start: row.starts_at, End: row.ends_at, Detail: row.details, Location: row.location, Priority: row.priority || 'Normal', AudienceType: row.audience_type || 'Everyone', AudienceValues: row.audience_values || [], AssignedOfficerIDs: row.assigned_officer_ids || [], Audience: calendarAudienceSummary(row, officers), CreatedBy: profiles.find((item) => item.user_id === row.created_by)?.roblox_username || '', Editable: row.created_by === state.user.UserID || can('FULL_ACCESS') })),
+    ...events.map((row) => {
+      const eventRsvps = (rsvps || []).filter((item) => item.event_id === row.event_id);
+      const myRsvp = eventRsvps.find((item) => item.officer_id === myOfficer?.officer_id);
+      return { ID: row.event_id, Type: row.event_type, Title: row.title, Start: row.starts_at, End: row.ends_at, Detail: row.details, Location: row.location, Priority: row.priority || 'Normal', AudienceType: row.audience_type || 'Everyone', AudienceValues: row.audience_values || [], AssignedOfficerIDs: row.assigned_officer_ids || [], Audience: calendarAudienceSummary(row, officers), CreatedBy: profiles.find((item) => item.user_id === row.created_by)?.roblox_username || '', Editable: row.created_by === state.user.UserID || can('FULL_ACCESS'), RequiresRsvp: row.requires_rsvp ? 'TRUE' : 'FALSE', ReminderMinutes: (row.reminder_minutes || []).join(','), MyRsvp: myRsvp?.response || 'Pending', RsvpSummary: calendarRsvpSummary(row, eventRsvps, officers, profiles), Rsvps: eventRsvps.map((item) => calendarRsvpRow(item, officers)) };
+    }),
     ...visibleCourses.filter((row) => row.status !== 'Cancelled').map((row) => ({ ID: `course-${row.course_id}`, Type: 'Training', Title: row.title, Start: row.course_date, End: addMinutesIso(row.course_date, row.duration_minutes || 60), Detail: `${row.standard} / ${row.duration_minutes || 60} minutes`, Location: row.location })),
     ...loa.filter((row) => row.status === 'Approved').map((row) => ({ ID: row.request_id, Type: 'LOA', Title: `${officerName(row.officer_id)} on LOA`, Start: row.start_date, End: row.end_date, Detail: row.reason })),
     ...reviews.filter((row) => row.next_review_date).map((row) => ({ ID: row.review_id, Type: 'Review', Title: `${officerName(row.officer_id)} review`, Start: row.next_review_date, Detail: row.rating })),
     ...checkins.filter((row) => row.follow_up_date).map((row) => ({ ID: row.checkin_id, Type: 'Follow-up', Title: `${officerName(row.officer_id)} check-in`, Start: row.follow_up_date, Detail: row.development_goals })),
   ].filter((row) => row.Start) };
+}
+
+function calendarRsvpSummary(event, rsvps, officers, profiles) {
+  const recipients = calendarEventRecipients(event, officers, profiles);
+  const counts = { Attending: 0, Maybe: 0, 'Not Attending': 0, Pending: 0 };
+  const byOfficer = new Map((rsvps || []).map((row) => [row.officer_id, row.response || 'Pending']));
+  recipients.forEach((profile) => {
+    const officer = officers.find((row) => row.member_id === profile.member_id);
+    counts[byOfficer.get(officer?.officer_id) || 'Pending'] += 1;
+  });
+  return `Attending ${counts.Attending} / Maybe ${counts.Maybe} / Not attending ${counts['Not Attending']} / Pending ${counts.Pending}`;
+}
+
+function calendarRsvpRow(row, officers) {
+  const officer = officers.find((item) => item.officer_id === row.officer_id) || {};
+  return { OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', Response: row.response || 'Pending', Note: row.note || '', RespondedAt: row.responded_at || '' };
 }
 
 async function supabaseSaveCalendarEvent(data) {
@@ -4169,14 +4261,28 @@ async function supabaseSaveCalendarEvent(data) {
   if (['Role', 'Ranks', 'Tag'].includes(audienceType) && !audienceValues.length) return { ok: false, error: `Select at least one ${audienceType.toLowerCase()}.` };
   if (['Specific Officers', 'My Supervisees'].includes(audienceType) && !assignedOfficerIds.length) return { ok: false, error: 'Select at least one officer.' };
   const existing = data.EventID ? await supabaseById('calendar_events', 'event_id', data.EventID) : null;
-  const record = { title: data.Title, event_type: data.EventType, priority: data.Priority || 'Normal', starts_at: data.StartsAt, ends_at: data.EndsAt || null, location: data.Location || '', details: data.Details || '', audience_type: audienceType, audience_values: audienceValues, assigned_officer_ids: assignedOfficerIds, created_by: existing?.created_by || me.user.UserID, updated_at: new Date().toISOString() };
+  const record = { title: data.Title, event_type: data.EventType, priority: data.Priority || 'Normal', starts_at: data.StartsAt, ends_at: data.EndsAt || null, location: data.Location || '', details: data.Details || '', audience_type: audienceType, audience_values: audienceValues, assigned_officer_ids: assignedOfficerIds, requires_rsvp: data.RequiresRsvp !== 'No', reminder_minutes: splitTags(data.ReminderMinutes || '').map(Number).filter((value) => Number.isFinite(value) && value > 0), created_by: existing?.created_by || me.user.UserID, updated_at: new Date().toISOString() };
   const [officers, profiles] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles')]);
   const previousRecipients = existing ? calendarEventRecipients(existing, officers, profiles) : [];
-  const query = data.EventID ? supabaseClient.from('calendar_events').update(record).eq('event_id', data.EventID) : supabaseClient.from('calendar_events').insert(record);
-  const { error } = await query;
+  const query = data.EventID
+    ? supabaseClient.from('calendar_events').update(record).eq('event_id', data.EventID).select('*').limit(1).maybeSingle()
+    : supabaseClient.from('calendar_events').insert(record).select('*').limit(1).maybeSingle();
+  const { data: savedEvent, error } = await query;
   if (error) return { ok: false, error: error.message };
-  await notifyCalendarEventChange(existing, record, previousRecipients, calendarEventRecipients(record, officers, profiles), me.user);
+  const savedRecord = savedEvent || { ...record, event_id: data.EventID };
+  await syncCalendarRsvps(savedRecord, calendarEventRecipients(savedRecord, officers, profiles), officers);
+  await notifyCalendarEventChange(existing, savedRecord, previousRecipients, calendarEventRecipients(savedRecord, officers, profiles), me.user);
   return { ok: true };
+}
+
+async function syncCalendarRsvps(event, recipients, officers) {
+  if (!event?.event_id || !event.requires_rsvp) return;
+  const recipientMemberIds = new Set((recipients || []).map((profile) => profile.member_id));
+  const rows = officers
+    .filter((officer) => recipientMemberIds.has(officer.member_id))
+    .map((officer) => ({ event_id: event.event_id, officer_id: officer.officer_id, response: 'Pending' }));
+  if (!rows.length) return;
+  await supabaseClient.from('calendar_rsvps').upsert(rows, { onConflict: 'event_id,officer_id', ignoreDuplicates: true });
 }
 
 async function supabaseDeleteCalendarEvent(data) {
@@ -4188,6 +4294,83 @@ async function supabaseDeleteCalendarEvent(data) {
   if (error) return { ok: false, error: error.message };
   await Promise.all(recipients.filter((profile) => profile.user_id !== state.user.UserID).map((recipient) => supabaseNotify(recipient.member_id, 'Calendar assignment cancelled', `${event.title} on ${formatDisplayDateTime(event.starts_at)} has been removed from the calendar.`, state.user.UserID)));
   return { ok: true };
+}
+
+async function supabaseSetCalendarRsvp(data) {
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  if (!officer) return { ok: false, error: 'No linked officer profile.' };
+  if (!['Attending', 'Maybe', 'Not Attending'].includes(data.Response)) return { ok: false, error: 'Choose a valid RSVP response.' };
+  const event = await supabaseById('calendar_events', 'event_id', data.EventID);
+  if (!event) return { ok: false, error: 'Calendar event not found.' };
+  const { error } = await supabaseClient.from('calendar_rsvps').upsert({
+    event_id: data.EventID,
+    officer_id: officer.officer_id,
+    response: data.Response,
+    note: data.Note || '',
+    responded_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'event_id,officer_id' });
+  if (error) return { ok: false, error: error.message };
+  await supabaseNotify(profile.member_id, 'Calendar RSVP updated', notificationDetails([
+    detailLine('Event', event.title),
+    detailLine('Response', data.Response),
+    detailLine('Starts', formatDisplayDateTime(event.starts_at)),
+  ]), state.user?.UserID);
+  return { ok: true };
+}
+
+async function supabaseProcessCalendarReminders() {
+  if (!can('VIEW_TASKS')) return { ok: true, skipped: true };
+  try {
+    const now = Date.now();
+    const [events, logs, officers, profiles] = await Promise.all([
+      supabaseOptionalAll('calendar_events'),
+      supabaseOptionalAll('calendar_reminder_log'),
+      supabaseAll('officers'),
+      supabaseAll('profiles'),
+    ]);
+    const logKeys = new Set((logs || []).map((row) => `${row.event_id}:${row.officer_id}:${row.minutes_before}`));
+    let sent = 0;
+    for (const event of events || []) {
+      const start = new Date(event.starts_at).getTime();
+      if (!start || start <= now) continue;
+      const reminderMinutes = (event.reminder_minutes || [1440, 60]).filter((value) => Number(value) > 0);
+      for (const minutesBefore of reminderMinutes) {
+        const msUntil = start - now;
+        const reminderWindowMs = Number(minutesBefore) * 60000;
+        if (msUntil > reminderWindowMs || msUntil < reminderWindowMs - 15 * 60000) continue;
+        const recipients = calendarEventRecipients(event, officers, profiles);
+        for (const recipient of recipients) {
+          const officer = officers.find((row) => row.member_id === recipient.member_id);
+          if (!officer) continue;
+          const key = `${event.event_id}:${officer.officer_id}:${minutesBefore}`;
+          if (logKeys.has(key)) continue;
+          await supabaseNotify(recipient.member_id, 'Calendar event reminder', notificationDetails([
+            detailLine('Event', event.title),
+            detailLine('Starts', formatDisplayDateTime(event.starts_at)),
+            detailLine('Location', event.location),
+            detailLine('Reminder', reminderLabel(minutesBefore)),
+          ]), state.user?.UserID);
+          const { error } = await supabaseClient.from('calendar_reminder_log').insert({ event_id: event.event_id, officer_id: officer.officer_id, minutes_before: minutesBefore });
+          if (error) throw new Error(error.message);
+          logKeys.add(key);
+          sent += 1;
+        }
+      }
+    }
+    return { ok: true, sent };
+  } catch (error) {
+    if (/does not exist|schema cache/i.test(error.message || '')) return { ok: true, skipped: true };
+    return { ok: false, error: error.message };
+  }
+}
+
+function reminderLabel(minutes) {
+  const value = Number(minutes);
+  if (value >= 1440) return `${Math.round(value / 1440)} day(s) before`;
+  if (value >= 60) return `${Math.round(value / 60)} hour(s) before`;
+  return `${value} minute(s) before`;
 }
 
 async function notifyCalendarEventChange(existing, record, previousRecipients, currentRecipients, actor) {
@@ -4355,7 +4538,7 @@ async function supabaseGetOfficerProfile(data) {
   const { data: officer, error } = await supabaseClient.from('officers').select('*').eq('officer_id', data.OfficerID).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!officer) return { ok: false, error: 'Officer not found.' };
-  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers, probation, performanceReviews, restrictions] = await Promise.all([
+  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers, probation, performanceReviews, restrictions, officerNotes] = await Promise.all([
     supabaseRows('training_records', 'officer_id', officer.officer_id),
     supabaseRows('training_matrix', 'officer_id', officer.officer_id),
     supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id),
@@ -4372,6 +4555,7 @@ async function supabaseGetOfficerProfile(data) {
     supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id),
     supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date'),
     supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id),
+    supabaseOptionalRows('officer_notes', 'officer_id', officer.officer_id, 'created_at'),
   ]);
   const payload = {
     officer: decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }),
@@ -4388,6 +4572,7 @@ async function supabaseGetOfficerProfile(data) {
     probation: probation.map((row) => ({ Stage: row.stage, Status: row.status, Progress: `${row.progress}%`, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
     performanceReviews: performanceReviews.map((row) => ({ ReviewDate: row.review_date, Rating: row.rating, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
     restrictions: restrictions.map((row) => ({ RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    officerNotes: officerNotes.map((row) => supabaseOfficerNote(row, profiles)),
   };
   payload.timeline = supabaseTimeline(payload);
   return Object.assign({ ok: true }, payload);
@@ -4431,6 +4616,34 @@ async function supabaseSaveOfficer(data) {
   }
   await supabaseAudit(me.user.UserID, data.OfficerID ? 'UPDATE_OFFICER' : 'CREATE_OFFICER', 'Officer', officerId, record);
   return { ok: true, OfficerID: officerId };
+}
+
+async function supabaseSaveOfficerNote(data) {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  if (!data.OfficerID || !data.Body) return { ok: false, error: 'Officer and note are required.' };
+  const visibility = data.Visibility || 'Supervisor';
+  if (visibility === 'Command' && !can('FULL_ACCESS')) return { ok: false, error: 'Only command users can create command-only notes.' };
+  if (visibility === 'Training' && !can('MANAGE_TRAINING') && !can('FULL_ACCESS')) return { ok: false, error: 'Only trainers or command users can create training notes.' };
+  const record = {
+    officer_id: data.OfficerID,
+    author_user_id: me.user.UserID,
+    visibility,
+    title: data.Title || '',
+    body: data.Body || '',
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.NoteID ? supabaseClient.from('officer_notes').update(record).eq('note_id', data.NoteID) : supabaseClient.from('officer_notes').insert(record);
+  const { error } = await query;
+  if (error) return { ok: false, error: error.message };
+  if (visibility === 'Visible to officer') {
+    const officer = await supabaseById('officers', 'officer_id', data.OfficerID);
+    if (officer) await supabaseNotify(officer.member_id, 'Officer note added', notificationDetails([
+      detailLine('Title', data.Title || 'Officer note'),
+      detailLine('Added by', me.user.RobloxUsername),
+    ]), me.user.UserID);
+  }
+  return { ok: true };
 }
 
 async function supabaseSetOfficerSupervisor(data) {
@@ -5053,21 +5266,21 @@ async function supabaseTasks() {
     const task = decorate(row, 'Retrospective Shift');
     return Object.assign(task, { StartedAt: row.started_at, EndedAt: row.ended_at, Summary: row.summary || '', Reason: row.reason || '' });
   }).filter((row) => row.MySupervisee || can('FULL_ACCESS'));
-  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...accountRequests, ...retrospectiveShifts];
+  const all = prioritizeTasks([...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...accountRequests, ...retrospectiveShifts]);
   return {
     ok: true,
-    pendingLoa,
-    pendingTransfers,
-    pendingSupervisorRequests,
-    pendingCourseBookings,
-    pendingAppeals,
-    probationReviews,
-    performanceReviews,
-    restrictionReviews,
-    activityReviews,
-    trainingNeedsReview,
-    accountRequests,
-    retrospectiveShifts,
+    pendingLoa: all.filter((row) => row.TaskType === 'LOA Approval'),
+    pendingTransfers: all.filter((row) => row.TaskType === 'Transfer Request'),
+    pendingSupervisorRequests: all.filter((row) => row.TaskType === 'Supervisor Request'),
+    pendingCourseBookings: all.filter((row) => row.TaskType === 'Course Booking'),
+    pendingAppeals: all.filter((row) => row.TaskType === 'Appeal / Review'),
+    probationReviews: all.filter((row) => row.TaskType === 'Probation Review'),
+    performanceReviews: all.filter((row) => row.TaskType === 'Performance Review'),
+    restrictionReviews: all.filter((row) => row.TaskType === 'Restriction Review'),
+    activityReviews: all.filter((row) => row.TaskType === 'Activity Review'),
+    trainingNeedsReview: all.filter((row) => row.TaskType === 'Training Review'),
+    accountRequests: all.filter((row) => row.TaskType === 'Account Request'),
+    retrospectiveShifts: all.filter((row) => row.TaskType === 'Retrospective Shift'),
     counts: {
       pendingLoa: pendingLoa.length,
       pendingTransfers: pendingTransfers.length,
@@ -5081,6 +5294,31 @@ async function supabaseTasks() {
       total: all.length,
     },
   };
+}
+
+function prioritizeTasks(rows) {
+  return rows.map((row) => {
+    const score = taskPriorityScore(row);
+    return { ...row, Priority: score >= 85 ? 'Critical' : score >= 60 ? 'High' : score >= 30 ? 'Normal' : 'Low', PriorityScore: score };
+  }).sort((a, b) => b.PriorityScore - a.PriorityScore);
+}
+
+function taskPriorityScore(row) {
+  let score = row.MySupervisee ? 15 : 0;
+  if (['Discipline Review', 'Restriction Review', 'Appeal / Review'].includes(row.TaskType)) score += 55;
+  if (['LOA Approval', 'Transfer Request', 'Retrospective Shift'].includes(row.TaskType)) score += 45;
+  if (['Training Review', 'Probation Review', 'Performance Review', 'Activity Review'].includes(row.TaskType)) score += 35;
+  if (row.TaskType === 'Account Request') score += 30;
+  if (row.TaskType === 'Course Booking') score += 25;
+  const due = row.EndDate || row.TargetDate || row.NextReviewDate || row.StartDate || row.CreatedAt || row.RequestedAt;
+  if (due) {
+    const days = Math.ceil((new Date(due).getTime() - Date.now()) / 86400000);
+    if (days < 0) score += 35;
+    else if (days <= 2) score += 25;
+    else if (days <= 7) score += 15;
+  }
+  if (['Expired', 'Denied', 'Suspended', 'Needs Review'].includes(row.Status)) score += 20;
+  return Math.min(100, Math.max(0, score));
 }
 
 async function supabaseSupervisorDashboard() {
@@ -5953,6 +6191,20 @@ function supabaseNotification(row) {
     CreatedAt: row.created_at || '',
     ReadAt: row.read_at || '',
     ActorUserID: row.actor_user_id || '',
+  };
+}
+
+function supabaseOfficerNote(row, profiles = []) {
+  const author = profiles.find((profile) => profile.user_id === row.author_user_id) || {};
+  return {
+    NoteID: row.note_id,
+    OfficerID: row.officer_id,
+    Visibility: row.visibility || 'Supervisor',
+    Title: row.title || '',
+    Body: row.body || '',
+    Author: author.roblox_username || row.author_user_id || '',
+    CreatedAt: row.created_at || '',
+    UpdatedAt: row.updated_at || '',
   };
 }
 
