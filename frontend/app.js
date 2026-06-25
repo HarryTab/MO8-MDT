@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-25-3';
+const APP_VERSION = '2026-06-25-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -5995,7 +5995,7 @@ async function supabaseNotify(memberId, title, message, actorUserId) {
       message,
       actor_user_id: actorUserId || null,
     }).select('notification_id').maybeSingle();
-    if (data?.notification_id) sendDiscordNotification(data.notification_id);
+    if (data?.notification_id) await sendDiscordNotification(data.notification_id);
   } catch (error) {
     // Notification failure should not block the user action.
   }
