@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-25-4">
+    <link rel="stylesheet" href="styles.css?v=2026-06-25-5">
   </head>
   <body>
     <main class="terminal-shell">
@@ -90,6 +90,7 @@
                 <div class="notification-menu" id="notificationMenu" hidden></div>
               </div>
               <button class="ghost" id="passwordButton">Password</button>
+              <button class="ghost" id="hubSwitchButton">Switch hub</button>
               <button class="ghost" id="logoutButton">Logout</button>
             </div>
         </header>
@@ -124,6 +125,26 @@
                 <span id="bootProgressBar"></span>
               </div>
               <div class="boot-steps" id="bootSteps"></div>
+            </div>
+          </section>
+
+          <section class="hub-select" id="hubSelectView" hidden>
+            <div class="hub-select-copy">
+              <span class="access-chip">Select workspace</span>
+              <h2>Choose your MDT hub</h2>
+              <p>Personnel Hub keeps officer records, training, documents and supervision tools. Operations Hub opens the live CAD-style workspace for units, incidents and BOLOs.</p>
+            </div>
+            <div class="hub-cards">
+              <button class="hub-card personnel" id="enterPersonnelHub" type="button">
+                <span>Personnel Hub</span>
+                <strong>Records, training and command admin</strong>
+                <small>Officer profiles, courses, LOA, documents, supervision, tasks and audit logs.</small>
+              </button>
+              <button class="hub-card operations" id="enterOperationsHub" type="button">
+                <span>Operations Hub</span>
+                <strong>Live units and dispatch</strong>
+                <small>On-duty officers, CAD incidents, BOLOs, quick statuses and operational control.</small>
+              </button>
             </div>
           </section>
 
@@ -460,7 +481,64 @@
             <div id="handoverBoard" class="handover-board"></div>
           </section>
         </section>
+
+          <section id="operationsView" class="operations-hub" hidden>
+            <section class="ops-hero">
+              <div>
+                <span>MO8 Operations Hub</span>
+                <h2>Live Roads Policing CAD</h2>
+                <p>Manage active units, dispatch incidents and operational alerts from one live workspace.</p>
+              </div>
+              <div class="ops-actions">
+                <button id="opsStartShiftButton">Start shift</button>
+                <button class="ghost" id="opsEndShiftButton">End shift</button>
+                <button class="ghost" id="opsRefreshButton">Refresh</button>
+              </div>
+            </section>
+
+            <div id="opsSummary" class="ops-summary"></div>
+
+            <section class="ops-grid">
+              <article class="ops-panel ops-wide">
+                <div class="ops-panel-head">
+                  <h3>Live Units</h3>
+                  <select id="opsUnitStatusSelect">
+                    <option value="">Set my status</option>
+                    <option>Available</option>
+                    <option>En Route</option>
+                    <option>On Scene</option>
+                    <option>Transporting</option>
+                    <option>At Station</option>
+                    <option>Unavailable</option>
+                  </select>
+                </div>
+                <div id="opsUnits" class="ops-unit-board"></div>
+              </article>
+
+              <article class="ops-panel ops-wide">
+                <div class="ops-panel-head">
+                  <h3>CAD Incidents</h3>
+                  <button id="opsNewIncidentButton">Create incident</button>
+                </div>
+                <div id="opsIncidents" class="ops-incident-list"></div>
+              </article>
+
+              <article class="ops-panel">
+                <div class="ops-panel-head">
+                  <h3>BOLO / Intel</h3>
+                  <button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button>
+                </div>
+                <div id="opsBolos" class="ops-bolo-list"></div>
+              </article>
+
+              <article class="ops-panel">
+                <h3>Assigned To You</h3>
+                <div id="opsAssigned" class="ops-incident-list"></div>
+              </article>
+            </section>
+          </section>
         </section>
+      </section>
       </section>
     </main>
 
@@ -506,6 +584,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-25-4"></script>
+    <script src="app.js?v=2026-06-25-5"></script>
   </body>
 </html>

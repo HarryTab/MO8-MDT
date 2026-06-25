@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-25-4';
+const APP_VERSION = '2026-06-25-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -92,6 +92,8 @@ const state = {
   permissions: [],
   unreadNotifications: 0,
   activeView: 'dashboard',
+  activeHub: '',
+  operationsHub: { units: [], incidents: [], bolos: [], assigned: [], shiftStatus: null },
   officers: [],
   training: [],
   trainingSummary: [],
@@ -134,10 +136,12 @@ const elements = {
   loginStatus: document.querySelector('#loginStatus'),
   loginView: document.querySelector('#loginView'),
   bootView: document.querySelector('#bootView'),
+  hubSelectView: document.querySelector('#hubSelectView'),
   bootStatus: document.querySelector('#bootStatus'),
   bootSteps: document.querySelector('#bootSteps'),
   bootProgressBar: document.querySelector('#bootProgressBar'),
   appView: document.querySelector('#appView'),
+  operationsView: document.querySelector('#operationsView'),
   nav: document.querySelector('#nav'),
   mobileMenuButton: document.querySelector('#mobileMenuButton'),
   mobileMenuLabel: document.querySelector('#mobileMenuLabel'),
@@ -145,6 +149,7 @@ const elements = {
   currentUser: document.querySelector('#currentUser'),
   logoutButton: document.querySelector('#logoutButton'),
   passwordButton: document.querySelector('#passwordButton'),
+  hubSwitchButton: document.querySelector('#hubSwitchButton'),
   notificationsButton: document.querySelector('#notificationsButton'),
   notificationMenu: document.querySelector('#notificationMenu'),
   infoDialog: document.querySelector('#infoDialog'),
@@ -253,6 +258,9 @@ elements.passwordButton.addEventListener('click', () => {
 elements.notificationsButton.addEventListener('click', toggleNotifications);
 elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
 elements.mobileMenuButton?.addEventListener('click', () => toggleMobileNav());
+elements.hubSwitchButton?.addEventListener('click', showHubSelector);
+document.querySelector('#enterPersonnelHub')?.addEventListener('click', enterPersonnelHub);
+document.querySelector('#enterOperationsHub')?.addEventListener('click', enterOperationsHub);
 document.querySelector('#refreshInboxButton')?.addEventListener('click', async () => {
   invalidateCache('personalInbox');
   await loadInbox();
@@ -308,6 +316,19 @@ document.querySelector('#newRestrictionButton')?.addEventListener('click', () =>
 document.querySelector('#newHandoverButton')?.addEventListener('click', () => openHandoverEditor());
 document.querySelector('#handoverSearch')?.addEventListener('input', renderHandoverBoard);
 document.querySelector('#handoverStatusFilter')?.addEventListener('change', renderHandoverBoard);
+document.querySelector('#opsRefreshButton')?.addEventListener('click', () => loadOperationsHub(true));
+document.querySelector('#opsStartShiftButton')?.addEventListener('click', () => startShift('operations'));
+document.querySelector('#opsEndShiftButton')?.addEventListener('click', () => openEndShiftEditor('operations'));
+document.querySelector('#opsNewIncidentButton')?.addEventListener('click', () => openOpsIncidentEditor());
+document.querySelector('#opsNewBoloButton')?.addEventListener('click', () => openOpsBoloEditor());
+document.querySelector('#opsUnitStatusSelect')?.addEventListener('change', async (event) => {
+  if (!event.target.value) return;
+  const response = await api('updateOperationalStatus', { Status: event.target.value });
+  if (!response.ok) showInfo('Status update failed', `<p>${escapeHtml(response.error || 'Could not update your unit status.')}</p>`);
+  event.target.value = '';
+  invalidateCache('operationsHub');
+  await loadOperationsHub(true);
+});
 
 async function boot() {
   clearCacheForNewVersion();
@@ -325,8 +346,7 @@ async function boot() {
   if (cachedAuth?.user) {
     state.user = cachedAuth.user;
     state.permissions = cachedAuth.permissions || [];
-    showApp();
-    await showView(defaultView());
+    showHubSelector();
     backgroundPreload();
     validateSessionQuietly();
     return;
@@ -344,8 +364,7 @@ async function boot() {
   state.permissions = response.permissions || [];
   storeSessionAuth(state.user, state.permissions);
   if (hasWarmBootCache()) {
-    showApp();
-    await showView(defaultView());
+    showHubSelector();
     backgroundPreload();
     return;
   }
@@ -363,9 +382,8 @@ async function initializeSession() {
     await wait(120);
   }
 
-  showApp();
+  showHubSelector();
   sessionStorage.setItem(BOOT_STORAGE_KEY, String(Date.now()));
-  await showView(defaultView());
   backgroundPreload();
 }
 
@@ -389,7 +407,7 @@ async function validateSessionQuietly() {
   state.user = response.user;
   state.permissions = response.permissions || [];
   storeSessionAuth(state.user, state.permissions);
-  showApp();
+  if (!state.activeHub) showHubSelector();
 }
 
 function bootTasks() {
@@ -423,6 +441,8 @@ async function preloadNotifications() {
 function showBoot() {
   document.body.classList.add('is-booting');
   document.body.classList.remove('is-authenticated');
+  document.body.classList.remove('operations-mode');
+  document.body.classList.remove('hub-select-mode');
   elements.pageTitle.textContent = 'Initializing';
   elements.pageSubtitle.textContent = 'Preparing secure MDT workspace';
   elements.loginView.hidden = true;
@@ -451,6 +471,7 @@ function backgroundPreload() {
     can('VIEW_LOA') ? ['listLoa', {}] : null,
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
     ['teamShifts', { Period: 'week' }],
+    ['operationsHub', {}],
     ['operationalCalendar', {}],
     ['personalInbox', {}],
     ['savedViews', {}],
@@ -472,28 +493,69 @@ function showLogin() {
   document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
   document.body.classList.remove('is-officer-portal');
+  document.body.classList.remove('operations-mode');
+  document.body.classList.remove('hub-select-mode');
+  state.activeHub = '';
   elements.pageTitle.textContent = 'Sign in';
   elements.pageSubtitle.textContent = 'MO8 roleplay community administration';
   elements.loginView.hidden = false;
   elements.bootView.hidden = true;
+  elements.hubSelectView.hidden = true;
   elements.appView.hidden = true;
+  elements.operationsView.hidden = true;
   elements.nav.hidden = true;
   elements.identity.hidden = true;
 }
 
-function showApp() {
+function showHubSelector() {
   document.body.classList.remove('is-booting');
   document.body.classList.add('is-authenticated');
+  document.body.classList.remove('operations-mode');
+  document.body.classList.add('hub-select-mode');
   document.body.classList.toggle('is-officer-portal', isOfficerPortal());
+  state.activeHub = '';
+  elements.pageTitle.textContent = 'Select hub';
+  elements.pageSubtitle.textContent = 'Choose Personnel Hub or Operations Hub';
   elements.loginView.hidden = true;
   elements.bootView.hidden = true;
+  elements.hubSelectView.hidden = false;
   elements.appView.hidden = false;
+  elements.operationsView.hidden = true;
+  document.querySelectorAll('#appView > section').forEach((section) => {
+    if (section !== elements.hubSelectView) section.hidden = true;
+  });
   elements.nav.hidden = false;
   elements.identity.hidden = false;
   elements.currentUser.innerHTML = `
     <strong>${escapeHtml(state.user.RobloxUsername)}</strong>
     <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
   `;
+  applyPermissions();
+}
+
+async function enterPersonnelHub() {
+  state.activeHub = 'personnel';
+  document.body.classList.remove('operations-mode');
+  document.body.classList.remove('hub-select-mode');
+  elements.hubSelectView.hidden = true;
+  elements.appView.hidden = false;
+  elements.operationsView.hidden = true;
+  elements.nav.hidden = false;
+  await showView(defaultView());
+}
+
+async function enterOperationsHub() {
+  state.activeHub = 'operations';
+  document.body.classList.add('operations-mode');
+  document.body.classList.remove('hub-select-mode');
+  elements.hubSelectView.hidden = true;
+  elements.appView.hidden = true;
+  elements.operationsView.hidden = false;
+  elements.nav.hidden = true;
+  elements.pageTitle.textContent = 'Operations Hub';
+  elements.pageSubtitle.textContent = 'Live units, dispatch incidents and operational alerts';
+  if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = 'Operations';
+  await loadOperationsHub();
   applyPermissions();
 }
 
@@ -1361,6 +1423,105 @@ async function loadShift() {
   });
   renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'Shifts', 'Duration', 'LastShift', 'ActivityFlag']);
   applyPermissions();
+}
+
+async function loadOperationsHub(force = false) {
+  if (force) invalidateCache('operationsHub');
+  const response = await apiCached('operationsHub', {});
+  if (!response.ok) {
+    document.querySelector('#opsSummary').innerHTML = `<article class="ops-stat"><strong>!</strong><span>${escapeHtml(response.error || 'Could not load operations.')}</span></article>`;
+    return;
+  }
+  state.operationsHub = response;
+  state.shiftStatus = response.shiftStatus || null;
+  const onDuty = Boolean(response.shiftStatus?.onDuty);
+  document.querySelector('#opsStartShiftButton').disabled = onDuty;
+  document.querySelector('#opsEndShiftButton').disabled = !onDuty;
+  document.querySelector('#opsSummary').innerHTML = [
+    opsStat('On Duty', response.units?.length || 0),
+    opsStat('Available', (response.units || []).filter((unit) => unit.OperationalStatus === 'Available').length),
+    opsStat('Active CAD', (response.incidents || []).filter((row) => !['Resolved', 'Cancelled'].includes(row.Status)).length),
+    opsStat('Priority Calls', (response.incidents || []).filter((row) => ['Emergency', 'Immediate'].includes(row.Priority)).length),
+    opsStat('BOLOs', (response.bolos || []).filter((row) => row.Status === 'Active').length),
+    opsStat('Your Status', onDuty ? response.shiftStatus.activeShift?.OperationalStatus || 'On Duty' : 'Off Duty'),
+  ].join('');
+  document.querySelector('#opsUnits').innerHTML = (response.units || []).length ? response.units.map(opsUnitCard).join('') : emptyState('No officers are currently on duty.');
+  document.querySelector('#opsIncidents').innerHTML = (response.incidents || []).length ? response.incidents.map(opsIncidentCard).join('') : emptyState('No active CAD incidents.');
+  document.querySelector('#opsBolos').innerHTML = (response.bolos || []).length ? response.bolos.map(opsBoloCard).join('') : emptyState('No active BOLOs.');
+  document.querySelector('#opsAssigned').innerHTML = (response.assigned || []).length ? response.assigned.map(opsIncidentCard).join('') : emptyState('No incidents assigned to you.');
+  applyPermissions();
+}
+
+function opsStat(label, value) {
+  return `<article class="ops-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></article>`;
+}
+
+function opsUnitCard(unit) {
+  return `<article class="ops-unit status-${escapeHtml(String(unit.OperationalStatus || '').toLowerCase().replaceAll(' ', '-'))}">
+    <strong>${escapeHtml(unit.Callsign || 'No callsign')}</strong>
+    <div><span>${escapeHtml(unit.RobloxUsername)}</span><small>${escapeHtml(unit.Rank || '')}</small></div>
+    <em>${escapeHtml(unit.OperationalStatus || 'Available')}</em>
+    ${unit.CurrentIncident ? `<small>CAD: ${escapeHtml(unit.CurrentIncident)}</small>` : ''}
+  </article>`;
+}
+
+function opsIncidentCard(row) {
+  return `<article class="ops-incident priority-${escapeHtml(String(row.Priority || 'routine').toLowerCase())}">
+    <div>
+      <span>${escapeHtml(row.IncidentNumber || row.IncidentID)}</span>
+      <strong>${escapeHtml(row.Title)}</strong>
+      <p>${escapeHtml(row.Location || 'No location')} / ${escapeHtml(row.Description || '')}</p>
+      <small>${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)} / Units: ${escapeHtml(row.AssignedUnits || 'Unassigned')}</small>
+    </div>
+    <div class="row-actions">
+      <button class="mini ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button>
+      ${!['Resolved', 'Cancelled'].includes(row.Status) ? `<button class="mini" data-ops-incident-status="${escapeHtml(row.IncidentID)}" data-status="Resolved">Resolve</button>` : ''}
+    </div>
+  </article>`;
+}
+
+function opsBoloCard(row) {
+  return `<article class="ops-bolo priority-${escapeHtml(String(row.Priority || 'normal').toLowerCase())}">
+    <span>${escapeHtml(row.BoloType)} / ${escapeHtml(row.Priority)}</span>
+    <strong>${escapeHtml(row.Title)}</strong>
+    <p>${escapeHtml(row.Description || '')}</p>
+    <small>${escapeHtml(row.Location || '')}${row.ExpiresAt ? ` / Expires ${escapeHtml(formatDisplayDateTime(row.ExpiresAt))}` : ''}</small>
+    ${can('VIEW_TASKS') ? `<div class="row-actions"><button class="mini ghost" data-edit-ops-bolo="${escapeHtml(row.BoloID)}">Edit</button><button class="mini" data-ops-bolo-status="${escapeHtml(row.BoloID)}" data-status="Cancelled">Cancel</button></div>` : ''}
+  </article>`;
+}
+
+function openOpsIncidentEditor(record = {}) {
+  const unitOptions = (state.operationsHub.units || []).map((unit) => ({ UserID: unit.OfficerID, RobloxUsername: `${unit.Callsign || 'Unit'} - ${unit.RobloxUsername}`, Rank: unit.OperationalStatus || unit.Rank }));
+  openEditor(record.IncidentID ? 'Edit CAD incident' : 'Create CAD incident', [
+    hiddenField('IncidentID', record.IncidentID || ''),
+    field('Title', 'Title', 'text', false, record.Title || ''),
+    selectField('IncidentType', 'Type', ['Traffic', 'Pursuit', 'RTC', 'Roads Crime', 'Obstruction', 'Assist Officer', 'Public Order', 'Other'], record.IncidentType || 'Traffic'),
+    selectField('Priority', 'Priority', ['Emergency', 'Immediate', 'Priority', 'Routine'], record.Priority || 'Routine'),
+    selectField('Status', 'Status', ['Open', 'Assigned', 'En Route', 'On Scene', 'Resolved', 'Cancelled'], record.Status || 'Open'),
+    field('Location', 'Location', 'text', false, record.Location || ''),
+    field('Description', 'Description', 'textarea', true, record.Description || ''),
+    userCheckboxGroupField('AssignedOfficerIDs', 'Assigned units', unitOptions, record.AssignedOfficerIDs || ''),
+    field('Outcome', 'Outcome / closure notes', 'textarea', true, record.Outcome || ''),
+  ], async (values) => api('saveOperationalIncident', values), {
+    successMessage: 'CAD incident saved.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
+}
+
+function openOpsBoloEditor(record = {}) {
+  openEditor(record.BoloID ? 'Edit BOLO' : 'Add BOLO', [
+    hiddenField('BoloID', record.BoloID || ''),
+    field('Title', 'Title', 'text', false, record.Title || ''),
+    selectField('BoloType', 'Type', ['Vehicle', 'Person', 'Area', 'Intel', 'Safety', 'Other'], record.BoloType || 'Vehicle'),
+    selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], record.Priority || 'Normal'),
+    selectField('Status', 'Status', ['Active', 'Expired', 'Cancelled'], record.Status || 'Active'),
+    field('Location', 'Location / area', 'text', false, record.Location || ''),
+    field('ExpiresAt', 'Expires at', 'datetime-local', false, localDateTimeValue(record.ExpiresAt)),
+    field('Description', 'Description', 'textarea', true, record.Description || ''),
+  ], async (values) => api('saveOperationalBolo', values), {
+    successMessage: 'BOLO saved.',
+    onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
+  });
 }
 
 function shiftQuery() {
@@ -2243,23 +2404,25 @@ function openShiftEditor(record) {
   });
 }
 
-async function startShift() {
+async function startShift(returnHub = 'personnel') {
   const response = await api('startShift', {});
   if (!response.ok) {
     showInfo('Shift start failed', `<p>${escapeHtml(response.error || 'Could not start shift.')}</p>`);
     return;
   }
   invalidateCache();
-  await showView('shift');
+  if (returnHub === 'operations') await loadOperationsHub(true);
+  else await showView('shift');
 }
 
-function openEndShiftEditor() {
+function openEndShiftEditor(returnHub = 'personnel') {
   const active = state.shiftStatus?.activeShift || {};
   openEditor('End shift', [
     field('EndedAt', 'End time', 'datetime-local', false, localDateTimeValue(active.EndedAt || new Date().toISOString())),
     field('Summary', 'Shift summary', 'textarea', true),
   ], async (values) => api('endShift', values), {
     successMessage: 'Shift ended.',
+    onSuccess: async () => { invalidateCache(); returnHub === 'operations' ? await loadOperationsHub(true) : await loadShift(); },
   });
 }
 
@@ -2492,6 +2655,34 @@ async function handleDocumentClick(event) {
     const record = state.operations.calendar.find((row) => row.ID === editCalendar.dataset.editCalendar);
     if (elements.infoDialog.open) elements.infoDialog.close();
     if (record) openCalendarEventEditor(record);
+    return;
+  }
+  const editOpsIncident = event.target.closest('[data-edit-ops-incident]');
+  if (editOpsIncident) {
+    const record = state.operationsHub.incidents.find((row) => row.IncidentID === editOpsIncident.dataset.editOpsIncident);
+    if (record) openOpsIncidentEditor(record);
+    return;
+  }
+  const opsIncidentStatus = event.target.closest('[data-ops-incident-status]');
+  if (opsIncidentStatus) {
+    const response = await api('saveOperationalIncident', { IncidentID: opsIncidentStatus.dataset.opsIncidentStatus, Status: opsIncidentStatus.dataset.status, Outcome: 'Resolved from Operations Hub' });
+    if (!response.ok) showInfo('Incident update failed', `<p>${escapeHtml(response.error || 'Could not update incident.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+    return;
+  }
+  const editOpsBolo = event.target.closest('[data-edit-ops-bolo]');
+  if (editOpsBolo) {
+    const record = state.operationsHub.bolos.find((row) => row.BoloID === editOpsBolo.dataset.editOpsBolo);
+    if (record) openOpsBoloEditor(record);
+    return;
+  }
+  const opsBoloStatus = event.target.closest('[data-ops-bolo-status]');
+  if (opsBoloStatus) {
+    const response = await api('saveOperationalBolo', { BoloID: opsBoloStatus.dataset.opsBoloStatus, Status: opsBoloStatus.dataset.status });
+    if (!response.ok) showInfo('BOLO update failed', `<p>${escapeHtml(response.error || 'Could not update BOLO.')}</p>`);
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
     return;
   }
   const deleteCalendar = event.target.closest('[data-delete-calendar]');
@@ -3889,6 +4080,10 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       startShift: supabaseStartShift,
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
+      operationsHub: supabaseOperationsHub,
+      saveOperationalIncident: supabaseSaveOperationalIncident,
+      saveOperationalBolo: supabaseSaveOperationalBolo,
+      updateOperationalStatus: supabaseUpdateOperationalStatus,
       requestRetrospectiveShift: supabaseRequestRetrospectiveShift,
       reviewRetrospectiveShift: supabaseReviewRetrospectiveShift,
       saveShift: supabaseSaveShift,
@@ -5757,6 +5952,8 @@ async function supabaseStartShift() {
     callsign: officer.callsign || '',
     rank: officer.rank || '',
     status: 'On Duty',
+    operational_status: 'Available',
+    patrol_type: 'Roads Policing',
   }).select().single();
   return result.error ? { ok: false, error: result.error.message } : { ok: true, ShiftID: result.data.shift_id };
 }
@@ -5808,6 +6005,179 @@ async function supabaseTeamShifts(data = {}) {
     metrics,
     myStats: { Shifts: ownShifts.length, Duration: durationText(ownShifts.reduce((sum, shift) => sum + shiftMs(shift), 0)) },
   };
+}
+
+async function supabaseOperationsHub() {
+  const [shiftStatus, shifts, incidents, bolos, officers, profiles] = await Promise.all([
+    supabaseShiftStatus(),
+    supabaseAll('shift_logs'),
+    supabaseOptionalAll('operational_incidents'),
+    supabaseOptionalAll('operational_bolos'),
+    supabaseAll('officers'),
+    supabaseAll('profiles'),
+  ]);
+  const activeUnits = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at).map((row) => {
+    const converted = supabaseShift(row);
+    const incident = (incidents || []).find((item) => item.incident_id === converted.CurrentIncidentID);
+    converted.CurrentIncident = incident?.incident_number || '';
+    return converted;
+  });
+  const activeIncidents = (incidents || [])
+    .filter((row) => !['Resolved', 'Cancelled'].includes(row.status))
+    .sort((a, b) => opsPriorityWeight(b.priority) - opsPriorityWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
+    .map((row) => supabaseOperationalIncident(row, officers, profiles));
+  const activeBolos = (bolos || [])
+    .filter((row) => row.status === 'Active' && (!row.expires_at || new Date(row.expires_at) > new Date()))
+    .sort((a, b) => opsBoloWeight(b.priority) - opsBoloWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
+    .map((row) => supabaseOperationalBolo(row, profiles));
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const officer = (officers || []).find((row) => row.member_id === profile?.member_id);
+  return {
+    ok: true,
+    shiftStatus,
+    units: activeUnits,
+    incidents: activeIncidents,
+    bolos: activeBolos,
+    assigned: activeIncidents.filter((row) => (row.AssignedOfficerIDs || []).includes(officer?.officer_id)),
+  };
+}
+
+async function supabaseUpdateOperationalStatus(data) {
+  const status = await supabaseShiftStatus();
+  const active = status.activeShift;
+  if (!active) return { ok: false, error: 'Start a shift before setting an operational status.' };
+  const { error } = await supabaseClient.from('shift_logs').update({
+    operational_status: data.Status || 'Available',
+    current_incident_id: data.Status === 'Available' ? null : active.CurrentIncidentID || null,
+    updated_at: new Date().toISOString(),
+  }).eq('shift_id', active.ShiftID);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveOperationalIncident(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const existing = data.IncidentID ? await supabaseById('operational_incidents', 'incident_id', data.IncidentID) : null;
+  const assignedOfficerIds = splitTags(data.AssignedOfficerIDs || existing?.assigned_officer_ids?.join(',') || '');
+  const record = {
+    title: data.Title || existing?.title || 'CAD incident',
+    incident_type: data.IncidentType || existing?.incident_type || 'Traffic',
+    priority: data.Priority || existing?.priority || 'Routine',
+    location: data.Location || existing?.location || '',
+    description: data.Description || existing?.description || '',
+    status: data.Status || existing?.status || (assignedOfficerIds.length ? 'Assigned' : 'Open'),
+    assigned_officer_ids: assignedOfficerIds,
+    outcome: data.Outcome || existing?.outcome || '',
+    created_by: existing?.created_by || me.user.UserID,
+    closed_by: ['Resolved', 'Cancelled'].includes(data.Status || '') ? me.user.UserID : existing?.closed_by || null,
+    closed_at: ['Resolved', 'Cancelled'].includes(data.Status || '') ? new Date().toISOString() : existing?.closed_at || null,
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.IncidentID ? supabaseClient.from('operational_incidents').update(record).eq('incident_id', data.IncidentID).select('*').maybeSingle() : supabaseClient.from('operational_incidents').insert(record).select('*').maybeSingle();
+  const { data: saved, error } = await query;
+  if (error) return { ok: false, error: error.message };
+  const incident = saved || { ...record, incident_id: data.IncidentID };
+  await syncIncidentUnitAssignments(incident, assignedOfficerIds);
+  await notifyIncidentAssignments(incident, assignedOfficerIds, existing?.assigned_officer_ids || [], me.user);
+  return { ok: true, IncidentID: incident.incident_id };
+}
+
+async function syncIncidentUnitAssignments(incident, assignedOfficerIds) {
+  if (['Resolved', 'Cancelled'].includes(incident.status)) {
+    await supabaseClient.from('shift_logs').update({ current_incident_id: null, operational_status: 'Available', updated_at: new Date().toISOString() }).eq('current_incident_id', incident.incident_id).eq('status', 'On Duty');
+    return;
+  }
+  if (!assignedOfficerIds.length) return;
+  await supabaseClient.from('shift_logs').update({ current_incident_id: incident.incident_id, updated_at: new Date().toISOString() }).in('officer_id', assignedOfficerIds).eq('status', 'On Duty').is('ended_at', null);
+}
+
+async function notifyIncidentAssignments(incident, nextOfficerIds, previousOfficerIds, actor) {
+  const newAssignments = nextOfficerIds.filter((id) => !previousOfficerIds.includes(id));
+  if (!newAssignments.length) return;
+  const officers = await supabaseAll('officers');
+  await Promise.all(newAssignments.map(async (officerId) => {
+    const officer = officers.find((row) => row.officer_id === officerId);
+    if (!officer) return;
+    await supabaseNotify(officer.member_id, 'CAD incident assigned', notificationDetails([
+      detailLine('Incident', incident.title),
+      detailLine('Priority', incident.priority),
+      detailLine('Location', incident.location),
+      detailLine('Assigned by', actor?.RobloxUsername),
+    ]), actor?.UserID);
+  }));
+}
+
+async function supabaseSaveOperationalBolo(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Only Sergeant+ can manage BOLOs.' };
+  const existing = data.BoloID ? await supabaseById('operational_bolos', 'bolo_id', data.BoloID) : null;
+  const record = {
+    title: data.Title || existing?.title || 'BOLO',
+    bolo_type: data.BoloType || existing?.bolo_type || 'Vehicle',
+    priority: data.Priority || existing?.priority || 'Normal',
+    description: data.Description || existing?.description || '',
+    location: data.Location || existing?.location || '',
+    expires_at: data.ExpiresAt || existing?.expires_at || null,
+    status: data.Status || existing?.status || 'Active',
+    created_by: existing?.created_by || me.user.UserID,
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.BoloID ? supabaseClient.from('operational_bolos').update(record).eq('bolo_id', data.BoloID) : supabaseClient.from('operational_bolos').insert(record);
+  const { error } = await query;
+  if (error) return { ok: false, error: error.message };
+  if (!existing && ['Critical', 'High'].includes(record.priority)) {
+    const units = (await supabaseAll('shift_logs')).filter((row) => row.status === 'On Duty' && !row.ended_at);
+    await Promise.all(units.map((unit) => supabaseNotify(unit.member_id, 'Operational BOLO issued', notificationDetails([
+      detailLine('BOLO', record.title),
+      detailLine('Priority', record.priority),
+      detailLine('Location', record.location),
+    ]), me.user.UserID)));
+  }
+  return { ok: true };
+}
+
+function supabaseOperationalIncident(row, officers, profiles) {
+  const assignedIds = row.assigned_officer_ids || [];
+  return {
+    IncidentID: row.incident_id,
+    IncidentNumber: row.incident_number,
+    Title: row.title,
+    IncidentType: row.incident_type,
+    Priority: row.priority,
+    Location: row.location,
+    Description: row.description,
+    Status: row.status,
+    AssignedOfficerIDs: assignedIds,
+    AssignedUnits: assignedIds.map((id) => {
+      const officer = officers.find((item) => item.officer_id === id) || {};
+      return officer.callsign ? `${officer.callsign} ${officer.roblox_username}` : officer.roblox_username;
+    }).filter(Boolean).join(', '),
+    CreatedBy: profiles.find((profile) => profile.user_id === row.created_by)?.roblox_username || '',
+    CreatedAt: row.created_at,
+    Outcome: row.outcome || '',
+  };
+}
+
+function supabaseOperationalBolo(row, profiles) {
+  return {
+    BoloID: row.bolo_id,
+    Title: row.title,
+    BoloType: row.bolo_type,
+    Priority: row.priority,
+    Description: row.description,
+    Location: row.location,
+    ExpiresAt: row.expires_at,
+    Status: row.status,
+    CreatedBy: profiles.find((profile) => profile.user_id === row.created_by)?.roblox_username || '',
+    CreatedAt: row.created_at,
+  };
+}
+
+function opsPriorityWeight(priority) {
+  return { Emergency: 4, Immediate: 3, Priority: 2, Routine: 1 }[priority] || 0;
+}
+
+function opsBoloWeight(priority) {
+  return { Critical: 4, High: 3, Normal: 2, Low: 1 }[priority] || 0;
 }
 
 async function supabaseRequestRetrospectiveShift(data) {
@@ -6399,6 +6769,9 @@ function supabaseShift(row) {
     EndedAt: row.ended_at || '',
     Summary: row.summary || '',
     Status: row.status || '',
+    OperationalStatus: row.operational_status || 'Available',
+    PatrolType: row.patrol_type || 'Roads Policing',
+    CurrentIncidentID: row.current_incident_id || '',
     UpdatedAt: row.updated_at || '',
   };
 }
