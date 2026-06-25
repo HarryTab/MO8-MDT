@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-25-1">
+    <link rel="stylesheet" href="styles.css?v=2026-06-25-2">
   </head>
   <body>
     <main class="terminal-shell">
@@ -36,6 +36,7 @@
             <section class="nav-group">
               <span>Home</span>
               <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
+              <button class="nav-item" data-view="inbox">Inbox</button>
               <button class="nav-item" data-view="myProfile">My Profile</button>
               <button class="nav-item" data-view="shift">Shift</button>
             </section>
@@ -126,8 +127,39 @@
             </div>
           </section>
 
-        <section id="appView" hidden>
+          <section id="appView" hidden>
           <section class="stats-grid" id="dashboardView"></section>
+
+          <section class="data-view inbox-view" id="inboxView" hidden>
+            <div class="section-head">
+              <h2>Personal MDT Inbox</h2>
+              <button class="ghost" id="refreshInboxButton">Refresh</button>
+            </div>
+            <div id="inboxSummary" class="stat-row"></div>
+            <section id="inboxPriority" class="inbox-priority"></section>
+            <section class="dashboard-grid inbox-grid">
+              <article class="dashboard-panel supervisor-wide">
+                <h3>Actions</h3>
+                <div id="inboxActions" class="inbox-list"></div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Notifications</h3>
+                <div id="inboxNotifications" class="inbox-list"></div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Calendar</h3>
+                <div id="inboxCalendar" class="inbox-list"></div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Documents</h3>
+                <div id="inboxDocuments" class="inbox-list"></div>
+              </article>
+              <article class="dashboard-panel">
+                <h3>Supervisor Messages</h3>
+                <div id="inboxSupervisor" class="inbox-list"></div>
+              </article>
+            </section>
+          </section>
 
           <section class="data-view" id="globalSearchView" hidden>
             <div class="section-head">
@@ -474,6 +506,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-25-1"></script>
+    <script src="app.js?v=2026-06-25-2"></script>
   </body>
 </html>

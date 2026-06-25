@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-25-1';
+const APP_VERSION = '2026-06-25-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -72,6 +72,7 @@ const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct'
 const DEVELOPMENT_STATUSES = ['Open', 'In Progress', 'Completed', 'Paused'];
 const DASHBOARD_WIDGETS = [
   ['myActions', 'My Actions'],
+  ['pinnedOfficers', 'Pinned Officers'],
   ['activeLoa', 'Active LOA Status'],
   ['pendingLoa', 'Pending LOA'],
   ['announcements', 'Notice Board'],
@@ -251,6 +252,10 @@ elements.passwordButton.addEventListener('click', () => {
 elements.notificationsButton.addEventListener('click', toggleNotifications);
 elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
 elements.mobileMenuButton?.addEventListener('click', () => toggleMobileNav());
+document.querySelector('#refreshInboxButton')?.addEventListener('click', async () => {
+  invalidateCache('personalInbox');
+  await loadInbox();
+});
 
 document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
 document.querySelector('#documentSearch').addEventListener('input', () => renderDocumentTable());
@@ -393,6 +398,7 @@ function bootTasks() {
     { label: 'Checking personal actions', run: () => apiCached('myActions', {}) },
   ];
   if (can('VIEW_DASHBOARD')) tasks.push({ label: 'Preparing dashboard widgets', run: () => apiCached('dashboard', {}) });
+  tasks.push({ label: 'Preparing personal inbox', run: () => apiCached('personalInbox', {}) });
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
@@ -444,6 +450,7 @@ function backgroundPreload() {
     can('VIEW_RANK_LOG') ? ['rankChangeLog', {}] : null,
     ['teamShifts', { Period: 'week' }],
     ['operationalCalendar', {}],
+    ['personalInbox', {}],
     ['savedViews', {}],
     can('VIEW_TASKS') ? ['supervisorDashboard', {}] : null,
     can('VIEW_TASKS') ? ['developmentRecords', {}] : null,
@@ -533,6 +540,7 @@ function defaultView() {
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
+    inbox: ['Inbox', 'Your actions, notices and assigned work'],
     globalSearch: ['Search', 'Search across the MDT and open saved views'],
     calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
@@ -570,6 +578,7 @@ async function showView(view) {
 
   const loaders = {
     dashboard: loadDashboard,
+    inbox: loadInbox,
     globalSearch: loadGlobalSearch,
     calendar: loadCalendar,
     myProfile: loadMyProfile,
@@ -602,6 +611,13 @@ function renderViewLoading(view) {
   if (!section || isViewCached(view)) return;
   if (view === 'dashboard') {
     elements.dashboardView.innerHTML = loadingBlock('Loading dashboard widgets...');
+    return;
+  }
+  if (view === 'inbox') {
+    document.querySelector('#inboxSummary').innerHTML = loadingBlock('Preparing inbox...');
+    ['#inboxPriority', '#inboxActions', '#inboxNotifications', '#inboxCalendar', '#inboxDocuments', '#inboxSupervisor'].forEach((selector) => {
+      document.querySelector(selector).innerHTML = loadingBlock('Loading...');
+    });
     return;
   }
   if (view === 'globalSearch') {
@@ -684,6 +700,7 @@ function isViewCached(view) {
 function loaderActionForView(view) {
   const actions = {
     dashboard: 'dashboard',
+    inbox: 'personalInbox',
     globalSearch: 'savedViews',
     calendar: 'operationalCalendar',
     myProfile: 'myProfile',
@@ -724,6 +741,7 @@ async function loadDashboard() {
   const layout = getDashboardLayout(activeWidgets);
   const widgetBodies = {
     myActions: ['My Actions', (response.myActions || []).length ? (response.myActions || []).slice(0, 6).map(actionCard).join('') : '<p class="empty">No outstanding actions.</p>'],
+    pinnedOfficers: ['Pinned Officers', dashboardRows(response.pinnedOfficers || [], ['RobloxUsername', 'Rank', 'Supervisor', 'LoaStatus', 'DutyStatus', 'Reason'])],
     activeLoa: ['Active LOA Status', dashboardRows(response.activeLoa || [], ['Officer', 'Rank', 'EndDate', 'Status'])],
     pendingLoa: ['Pending LOA', dashboardRows(response.pendingLoa || [], ['Officer', 'Rank', 'StartDate', 'EndDate'])],
     announcements: ['Notice Board', announcementRows(response.announcements || [])],
@@ -770,6 +788,53 @@ function actionCard(row) {
     <span>${escapeHtml(row.Type || 'Action')}</span><strong>${escapeHtml(row.Title || '')}</strong>
     <p>${escapeHtml(row.Detail || '')}</p><small>${row.DueDate ? formatDisplayDate(row.DueDate) : ''}</small>
   </article>`;
+}
+
+async function loadInbox() {
+  await showViewOnly('inbox');
+  const response = await apiCached('personalInbox', {});
+  if (!response.ok) {
+    document.querySelector('#inboxPriority').innerHTML = '';
+    return renderError(document.querySelector('#inboxSummary'), response.error);
+  }
+  const counts = response.counts || {};
+  document.querySelector('#inboxSummary').innerHTML = [
+    stat('Urgent', counts.urgent || 0),
+    stat('Unread', counts.unread || 0),
+    stat('Actions', counts.actions || 0),
+    stat('Tasks', counts.tasks || 0),
+    stat('Docs To Ack', counts.documents || 0),
+    stat('Calendar', counts.calendar || 0),
+  ].join('');
+  document.querySelector('#inboxPriority').innerHTML = (response.priority || []).length
+    ? `<div class="inbox-priority-strip">${response.priority.slice(0, 5).map(inboxCard).join('')}</div>`
+    : emptyState('No urgent inbox items.');
+  document.querySelector('#inboxActions').innerHTML = inboxList([...(response.actions || []), ...(response.tasks || [])], 'No outstanding actions.');
+  document.querySelector('#inboxNotifications').innerHTML = inboxList(response.notifications || [], 'No recent notifications.');
+  document.querySelector('#inboxCalendar').innerHTML = inboxList(response.calendar || [], 'No upcoming calendar entries.');
+  document.querySelector('#inboxDocuments').innerHTML = inboxList(response.documents || [], 'No document acknowledgements due.');
+  document.querySelector('#inboxSupervisor').innerHTML = inboxList(response.supervisor || [], 'No supervisor messages.');
+}
+
+function inboxList(rows, emptyMessage) {
+  return (rows || []).length ? rows.slice(0, 8).map(inboxCard).join('') : `<p class="empty">${escapeHtml(emptyMessage)}</p>`;
+}
+
+function inboxCard(row) {
+  const priority = String(row.Priority || 'Normal').toLowerCase();
+  const view = row.View ? ` data-view-link="${escapeHtml(row.View)}"` : '';
+  return `<article class="inbox-card priority-${escapeHtml(priority)}"${view}>
+    <div>
+      <span>${escapeHtml(row.Type || row.Group || 'Item')}</span>
+      <strong>${escapeHtml(row.Title || row.Subject || 'Inbox item')}</strong>
+      <p>${escapeHtml(row.Detail || row.Reason || row.Message || '')}</p>
+    </div>
+    <small>${escapeHtml(inboxMeta(row))}</small>
+  </article>`;
+}
+
+function inboxMeta(row) {
+  return row.DueDate ? `Due ${formatDisplayDateTime(row.DueDate)}` : row.CreatedAt ? formatCell(row.CreatedAt, 'CreatedAt') : row.Status || row.Priority || '';
 }
 
 async function loadGlobalSearch() {
@@ -1180,6 +1245,8 @@ async function loadTasks() {
     ...(response.probationReviews || []),
     ...(response.performanceReviews || []),
     ...(response.restrictionReviews || []),
+    ...(response.activityReviews || []),
+    ...(response.trainingNeedsReview || []),
     ...(response.accountRequests || []),
     ...(response.retrospectiveShifts || []),
   ];
@@ -1212,6 +1279,7 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Appeal / Review') return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
   if (row.TaskType === 'Course Booking') return `data-task-course-bookings="${escapeHtml(row.CourseID)}"`;
+  if (row.TaskType === 'Activity Review' || row.TaskType === 'Training Review') return `data-open-officer="${escapeHtml(row.OfficerID)}"`;
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
@@ -1243,7 +1311,7 @@ async function loadSupervisor() {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
     actions: (row) => `<button class="mini" data-assign-supervisor="${escapeHtml(row.OfficerID)}">Assign</button>`,
   });
-  renderTable('#supervisorWorkloadTable', response.workload || [], ['Supervisor', 'Rank', 'AssignedOfficers', 'PendingRequests']);
+  renderTable('#supervisorWorkloadTable', response.workload || [], ['Supervisor', 'Rank', 'AssignedOfficers', 'PendingRequests', 'Coverage']);
   renderTable('#supervisorPlansTable', response.developmentPlans || [], ['Officer', 'Goal', 'Category', 'Status', 'DueDate', 'Notes'], {
     actions: (row) => `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>`,
   });
@@ -1304,7 +1372,7 @@ function renderOfficerTable() {
   });
   renderTable('#officersTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'Supervisor', 'EffectiveStatus', 'DutyStatus', 'Tags', 'JoinDate', 'UpdatedAt'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
-    actions: (row) => `<label class="bulk-select"><input type="checkbox" data-bulk-officer="${escapeHtml(row.OfficerID)}"${state.selectedBulkOfficerIds.includes(row.OfficerID) ? ' checked' : ''}> Select</label>`,
+    actions: (row) => `<button class="mini ghost" data-pin-officer="${escapeHtml(row.OfficerID)}">${row.Pinned ? 'Unpin' : 'Pin'}</button><label class="bulk-select"><input type="checkbox" data-bulk-officer="${escapeHtml(row.OfficerID)}"${state.selectedBulkOfficerIds.includes(row.OfficerID) ? ' checked' : ''}> Select</label>`,
   });
 }
 
@@ -2495,6 +2563,19 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const pinOfficer = event.target.closest('[data-pin-officer]');
+  if (pinOfficer) {
+    const response = await api('togglePinnedOfficer', { OfficerID: pinOfficer.dataset.pinOfficer });
+    if (!response.ok) {
+      showInfo('Pin failed', `<p>${escapeHtml(response.error || 'Could not update pinned officer.')}</p>`);
+      return;
+    }
+    invalidateCache('listOfficers');
+    invalidateCache('dashboard');
+    await loadOfficers();
+    return;
+  }
+
   const officerLink = event.target.closest('[data-open-officer]');
   if (officerLink && (officerLink.matches('button, a') || !event.target.closest('button, a, input, select, textarea'))) {
     state.selectedOfficerId = officerLink.dataset.openOfficer;
@@ -2658,6 +2739,7 @@ async function handleDocumentClick(event) {
     }
     invalidateCache('listDocuments');
     invalidateCache('dashboard');
+    invalidateCache('personalInbox');
     await loadDocuments();
     return;
   }
@@ -3297,6 +3379,7 @@ async function toggleNotifications(event) {
     state.unreadNotifications = 0;
     updateNotificationBadge();
     invalidateCache('myProfile');
+    invalidateCache('personalInbox');
   }
 }
 
@@ -3655,6 +3738,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       dashboard: supabaseDashboard,
       saveDashboardWidgets: supabaseSaveDashboardWidgets,
       myActions: supabaseMyActions,
+      personalInbox: supabasePersonalInbox,
       globalSearch: supabaseGlobalSearch,
       savedViews: supabaseSavedViews,
       saveSavedView: supabaseSaveSavedView,
@@ -3674,6 +3758,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       deleteHandover: supabaseDeleteHandover,
       tasks: supabaseTasks,
       supervisorDashboard: supabaseSupervisorDashboard,
+      togglePinnedOfficer: supabaseTogglePinnedOfficer,
       listOfficers: supabaseListOfficers,
       getOfficerProfile: supabaseGetOfficerProfile,
       saveOfficer: supabaseSaveOfficer,
@@ -3829,13 +3914,16 @@ async function supabaseMyProfile() {
 }
 
 async function supabaseDashboard() {
-  const [officers, loa, documents, announcements, actions, widgetPreferences] = await Promise.all([
+  const [officers, loa, documents, announcements, actions, widgetPreferences, pinnedRows, profiles, shifts] = await Promise.all([
     supabaseClient.from('officers').select('*'),
     supabaseClient.from('loa_requests').select('*'),
     supabaseVisibleDocuments(),
     supabaseVisibleAnnouncements(),
     supabaseMyActions(),
     state.user?.UserID ? supabaseRows('dashboard_widgets', 'user_id', state.user.UserID) : [],
+    supabasePinnedOfficerRows(),
+    supabaseAll('profiles'),
+    supabaseAll('shift_logs'),
   ]);
   if (officers.error) return { ok: false, error: officers.error.message };
   if (loa.error) return { ok: false, error: loa.error.message };
@@ -3865,6 +3953,10 @@ async function supabaseDashboard() {
     documentAcknowledgements: [],
     upcomingTraining: [],
     myActions: actions.rows || [],
+    pinnedOfficers: pinnedRows.map((pin) => {
+      const officer = (officers.data || []).find((row) => row.officer_id === pin.officer_id) || {};
+      return { ...decorateSupabaseOfficer(officer, { loa: loa.data || [], shifts, profiles }), Reason: pin.reason || '' };
+    }).filter((row) => row.OfficerID),
   };
 }
 
@@ -3880,6 +3972,55 @@ async function supabaseSaveDashboardWidgets(data) {
   }));
   const { error } = await supabaseClient.from('dashboard_widgets').upsert(rows, { onConflict: 'user_id,widget_key' });
   return error ? { ok: false, error: error.message } : { ok: true, widgets };
+}
+
+async function supabasePinnedOfficerRows() {
+  if (!state.user?.UserID) return [];
+  try {
+    const { data, error } = await supabaseClient
+      .from('pinned_officers')
+      .select('*')
+      .eq('user_id', state.user.UserID)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  } catch (error) {
+    if (/does not exist|schema cache/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
+async function supabaseTogglePinnedOfficer(data) {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const officerId = data.OfficerID || '';
+  if (!officerId) return { ok: false, error: 'Officer is required.' };
+  let existing = null;
+  try {
+    const result = await supabaseClient
+      .from('pinned_officers')
+      .select('*')
+      .eq('user_id', me.user.UserID)
+      .eq('officer_id', officerId)
+      .limit(1)
+      .maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    existing = result.data;
+  } catch (error) {
+    if (/does not exist|schema cache/i.test(error.message || '')) return { ok: false, error: 'Run the pinned officers migration before using officer pins.' };
+    throw error;
+  }
+  if (existing) {
+    const { error } = await supabaseClient.from('pinned_officers').delete().eq('pin_id', existing.pin_id);
+    return error ? { ok: false, error: error.message } : { ok: true, pinned: false };
+  }
+  const { error } = await supabaseClient.from('pinned_officers').upsert({
+    user_id: me.user.UserID,
+    officer_id: officerId,
+    reason: data.Reason || '',
+    created_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,officer_id' });
+  return error ? { ok: false, error: error.message } : { ok: true, pinned: true };
 }
 
 async function supabaseMyActions() {
@@ -3910,6 +4051,71 @@ async function supabaseMyActions() {
   restrictions.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Urgent', Priority: 'High', Type: 'Restriction', Title: row.restriction_type, Detail: row.details || 'Active restriction on your officer record.', DueDate: row.ends_on, View: 'myProfile' }));
   handovers.filter((row) => row.status !== 'Resolved' && (row.owner_user_id === me.user.UserID || (row.recipient_user_ids || []).includes(me.user.UserID) || !row.owner_user_id)).forEach((row) => rows.push({ Group: row.priority === 'Critical' ? 'Urgent' : 'Due Soon', Priority: row.priority, Type: 'Handover', Title: row.title, Detail: row.details, DueDate: row.due_at, View: 'handover' }));
   return { ok: true, rows };
+}
+
+async function supabasePersonalInbox() {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile.member_id);
+  const [actions, notifications, documents, acknowledgements, calendar, tasks, supervisorRequests] = await Promise.all([
+    supabaseMyActions(),
+    supabaseNotificationRows(profile.member_id),
+    supabaseVisibleDocuments(),
+    supabaseAll('document_acknowledgements'),
+    supabaseOperationalCalendar(),
+    can('VIEW_TASKS') ? supabaseTasks() : Promise.resolve({ ok: true }),
+    officer ? supabaseOptionalRows('supervisor_requests', 'officer_id', officer.officer_id, 'created_at') : [],
+  ]);
+  if (!actions.ok) return actions;
+  if (!calendar.ok) return calendar;
+  const pendingDocs = (documents.rows || []).filter((doc) => truthy(doc.RequiresAcknowledgement) && !acknowledgements.some((ack) => ack.document_id === doc.DocumentID && ack.user_id === me.user.UserID));
+  const now = Date.now();
+  const calendarRows = (calendar.rows || [])
+    .filter((row) => row.Start && new Date(row.Start).getTime() >= now)
+    .sort((a, b) => new Date(a.Start) - new Date(b.Start))
+    .slice(0, 8)
+    .map((row) => ({ Type: row.Type || 'Calendar', Priority: row.Priority || 'Normal', Title: row.Title, Detail: [formatDisplayDateTime(row.Start), row.Location, row.Detail].filter(Boolean).join(' / '), DueDate: row.Start, View: 'calendar' }));
+  const notificationRows = (notifications || []).slice(0, 10).map((row) => ({ Type: row.ReadAt ? 'Notification' : 'Unread Notification', Priority: importantNotice(row) ? 'Critical' : positiveNotice(row) ? 'Low' : 'Normal', Title: row.Title, Detail: row.Message, CreatedAt: row.CreatedAt, View: 'myProfile' }));
+  const taskRows = can('VIEW_TASKS') ? [
+    ...(tasks.pendingLoa || []),
+    ...(tasks.pendingTransfers || []),
+    ...(tasks.pendingSupervisorRequests || []),
+    ...(tasks.pendingCourseBookings || []),
+    ...(tasks.pendingAppeals || []),
+    ...(tasks.probationReviews || []),
+    ...(tasks.performanceReviews || []),
+    ...(tasks.restrictionReviews || []),
+    ...(tasks.retrospectiveShifts || []),
+  ].map((row) => ({ Type: row.TaskType, Priority: row.MySupervisee ? 'High' : 'Normal', Title: row.Officer || row.Course || row.Subject || row.TaskType, Detail: row.Subject || row.Reason || row.Status || '', DueDate: row.EndDate || row.TargetDate || row.NextReviewDate || row.RequestedAt || '', Status: row.Status, View: 'tasks' })) : [];
+  const docRows = pendingDocs.map((doc) => ({ Type: 'Document', Priority: 'High', Title: doc.Title, Detail: `${doc.Category || 'Document'} acknowledgement required`, CreatedAt: doc.UpdatedAt, View: 'documents' }));
+  const supervisorRows = (supervisorRequests || []).slice(0, 8).map((row) => ({ Type: 'Supervisor', Priority: row.status === 'Pending' ? 'High' : 'Normal', Title: row.subject || 'Supervisor request', Detail: `${row.category || 'General'} / ${row.status || 'Pending'}${row.review_reason ? ` / ${row.review_reason}` : ''}`, CreatedAt: row.created_at, Status: row.status, View: 'myProfile' }));
+  const actionRows = (actions.rows || []).map((row) => ({ ...row, Type: row.Type || 'Action', View: row.View || 'dashboard' }));
+  const important = [...actionRows, ...taskRows, ...docRows, ...notificationRows, ...calendarRows, ...supervisorRows]
+    .filter((row) => ['Critical', 'High'].includes(row.Priority) || String(row.Type || '').includes('Unread'))
+    .sort((a, b) => priorityWeight(b.Priority) - priorityWeight(a.Priority));
+  return {
+    ok: true,
+    actions: actionRows,
+    tasks: taskRows,
+    notifications: notificationRows,
+    calendar: calendarRows,
+    documents: docRows,
+    supervisor: supervisorRows,
+    priority: important,
+    counts: {
+      urgent: important.length,
+      unread: notifications.filter((row) => !row.ReadAt).length,
+      actions: actionRows.length,
+      tasks: taskRows.length,
+      documents: docRows.length,
+      calendar: calendarRows.length,
+    },
+  };
+}
+
+function priorityWeight(priority) {
+  return { Critical: 4, High: 3, Normal: 2, Low: 1 }[priority] || 0;
 }
 
 async function supabaseGlobalSearch(data) {
@@ -4140,7 +4346,9 @@ async function supabaseListOfficers() {
     supabaseAll('shift_logs'),
     supabaseAll('profiles'),
   ]);
-  return { ok: true, rows: (data || []).map((row) => decorateSupabaseOfficer(row, { loa, shifts, profiles })) };
+  const pinned = await supabasePinnedOfficerRows();
+  const pinnedIds = new Set(pinned.map((row) => row.officer_id));
+  return { ok: true, rows: (data || []).map((row) => ({ ...decorateSupabaseOfficer(row, { loa, shifts, profiles }), Pinned: pinnedIds.has(row.officer_id) })) };
 }
 
 async function supabaseGetOfficerProfile(data) {
@@ -4742,7 +4950,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -4756,6 +4964,8 @@ async function supabaseTasks() {
     supabaseOptionalAll('officer_restrictions'),
     can('REVIEW_ACCOUNT_REQUESTS') ? supabaseOptionalAll('account_requests') : [],
     supabaseOptionalAll('retrospective_shift_requests'),
+    supabaseAll('shift_logs'),
+    supabaseAll('training_records'),
   ]);
   const decorate = (row, type) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
@@ -4827,12 +5037,23 @@ async function supabaseTasks() {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
     return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true };
   });
+  const activityReviews = assignedOfficers.map((officer) => {
+    const latest = (shifts || []).filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))[0];
+    const inactiveDays = latest?.started_at ? Math.floor((Date.now() - new Date(latest.started_at).getTime()) / 86400000) : 999;
+    if (inactiveDays < 14) return null;
+    return { TaskType: 'Activity Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: inactiveDays === 999 ? 'No shift activity recorded' : `${inactiveDays} days since last shift`, Reason: 'Supervisor should review recent activity and contact the officer if needed.', Status: 'Needs Review', LastShift: latest?.started_at || '', MySupervisee: true };
+  }).filter(Boolean);
+  const trainingNeedsReview = (trainingRecords || []).filter((row) => row.expiry_date && assignedOfficers.some((officer) => officer.officer_id === row.officer_id) && Math.ceil((new Date(row.expiry_date) - new Date()) / 86400000) <= 30).map((row) => {
+    const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
+    const days = Math.ceil((new Date(row.expiry_date) - new Date()) / 86400000);
+    return { TaskType: 'Training Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.standard} ${days < 0 ? 'expired' : 'expires soon'}`, Reason: `Expiry: ${formatDisplayDate(row.expiry_date)}`, Status: days < 0 ? 'Expired' : 'Due Soon', EndDate: row.expiry_date, MySupervisee: true };
+  });
   const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
   const retrospectiveShifts = (retrospectiveRows || []).filter((row) => row.status === 'Pending').map((row) => {
     const task = decorate(row, 'Retrospective Shift');
     return Object.assign(task, { StartedAt: row.started_at, EndedAt: row.ended_at, Summary: row.summary || '', Reason: row.reason || '' });
   }).filter((row) => row.MySupervisee || can('FULL_ACCESS'));
-  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...accountRequests, ...retrospectiveShifts];
+  const all = [...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...accountRequests, ...retrospectiveShifts];
   return {
     ok: true,
     pendingLoa,
@@ -4843,6 +5064,8 @@ async function supabaseTasks() {
     probationReviews,
     performanceReviews,
     restrictionReviews,
+    activityReviews,
+    trainingNeedsReview,
     accountRequests,
     retrospectiveShifts,
     counts: {
@@ -4851,7 +5074,7 @@ async function supabaseTasks() {
       pendingSupervisorRequests: pendingSupervisorRequests.length,
       pendingCourseBookings: pendingCourseBookings.length,
       pendingAppeals: pendingAppeals.length,
-      developmentReviews: probationReviews.length + performanceReviews.length + restrictionReviews.length,
+      developmentReviews: probationReviews.length + performanceReviews.length + restrictionReviews.length + activityReviews.length + trainingNeedsReview.length,
       accountRequests: accountRequests.length,
       retrospectiveShifts: retrospectiveShifts.length,
       mySuperviseeTasks: all.filter((row) => row.MySupervisee).length,
@@ -4887,6 +5110,8 @@ async function supabaseSupervisorDashboard() {
     Supervisor: profile.roblox_username,
     Rank: profile.rank,
     AssignedOfficers: (officers || []).filter((officer) => officer.supervisor_user_id === profile.user_id).length,
+    PendingRequests: pendingRequests.filter((request) => request.SupervisorUserID === profile.user_id).length,
+    Coverage: (officers || []).filter((officer) => officer.supervisor_user_id === profile.user_id).length > 8 ? 'High workload' : 'Balanced',
   }));
   return {
     ok: true,
