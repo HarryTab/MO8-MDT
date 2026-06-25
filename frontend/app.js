@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-23-6';
+const APP_VERSION = '2026-06-25-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3964,12 +3964,12 @@ async function supabaseSaveCalendarEvent(data) {
   if (['Specific Officers', 'My Supervisees'].includes(audienceType) && !assignedOfficerIds.length) return { ok: false, error: 'Select at least one officer.' };
   const existing = data.EventID ? await supabaseById('calendar_events', 'event_id', data.EventID) : null;
   const record = { title: data.Title, event_type: data.EventType, priority: data.Priority || 'Normal', starts_at: data.StartsAt, ends_at: data.EndsAt || null, location: data.Location || '', details: data.Details || '', audience_type: audienceType, audience_values: audienceValues, assigned_officer_ids: assignedOfficerIds, created_by: existing?.created_by || me.user.UserID, updated_at: new Date().toISOString() };
+  const [officers, profiles] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles')]);
+  const previousRecipients = existing ? calendarEventRecipients(existing, officers, profiles) : [];
   const query = data.EventID ? supabaseClient.from('calendar_events').update(record).eq('event_id', data.EventID) : supabaseClient.from('calendar_events').insert(record);
   const { error } = await query;
   if (error) return { ok: false, error: error.message };
-  const [officers, profiles] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles')]);
-  const recipients = calendarEventRecipients(record, officers, profiles).filter((profile) => profile.user_id !== me.user.UserID);
-  await Promise.all(recipients.map((recipient) => supabaseNotify(recipient.member_id, existing ? 'Calendar assignment updated' : 'New calendar assignment', notificationDetails([detailLine('Event', record.title), detailLine('Type', record.event_type), detailLine('Starts', formatDisplayDateTime(record.starts_at)), detailLine('Ends', formatDisplayDateTime(record.ends_at)), detailLine('Location', record.location), detailLine('Priority', record.priority), detailLine('Assigned by', me.user.RobloxUsername)]), me.user.UserID)));
+  await notifyCalendarEventChange(existing, record, previousRecipients, calendarEventRecipients(record, officers, profiles), me.user);
   return { ok: true };
 }
 
@@ -3982,6 +3982,49 @@ async function supabaseDeleteCalendarEvent(data) {
   if (error) return { ok: false, error: error.message };
   await Promise.all(recipients.filter((profile) => profile.user_id !== state.user.UserID).map((recipient) => supabaseNotify(recipient.member_id, 'Calendar assignment cancelled', `${event.title} on ${formatDisplayDateTime(event.starts_at)} has been removed from the calendar.`, state.user.UserID)));
   return { ok: true };
+}
+
+async function notifyCalendarEventChange(existing, record, previousRecipients, currentRecipients, actor) {
+  const actorUserId = actor?.UserID;
+  const actorName = actor?.RobloxUsername || 'MO8 MDT';
+  const previousByMember = new Map(previousRecipients.map((profile) => [profile.member_id, profile]));
+  const currentByMember = new Map(currentRecipients.map((profile) => [profile.member_id, profile]));
+  const allMemberIds = new Set([...previousByMember.keys(), ...currentByMember.keys()]);
+  const changedTiming = Boolean(existing && (existing.starts_at !== record.starts_at || (existing.ends_at || '') !== (record.ends_at || '')));
+  const changedDetails = Boolean(existing && [
+    existing.title !== record.title,
+    existing.event_type !== record.event_type,
+    (existing.location || '') !== (record.location || ''),
+    (existing.details || '') !== (record.details || ''),
+    (existing.priority || 'Normal') !== (record.priority || 'Normal'),
+  ].some(Boolean));
+
+  await Promise.all([...allMemberIds].map((memberId) => {
+    const wasAssigned = previousByMember.has(memberId);
+    const isAssigned = currentByMember.has(memberId);
+    const recipient = currentByMember.get(memberId) || previousByMember.get(memberId);
+    if (!recipient || recipient.user_id === actorUserId) return Promise.resolve();
+    if (wasAssigned && !isAssigned) {
+      return supabaseNotify(memberId, 'Calendar assignment removed', notificationDetails([
+        detailLine('Event', existing.title),
+        detailLine('Previous start', formatDisplayDateTime(existing.starts_at)),
+        detailLine('Previous end', formatDisplayDateTime(existing.ends_at)),
+        detailLine('Updated by', actorName),
+      ]), actorUserId);
+    }
+    const title = !wasAssigned ? 'New calendar assignment' : changedTiming ? 'Calendar assignment rescheduled' : changedDetails ? 'Calendar assignment details updated' : 'Calendar assignment updated';
+    return supabaseNotify(memberId, title, notificationDetails([
+      detailLine('Event', record.title),
+      detailLine('Type', record.event_type),
+      detailLine('Starts', formatDisplayDateTime(record.starts_at)),
+      detailLine('Ends', formatDisplayDateTime(record.ends_at)),
+      detailLine('Location', record.location),
+      detailLine('Priority', record.priority),
+      detailLine('Assigned by', actorName),
+      existing && changedTiming ? detailLine('Previous start', formatDisplayDateTime(existing.starts_at)) : '',
+      existing && changedTiming ? detailLine('Previous end', formatDisplayDateTime(existing.ends_at)) : '',
+    ]), actorUserId);
+  }));
 }
 
 function calendarEventRecipients(event, officers, profiles) {
