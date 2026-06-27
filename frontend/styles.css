@@ -3059,10 +3059,22 @@ dialog .section-head .ghost:hover {
 .offence-guidance strong { color: #78e4dd; }
 .offence-guidance p { margin: 5px 0; }
 .offence-guidance small { color: #9fb5bd; }
+.offence-guidance em { display: block; margin-top: 7px; color: #bad0d6; font-style: normal; }
+.offence-guidance.repeat-contact { border-left-color: #f2a647; background: #2a2118; }
+.offence-record-panel { margin-bottom: 14px; padding: 16px; background: #0d222c; border: 1px solid #2f4b56; }
+.offence-record-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.offence-record-panel header span { color: #69ddd6; font-size: 9px; text-transform: uppercase; }
+.offence-record-panel h3 { margin: 4px 0; color: #edf8fa; }
+.offence-record-panel > p { color: #b9cdd3; }
+.offence-record-panel a { color: #7ce5df; }
+.offence-record-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #29414b; border-left: 1px solid #29414b; }
+.offence-record-note { padding: 10px; background: #102a35; }
+.offence-record-note strong { display: block; margin-bottom: 4px; color: #71ddd7; }
 
 @media (max-width: 700px) {
   .cad-entity-drawer { position: fixed; inset: 0; width: 100%; height: 100dvh; }
   .profile-operational-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .offence-record-facts { grid-template-columns: 1fr; }
 }
 .intel-disposal-list { display: grid; gap: 6px; }
 .intel-disposal-list article { padding: 9px; border-left: 3px solid #47d7d1; background: #10232c; }

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-27-4';
+const APP_VERSION = '2026-06-27-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -1584,7 +1584,7 @@ function openCadEntityDrawer(entityType, entityId) {
 }
 
 function opsIncidentDisposals(rows) {
-  return rows.length ? `<div class="intel-disposal-list">${rows.map((row) => `<article><span>${escapeHtml(row.OutcomeType)}</span><strong>${escapeHtml(row.Subject || 'Unspecified subject')}</strong><p>${escapeHtml(row.Offence || 'No offence selected')}</p><small>${row.FineAmount ? `FPN £${escapeHtml(String(row.FineAmount))}` : ''}${row.PrisonMinutes ? ` / ${escapeHtml(String(row.PrisonMinutes))} minutes custody` : ''}${row.PenaltyPoints ? ` / ${escapeHtml(String(row.PenaltyPoints))} points` : ''}</small></article>`).join('')}</div>` : '<p class="empty">No actions or outcomes recorded.</p>';
+  return rows.length ? `<div class="intel-disposal-list">${rows.map((row) => `<article><span>${escapeHtml(row.OutcomeType)}</span><strong>${escapeHtml(row.Subject || 'Unspecified subject')}</strong><p>${escapeHtml(row.Offence || 'No offence selected')}</p><small>${row.FineAmount ? `FPN £${escapeHtml(String(row.FineAmount))}` : ''}${row.PrisonMinutes ? ` / ${escapeHtml(String(row.PrisonMinutes))} minutes arrest time` : ''}${row.PenaltyPoints ? ` / ${escapeHtml(String(row.PenaltyPoints))} points` : ''}</small></article>`).join('')}</div>` : '<p class="empty">No actions or outcomes recorded.</p>';
 }
 
 function opsAttachmentRow(row) {
@@ -1653,7 +1653,7 @@ function renderOpsIntelSearch() {
   const people = (state.operationsHub.people || []).map((row) => ({ Type: 'Person', ID: row.PersonID, Title: row.DisplayName, Subtitle: [row.RobloxUsername, row.Aliases].filter(Boolean).join(' / '), Meta: `${row.IncidentCount || 0} CAD links / ${row.MarkerCount || 0} markers` }));
   const vehicles = (state.operationsHub.vehicles || []).map((row) => ({ Type: 'Vehicle', ID: row.VehicleID, Title: row.Registration, Subtitle: [row.Colour, row.Make, row.Model].filter(Boolean).join(' '), Meta: `${row.IncidentCount || 0} CAD links / ${row.MarkerCount || 0} markers` }));
   const incidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])].map((row) => ({ Type: 'Incident', ID: row.IncidentID, Title: row.IncidentNumber, Subtitle: `${row.Title} / ${row.Location}`, Meta: `${row.Status} / ${row.Priority}` }));
-  const offences = (state.operationsHub.offences || []).map((row) => ({ Type: 'Offence', ID: row.OffenceID, Title: `${row.Code} / ${row.Title}`, Subtitle: row.Category, Meta: `Fine £${row.DefaultFine || 0} / ${row.DefaultPrisonMinutes || 0} minutes / ${row.DefaultPoints || 0} points` }));
+  const offences = (state.operationsHub.offences || []).map((row) => ({ Type: 'Offence', ID: row.OffenceID, Title: `${row.Code} / ${row.Title}`, Subtitle: [row.Category, row.SectionReference].filter(Boolean).join(' / '), Meta: `${row.DefaultFine ? `FPN £${row.DefaultFine}` : 'No fixed tariff'} / ${row.DefaultPrisonMinutes ? `${row.DefaultPrisonMinutes} minute arrest` : 'No arrest tariff'}` }));
   const operations = (state.operationsHub.operations || []).map((row) => ({ Type: 'Operation', ID: row.OperationID, Title: `${row.Reference} / ${row.Name}`, Subtitle: row.Objectives, Meta: `${row.Status} / ${row.LinkCount || 0} linked records` }));
   let rows = [...people, ...vehicles, ...incidents, ...offences, ...operations];
   if (type) rows = rows.filter((row) => row.Type === type);
@@ -1717,8 +1717,16 @@ function renderOpsRelationshipView(entityType, entityId) {
   const commonOffence = Object.entries(offenceCounts).sort((a, b) => b[1] - a[1])[0];
   detail.Subtitle = [detail.Subtitle, `${incidents.length} CAD contact${incidents.length === 1 ? '' : 's'}`, `${fpnCount} FPN`, `${arrestCount} arrest${arrestCount === 1 ? '' : 's'}`, commonOffence ? `Most recorded: ${commonOffence[0]} (${commonOffence[1]})` : ''].filter(Boolean).join(' / ');
   container.innerHTML = `<div class="relationship-core"><span>${escapeHtml(entityType)}</span><strong>${escapeHtml(detail.Title)}</strong><small>${escapeHtml(detail.Subtitle || '')}</small></div><div class="relationship-columns"><section><h4>Connected CADs</h4>${incidents.map((row) => `<button data-open-cad="${escapeHtml(row.IncidentID)}">${escapeHtml(row.IncidentNumber)}<small>${escapeHtml(row.Title)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>People and vehicles</h4>${connectedEntities.map((row) => `<button data-open-intel-entity="${escapeHtml(row.EntityType)}:${escapeHtml(row.EntityID)}">${escapeHtml(row.Label)}<small>${escapeHtml(row.InvolvementRole)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>Operations</h4>${operations.map((row) => `<button data-open-intel-entity="Operation:${escapeHtml(row.OperationID)}">${escapeHtml(row.Reference)}<small>${escapeHtml(row.Name)}</small></button>`).join('') || '<p>None</p>'}</section></div><div class="relationship-timeline"><h4>Entity timeline</h4>${incidents.sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt)).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><strong>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Location || '')} / ${escapeHtml(row.Status)}</small></article>`).join('')}${disposals.map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.IssuedAt))}</time><strong>${escapeHtml(row.OutcomeType)} / ${escapeHtml(row.Offence || 'No offence')}</strong><small>${escapeHtml(row.IncidentNumber)}</small></article>`).join('')}</div><div class="row-actions">${['Person', 'Vehicle'].includes(entityType) ? `<button class="ghost" data-edit-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Edit record</button>` : ''}${['Person', 'Vehicle'].includes(entityType) && can('VIEW_TASKS') ? `<button data-add-intel-marker="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Add marker</button><button class="ghost" data-merge-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Merge duplicate</button>` : ''}${entityType === 'Offence' && can('VIEW_TASKS') ? `<button data-edit-intel-entity="Offence:${escapeHtml(entityId)}">Edit offence</button>` : ''}${entityType === 'Operation' && can('VIEW_TASKS') ? `<button data-link-operation="${escapeHtml(entityId)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(entityId)}">Edit operation</button>` : ''}</div>`;
+  if (entityType === 'Offence') {
+    const offence = (state.operationsHub.offences || []).find((row) => row.OffenceID === entityId);
+    if (offence) container.insertAdjacentHTML('afterbegin', opsOffenceGuidancePanel(offence));
+  }
   const markerHtml = opsIntelMarkerPanel(entityType, entityId);
   if (markerHtml) container.insertAdjacentHTML('afterbegin', markerHtml);
+}
+
+function opsOffenceGuidancePanel(offence) {
+  return `<section class="offence-record-panel"><header><div><span>Legislation catalogue</span><h3>${escapeHtml(offence.Code)} / ${escapeHtml(offence.Title)}</h3></div>${offence.SourceUrl ? `<a href="${escapeHtml(offence.SourceUrl)}" target="_blank" rel="noopener">Open source</a>` : ''}</header><p>${escapeHtml(offence.Description || 'No definition recorded.')}</p><div class="offence-record-facts">${opsFact('Source', offence.LegislationSource || 'Not recorded')}${opsFact('Section', offence.SectionReference || 'Not recorded')}${opsFact('Suggested disposal', offence.SuggestedOutcome || 'Not recorded')}${opsFact('First FPN', offence.DefaultFine ? `£${offence.DefaultFine}` : 'No tariff supplied')}${opsFact('Repeat FPN', offence.RepeatFine ? `£${offence.RepeatFine}` : 'No tariff supplied')}${opsFact('Arrest time', offence.DefaultPrisonMinutes ? `${offence.DefaultPrisonMinutes} minutes` : 'No tariff supplied')}</div>${offence.GuidanceNotes ? `<p class="offence-record-note"><strong>Operational note</strong>${escapeHtml(offence.GuidanceNotes)}</p>` : ''}${offence.RelatedPowers ? `<p class="offence-record-note"><strong>Related powers</strong>${escapeHtml(offence.RelatedPowers)}</p>` : ''}</section>`;
 }
 
 function showOpsIntelOverview() {
@@ -1754,7 +1762,7 @@ function operationalEntityDetail(type, id) {
   }
   if (type === 'Offence') {
     const row = (state.operationsHub.offences || []).find((item) => item.OffenceID === id);
-    return row && { Title: `${row.Code} / ${row.Title}`, Subtitle: row.Description };
+    return row && { Title: `${row.Code} / ${row.Title}`, Subtitle: [row.LegislationSource, row.SectionReference].filter(Boolean).join(' / ') || row.Description };
   }
   if (type === 'Operation') {
     const row = (state.operationsHub.operations || []).find((item) => item.OperationID === id);
@@ -1999,11 +2007,17 @@ function openOpsOffenceEditor(record = {}) {
     field('Version', 'Law version', 'number', false, record.Version || 1),
     field('EffectiveFrom', 'Effective from', 'date', false, dateInputValue(record.EffectiveFrom || new Date())),
     field('DefaultFine', 'Default fine', 'number', false, record.DefaultFine || 0),
+    field('RepeatFine', 'Repeat-offence fine', 'number', false, record.RepeatFine || 0),
     field('DefaultPrisonMinutes', 'Suggested arrest time (minutes)', 'number', false, record.DefaultPrisonMinutes || 0),
     field('DefaultPoints', 'Default points', 'number', false, record.DefaultPoints || 0),
     selectField('SuggestedOutcome', 'Suggested disposal', ['FPN', 'Warning', 'Arrested', 'Vehicle Seizure', 'Search', 'Reported for Summons', 'No Further Action', 'Other'], record.SuggestedOutcome || 'FPN'),
     checkboxGroupField('AllowedOutcomes', 'Permitted disposals', ['FPN', 'Warning', 'Arrested', 'Vehicle Seizure', 'Search', 'Reported for Summons', 'No Further Action', 'Other'], record.AllowedOutcomes || 'FPN, Warning, Arrested, Reported for Summons, No Further Action'),
     field('EscalationGuidance', 'Repeat-contact and escalation guidance', 'textarea', true, record.EscalationGuidance || ''),
+    field('LegislationSource', 'Act / source', 'text', true, record.LegislationSource || ''),
+    field('SectionReference', 'Section reference', 'text', false, record.SectionReference || ''),
+    field('SourceUrl', 'Source URL', 'url', true, record.SourceUrl || ''),
+    field('RelatedPowers', 'Related police powers (comma separated)', 'text', true, record.RelatedPowers || ''),
+    field('GuidanceNotes', 'Operational notes', 'textarea', true, record.GuidanceNotes || ''),
     field('Description', 'Definition / evidential points', 'textarea', true, record.Description || ''),
   ], async (values) => api('saveOperationalOffence', values), { successMessage: 'Offence library updated.', onSuccess: refreshOperationsHub });
 }
@@ -2047,22 +2061,28 @@ function openOpsDisposalEditor(incidentId) {
     field('PenaltyPoints', 'Penalty points (blank uses default)', 'number'),
     field('Notes', 'Outcome notes', 'textarea', true),
   ], async (values) => api('saveOperationalDisposal', values), { successMessage: 'Outcome recorded.', onSuccess: refreshOperationsHub });
-  elements.editorFields.querySelector('[name="OffenceReference"]')?.addEventListener('change', (event) => {
-    const offence = (state.operationsHub.offences || []).find((row) => row.OffenceID === referenceId(event.target.value));
+  const applyOffenceGuidance = () => {
+    const offenceInput = elements.editorFields.querySelector('[name="OffenceReference"]');
+    const subjectInput = elements.editorFields.querySelector('[name="SubjectReference"]');
+    const offence = (state.operationsHub.offences || []).find((row) => row.OffenceID === referenceId(offenceInput?.value));
     if (!offence) return;
+    const [subjectType, subjectId] = referenceId(subjectInput?.value).split(':');
+    const previous = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])].filter((row) => row.IncidentID !== incidentId).flatMap((row) => row.Disposals || []).some((row) => row.OffenceID === offence.OffenceID && (subjectType === 'Person' ? row.PersonID === subjectId : row.VehicleID === subjectId));
     const set = (name, value) => { const input = elements.editorFields.querySelector(`[name="${name}"]`); if (input) input.value = value ?? ''; };
     const outcome = elements.editorFields.querySelector('[name="OutcomeType"]');
     const allowed = splitTags(offence.AllowedOutcomes || '');
     if (outcome && allowed.length) outcome.innerHTML = allowed.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
     set('OutcomeType', offence.SuggestedOutcome || 'FPN');
-    set('FineAmount', offence.DefaultFine || 0);
+    set('FineAmount', previous && offence.RepeatFine ? offence.RepeatFine : offence.DefaultFine || 0);
     set('PrisonMinutes', offence.DefaultPrisonMinutes || 0);
     set('PenaltyPoints', offence.DefaultPoints || 0);
     const notes = elements.editorFields.querySelector('[name="Notes"]');
     if (notes && offence.EscalationGuidance && !notes.value) notes.placeholder = offence.EscalationGuidance;
     elements.editorFields.querySelector('.offence-guidance')?.remove();
-    event.target.closest('label')?.insertAdjacentHTML('afterend', `<aside class="offence-guidance"><strong>${escapeHtml(offence.Code)} disposal guidance</strong><p>${escapeHtml(offence.Description || 'No evidential guidance recorded.')}</p><small>Suggested: ${escapeHtml(offence.SuggestedOutcome || 'No Further Action')}${offence.EscalationGuidance ? ` / ${escapeHtml(offence.EscalationGuidance)}` : ''}</small></aside>`);
-  });
+    offenceInput?.closest('label')?.insertAdjacentHTML('afterend', `<aside class="offence-guidance${previous ? ' repeat-contact' : ''}"><strong>${escapeHtml(offence.Code)} / ${escapeHtml(offence.LegislationSource || offence.Category)}</strong><p>${escapeHtml(offence.Description || 'No evidential guidance recorded.')}</p><small>${escapeHtml(offence.SectionReference || 'Section not recorded')} / Suggested: ${escapeHtml(offence.SuggestedOutcome || 'No Further Action')}${previous ? ' / Repeat contact identified' : ''}${offence.EscalationGuidance ? ` / ${escapeHtml(offence.EscalationGuidance)}` : ''}</small>${offence.GuidanceNotes ? `<em>${escapeHtml(offence.GuidanceNotes)}</em>` : ''}</aside>`);
+  };
+  elements.editorFields.querySelector('[name="OffenceReference"]')?.addEventListener('change', applyOffenceGuidance);
+  elements.editorFields.querySelector('[name="SubjectReference"]')?.addEventListener('change', applyOffenceGuidance);
 }
 
 function openOpsOfficerActionEditor(incidentId) {
@@ -7743,7 +7763,7 @@ async function supabaseSaveOperationalOffence(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
   if (!can('VIEW_TASKS')) return { ok: false, error: 'Only supervisors can manage the offence library.' };
   if (!data.Code || !data.Title) return { ok: false, error: 'Offence code and title are required.' };
-  const record = { code: String(data.Code).trim().toUpperCase(), title: data.Title.trim(), category: data.Category || 'General', description: data.Description || '', default_fine: Number(data.DefaultFine) || 0, default_prison_minutes: Number(data.DefaultPrisonMinutes) || 0, default_points: Number(data.DefaultPoints) || 0, suggested_outcome: data.SuggestedOutcome || 'FPN', allowed_outcomes: splitTags(data.AllowedOutcomes || ''), escalation_guidance: data.EscalationGuidance || '', version: Number(data.Version) || 1, effective_from: data.EffectiveFrom || new Date().toISOString().slice(0, 10), created_by: me.user.UserID, updated_at: new Date().toISOString() };
+  const record = { code: String(data.Code).trim().toUpperCase(), title: data.Title.trim(), category: data.Category || 'General', description: data.Description || '', default_fine: Number(data.DefaultFine) || 0, repeat_fine: Number(data.RepeatFine) || 0, default_prison_minutes: Number(data.DefaultPrisonMinutes) || 0, default_points: Number(data.DefaultPoints) || 0, suggested_outcome: data.SuggestedOutcome || 'FPN', allowed_outcomes: splitTags(data.AllowedOutcomes || ''), escalation_guidance: data.EscalationGuidance || '', legislation_source: data.LegislationSource || '', section_reference: data.SectionReference || '', source_url: data.SourceUrl || '', guidance_notes: data.GuidanceNotes || '', related_powers: splitTags(data.RelatedPowers || ''), version: Number(data.Version) || 1, effective_from: data.EffectiveFrom || new Date().toISOString().slice(0, 10), created_by: me.user.UserID, updated_at: new Date().toISOString() };
   const query = data.OffenceID ? supabaseClient.from('operational_offences').update(record).eq('offence_id', data.OffenceID) : supabaseClient.from('operational_offences').insert(record);
   const { error } = await query;
   return error ? { ok: false, error: error.message } : { ok: true };
@@ -7788,7 +7808,10 @@ async function supabaseSaveOperationalDisposal(data) {
   const offenceReference = referenceId(data.OffenceReference);
   const offenceId = offenceReference.startsWith('OFF_') ? offenceReference : null;
   const offence = offenceId ? await supabaseById('operational_offences', 'offence_id', offenceId) : null;
-  const record = { incident_id: data.IncidentID, person_id: subjectType === 'Person' ? subjectId : null, vehicle_id: subjectType === 'Vehicle' ? subjectId : null, offence_id: offenceId, outcome_type: data.OutcomeType || offence?.suggested_outcome || 'No Further Action', fine_amount: data.FineAmount === '' || data.FineAmount === undefined ? offence?.default_fine || 0 : Number(data.FineAmount) || 0, prison_minutes: data.PrisonMinutes === '' || data.PrisonMinutes === undefined ? offence?.default_prison_minutes || 0 : Number(data.PrisonMinutes) || 0, penalty_points: data.PenaltyPoints === '' || data.PenaltyPoints === undefined ? offence?.default_points || 0 : Number(data.PenaltyPoints) || 0, notes: data.Notes || '', issued_by: me.user.UserID, issuing_officer_id: officer?.officer_id || null };
+  const previousDisposals = offenceId ? await supabaseOptionalAll('operational_disposals') : [];
+  const repeatContact = previousDisposals.some((row) => row.incident_id !== data.IncidentID && row.offence_id === offenceId && (subjectType === 'Person' ? row.person_id === subjectId : row.vehicle_id === subjectId));
+  const guidedFine = repeatContact && offence?.repeat_fine ? offence.repeat_fine : offence?.default_fine || 0;
+  const record = { incident_id: data.IncidentID, person_id: subjectType === 'Person' ? subjectId : null, vehicle_id: subjectType === 'Vehicle' ? subjectId : null, offence_id: offenceId, outcome_type: data.OutcomeType || offence?.suggested_outcome || 'No Further Action', fine_amount: data.FineAmount === '' || data.FineAmount === undefined ? guidedFine : Number(data.FineAmount) || 0, prison_minutes: data.PrisonMinutes === '' || data.PrisonMinutes === undefined ? offence?.default_prison_minutes || 0 : Number(data.PrisonMinutes) || 0, penalty_points: data.PenaltyPoints === '' || data.PenaltyPoints === undefined ? offence?.default_points || 0 : Number(data.PenaltyPoints) || 0, notes: data.Notes || '', issued_by: me.user.UserID, issuing_officer_id: officer?.officer_id || null };
   const { data: saved, error } = await supabaseClient.from('operational_disposals').insert(record).select('disposal_id').maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (officer) await supabaseClient.from('operational_officer_actions').insert({ incident_id: data.IncidentID, officer_id: officer.officer_id, action_type: disposalActionType(record.outcome_type), person_id: record.person_id, vehicle_id: record.vehicle_id, offence_id: offenceId, disposal_id: saved?.disposal_id || null, notes: record.notes, created_by: me.user.UserID });
@@ -8057,7 +8080,7 @@ function supabaseOperationalVehicle(row, people, entityLinks, markers) {
 }
 
 function supabaseOperationalOffence(row) {
-  return { OffenceID: row.offence_id, Code: row.code, Title: row.title, Category: row.category || 'General', Description: row.description || '', DefaultFine: row.default_fine || 0, DefaultPrisonMinutes: row.default_prison_minutes || 0, DefaultPoints: row.default_points || 0, SuggestedOutcome: row.suggested_outcome || 'FPN', AllowedOutcomes: (row.allowed_outcomes || []).join(', '), EscalationGuidance: row.escalation_guidance || '', Version: row.version || 1, EffectiveFrom: row.effective_from || '' };
+  return { OffenceID: row.offence_id, Code: row.code, Title: row.title, Category: row.category || 'General', Description: row.description || '', DefaultFine: row.default_fine || 0, RepeatFine: row.repeat_fine || 0, DefaultPrisonMinutes: row.default_prison_minutes || 0, DefaultPoints: row.default_points || 0, SuggestedOutcome: row.suggested_outcome || 'FPN', AllowedOutcomes: (row.allowed_outcomes || []).join(', '), EscalationGuidance: row.escalation_guidance || '', LegislationSource: row.legislation_source || '', SectionReference: row.section_reference || '', SourceUrl: row.source_url || '', GuidanceNotes: row.guidance_notes || '', RelatedPowers: (row.related_powers || []).join(', '), Version: row.version || 1, EffectiveFrom: row.effective_from || '' };
 }
 
 function supabaseOperationalMarker(row) {
