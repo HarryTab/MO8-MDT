@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-27-5">
+    <link rel="stylesheet" href="styles.css?v=2026-06-27-6">
   </head>
   <body>
     <main class="terminal-shell">
@@ -497,6 +497,7 @@
               </div>
               <div id="opsSummary" class="ops-summary"></div>
               <div class="ops-actions">
+                <button class="ghost" id="opsControllerButton">Book on control</button>
                 <button id="opsStartShiftButton">Start shift</button>
                 <button class="ghost" id="opsEndShiftButton">End shift</button>
                 <button class="icon-button ghost" id="opsRefreshButton" title="Refresh operations" aria-label="Refresh operations">&#8635;</button>
@@ -506,6 +507,7 @@
             <nav class="cad-workspace-nav" aria-label="Operations workspaces">
               <button class="active" data-ops-workspace="live">Live CAD <span id="opsLiveCount">0</span></button>
               <button data-ops-workspace="units">Units</button>
+              <button data-ops-workspace="control">Control Room</button>
               <button data-ops-workspace="intel">Intel</button>
               <button data-ops-workspace="archive">Archive</button>
               <button data-ops-workspace="analytics">Performance</button>
@@ -544,7 +546,18 @@
             <section class="cad-workspace" data-ops-panel="units" hidden>
               <div class="cad-page-head"><div><small>Resource management</small><h2>Units and callsigns</h2></div><button data-trigger="ops-new-unit">Create unit</button></div>
               <div id="opsUnitsFull" class="cad-unit-grid"></div>
+              <article class="cad-page-panel"><div class="cad-panel-title"><div><small>Preset deployment roster</small><h3>Callsign availability</h3></div></div><div id="opsCallsignBoard" class="callsign-roster"></div></article>
               <div class="cad-page-grid"><article class="cad-page-panel"><h3>Assigned to you</h3><div id="opsAssigned" class="ops-incident-list"></div></article><article class="cad-page-panel"><h3>Coverage</h3><div id="opsCoverage" class="ops-incident-list"></div></article></div>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="control" hidden>
+              <div class="cad-page-head"><div><small>Control room</small><h2>Dispatch and resource management</h2></div><button id="opsControlSessionButton">Book on control</button></div>
+              <div id="opsControllerStatus" class="controller-status"></div>
+              <article class="cad-page-panel control-lookup"><div class="cad-panel-title"><h3>Officer lookup</h3></div><input id="opsControlOfficerSearch" type="search" placeholder="Search officer, callsign, rank or capability"><div id="opsControlOfficerResults" class="control-officer-results"></div></article>
+              <div class="control-room-grid">
+                <article class="cad-page-panel"><div class="cad-panel-title"><h3>Live callsigns</h3></div><div id="opsControlUnits" class="control-table"></div></article>
+                <article class="cad-page-panel"><div class="cad-panel-title"><h3>Incident queue</h3></div><div id="opsControlIncidents" class="control-table"></div></article>
+              </div>
             </section>
 
             <section class="cad-workspace" data-ops-panel="intel" hidden>
@@ -626,6 +639,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-27-5"></script>
+    <script src="app.js?v=2026-06-27-6"></script>
   </body>
 </html>
