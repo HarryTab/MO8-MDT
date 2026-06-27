@@ -3029,6 +3029,41 @@ dialog .section-head .ghost:hover {
 .intel-entity-chip span { color: #6d8b96; font-size: 8px; text-transform: uppercase; }
 .intel-entity-chip strong { color: #e8f4f6; }
 .intel-entity-chip small { color: #82a0ac; }
+
+.cad-entity-drawer {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  right: 0;
+  width: min(520px, 92%);
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+  color: #dbe9ed;
+  background: #0a1820;
+  border-left: 1px solid #36535f;
+  box-shadow: -18px 0 36px rgb(0 0 0 / 32%);
+}
+#opsIncidentWorkspace { position: relative; }
+.cad-entity-drawer > header { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #29414b; }
+.cad-entity-drawer header span, .cad-entity-drawer h4 { color: #70ddd7; font-size: 10px; text-transform: uppercase; }
+.cad-entity-drawer h3 { margin: 4px 0; font-size: 22px; }
+.cad-entity-drawer header p { margin: 0; color: #9bb1ba; }
+.cad-entity-drawer > section { margin-top: 18px; }
+.cad-drawer-record { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #203640; }
+.cad-drawer-record div { display: grid; gap: 3px; }
+.cad-drawer-record small { color: #89a1aa; }
+.ops-bolo-image { width: 100%; max-height: 180px; object-fit: cover; border: 1px solid #31505c; }
+.profile-operational-stats { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.offence-guidance { grid-column: 1 / -1; padding: 10px; color: #c9dce2; background: #102833; border-left: 3px solid #56d6cf; }
+.offence-guidance strong { color: #78e4dd; }
+.offence-guidance p { margin: 5px 0; }
+.offence-guidance small { color: #9fb5bd; }
+
+@media (max-width: 700px) {
+  .cad-entity-drawer { position: fixed; inset: 0; width: 100%; height: 100dvh; }
+  .profile-operational-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .intel-disposal-list { display: grid; gap: 6px; }
 .intel-disposal-list article { padding: 9px; border-left: 3px solid #47d7d1; background: #10232c; }
 .intel-disposal-list span { color: #62dcd6; font-size: 8px; font-weight: 900; text-transform: uppercase; }
