@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-25-6">
+    <link rel="stylesheet" href="styles.css?v=2026-06-27-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -483,79 +483,82 @@
         </section>
 
           <section id="operationsView" class="operations-hub" hidden>
-            <section class="ops-hero">
-              <div>
-                <span>MO8 Operations Hub</span>
-                <h2>Live Roads Policing CAD</h2>
-                <p>Manage active units, dispatch incidents and operational alerts from one live workspace.</p>
+            <header class="cad-command-bar">
+              <div class="cad-wordmark">
+                <span class="cad-pulse" aria-hidden="true"></span>
+                <div><small>Met Operations 8</small><strong>CONTROL / CAD</strong></div>
               </div>
+              <div id="opsSummary" class="ops-summary"></div>
               <div class="ops-actions">
                 <button id="opsStartShiftButton">Start shift</button>
                 <button class="ghost" id="opsEndShiftButton">End shift</button>
-                <button class="ghost" id="opsRefreshButton">Refresh</button>
+                <button class="icon-button ghost" id="opsRefreshButton" title="Refresh operations" aria-label="Refresh operations">&#8635;</button>
               </div>
+            </header>
+
+            <nav class="cad-workspace-nav" aria-label="Operations workspaces">
+              <button class="active" data-ops-workspace="live">Live CAD <span id="opsLiveCount">0</span></button>
+              <button data-ops-workspace="units">Units</button>
+              <button data-ops-workspace="intel">Intel</button>
+              <button data-ops-workspace="archive">Archive</button>
+              <button data-ops-workspace="analytics">Performance</button>
+              <button data-ops-workspace="reviews" data-permission="VIEW_TASKS">Reviews <span id="opsReviewCount">0</span></button>
+            </nav>
+
+            <section class="cad-workspace active" data-ops-panel="live">
+              <aside class="cad-rail cad-queue-panel">
+                <div class="cad-panel-title"><div><small>Dispatch queue</small><h3>Active incidents</h3></div><button id="opsNewIncidentButton">New CAD</button></div>
+                <div class="cad-filter-strip">
+                  <input id="opsLiveSearch" type="search" placeholder="Search active CAD">
+                  <select id="opsLivePriority"><option value="">All priorities</option><option>Emergency</option><option>Immediate</option><option>Priority</option><option>Routine</option></select>
+                  <select id="opsLiveStatus"><option value="">All queues</option><option value="Unassigned">Unassigned</option><option>Open</option><option>Assigned</option><option>En Route</option><option>On Scene</option></select>
+                </div>
+                <div id="opsIncidents" class="cad-call-queue"></div>
+              </aside>
+
+              <main class="cad-incident-workspace" id="opsIncidentWorkspace">
+                <div class="cad-empty-workspace"><span>CAD</span><h2>Select an active incident</h2><p>The incident log, units, links and command information will appear here.</p></div>
+              </main>
+
+              <aside class="cad-rail cad-context-rail">
+                <section class="cad-compact-panel">
+                  <div class="cad-panel-title"><div><small>Deployment</small><h3>Live units</h3></div><button class="ghost" id="opsNewUnitButton">New unit</button></div>
+                  <select id="opsUnitStatusSelect">
+                    <option value="">Set my status</option><option>Available</option><option>En Route</option><option>On Scene</option><option>Transporting</option><option>At Station</option><option>Unavailable</option>
+                  </select>
+                  <div id="opsUnits" class="ops-unit-board"></div>
+                </section>
+                <section class="cad-compact-panel"><div class="cad-panel-title"><div><small>Awaiting action</small><h3>Unit requests</h3></div></div><div id="opsJoinRequests" class="ops-incident-list"></div></section>
+                <section class="cad-compact-panel"><div class="cad-panel-title"><div><small>Live feed</small><h3>Activity</h3></div></div><div id="opsActivityFeed" class="cad-activity-feed"></div></section>
+              </aside>
             </section>
 
-            <div id="opsSummary" class="ops-summary"></div>
+            <section class="cad-workspace" data-ops-panel="units" hidden>
+              <div class="cad-page-head"><div><small>Resource management</small><h2>Units and callsigns</h2></div><button data-trigger="ops-new-unit">Create unit</button></div>
+              <div id="opsUnitsFull" class="cad-unit-grid"></div>
+              <div class="cad-page-grid"><article class="cad-page-panel"><h3>Assigned to you</h3><div id="opsAssigned" class="ops-incident-list"></div></article><article class="cad-page-panel"><h3>Coverage</h3><div id="opsCoverage" class="ops-incident-list"></div></article></div>
+            </section>
 
-            <section class="ops-grid">
-              <article class="ops-panel ops-wide">
-                <div class="ops-panel-head">
-                  <h3>Live Units / Callsigns</h3>
-                  <button id="opsNewUnitButton">Create unit</button>
-                  <select id="opsUnitStatusSelect">
-                    <option value="">Set my status</option>
-                    <option>Available</option>
-                    <option>En Route</option>
-                    <option>On Scene</option>
-                    <option>Transporting</option>
-                    <option>At Station</option>
-                    <option>Unavailable</option>
-                  </select>
-                </div>
-                <div id="opsUnits" class="ops-unit-board"></div>
-              </article>
+            <section class="cad-workspace" data-ops-panel="intel" hidden>
+              <div class="cad-page-head"><div><small>Operational intelligence</small><h2>BOLOs and briefings</h2></div><div><button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button><button class="ghost" id="opsNewBriefingButton" data-permission="VIEW_TASKS">New briefing</button></div></div>
+              <div class="cad-page-grid"><article class="cad-page-panel"><h3>Active BOLOs</h3><div id="opsBolos" class="ops-bolo-list"></div></article><article class="cad-page-panel"><h3>Operational briefings</h3><div id="opsBriefings" class="ops-incident-list"></div></article></div>
+            </section>
 
-              <article class="ops-panel">
-                <div class="ops-panel-head">
-                  <h3>Unit Requests</h3>
-                </div>
-                <div id="opsJoinRequests" class="ops-incident-list"></div>
-              </article>
+            <section class="cad-workspace" data-ops-panel="archive" hidden>
+              <div class="cad-page-head"><div><small>Historical records</small><h2>CAD archive</h2></div></div>
+              <div class="cad-archive-filters"><input id="opsArchiveSearch" type="search" placeholder="Reference, location, unit, officer, outcome or keyword"><select id="opsArchiveType"><option value="">All incident types</option></select><select id="opsArchiveOutcome"><option value="">All outcomes</option></select><input id="opsArchiveFrom" type="date" aria-label="Archive start date"><input id="opsArchiveTo" type="date" aria-label="Archive end date"></div>
+              <div id="opsArchiveResults" class="cad-archive-table"></div>
+            </section>
 
-              <article class="ops-panel ops-wide">
-                <div class="ops-panel-head">
-                  <h3>CAD Incidents</h3>
-                  <button id="opsNewIncidentButton">Create incident</button>
-                </div>
-                <div id="opsIncidents" class="ops-incident-list"></div>
-              </article>
+            <section class="cad-workspace" data-ops-panel="analytics" hidden>
+              <div class="cad-page-head"><div><small>Operational performance</small><h2>CAD analytics</h2></div></div>
+              <div id="opsAnalytics" class="cad-analytics"></div>
+            </section>
 
-              <article class="ops-panel">
-                <div class="ops-panel-head">
-                  <h3>BOLO / Intel</h3>
-                  <button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button>
-                </div>
-                <div id="opsBolos" class="ops-bolo-list"></div>
-              </article>
-
-              <article class="ops-panel">
-                <h3>Assigned To You</h3>
-                <div id="opsAssigned" class="ops-incident-list"></div>
-              </article>
-
-              <article class="ops-panel">
-                <div class="ops-panel-head">
-                  <h3>Briefings</h3>
-                  <button id="opsNewBriefingButton" data-permission="VIEW_TASKS">Create briefing</button>
-                </div>
-                <div id="opsBriefings" class="ops-incident-list"></div>
-              </article>
-
-              <article class="ops-panel">
-                <h3>Coverage & Stats</h3>
-                <div id="opsCoverage" class="ops-incident-list"></div>
-              </article>
+            <section class="cad-workspace" data-ops-panel="reviews" hidden>
+              <div class="cad-page-head"><div><small>Supervisor assurance</small><h2>Incident reviews</h2></div><button id="opsNewTemplateButton">Manage templates</button></div>
+              <div id="opsReviewQueue" class="cad-review-grid"></div>
+              <article class="cad-page-panel"><h3>Incident templates</h3><div id="opsTemplates" class="cad-template-grid"></div></article>
             </section>
           </section>
         </section>
@@ -605,6 +608,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-25-6"></script>
+    <script src="app.js?v=2026-06-27-1"></script>
   </body>
 </html>

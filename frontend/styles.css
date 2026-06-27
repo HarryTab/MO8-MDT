@@ -253,17 +253,15 @@ body:not(.is-authenticated) .module-dock {
 }
 
 body.operations-mode {
-  color: #e8f2ff;
-  background:
-    radial-gradient(circle at 16% 14%, rgba(39, 167, 216, 0.24), transparent 28%),
-    radial-gradient(circle at 90% 8%, rgba(18, 103, 216, 0.22), transparent 24%),
-    linear-gradient(135deg, #061224 0%, #081c36 46%, #0e2b4f 100%);
+  color: #d9e7ef;
+  background: #071017;
 }
 
 body.operations-mode .terminal-window {
   grid-template-columns: 1fr;
-  background: rgba(3, 12, 25, 0.62);
-  border-color: rgba(92, 140, 194, 0.36);
+  background: #09141d;
+  border-color: #263844;
+  border-radius: 4px;
 }
 
 body.hub-select-mode .terminal-window {
@@ -280,9 +278,9 @@ body.hub-select-mode .module-dock {
 
 body.operations-mode .system-bar,
 body.operations-mode .topbar {
-  color: #eaf4ff;
-  background: rgba(6, 18, 36, 0.78);
-  border-color: rgba(92, 140, 194, 0.38);
+  color: #e9f5fa;
+  background: #0b1822;
+  border-color: #263844;
 }
 
 body.operations-mode .system-brand span:not(.crest),
@@ -292,7 +290,12 @@ body.operations-mode .topbar p {
 }
 
 body.operations-mode .workspace {
-  background: linear-gradient(180deg, rgba(8, 24, 46, 0.24), rgba(4, 12, 24, 0.10));
+  padding: 0;
+  background-color: #09141d;
+  background-image:
+    linear-gradient(rgba(74, 113, 131, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 113, 131, 0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 .module-dock {
@@ -1953,96 +1956,98 @@ dialog .section-head .ghost:hover {
   color: #b9d7f7;
 }
 
-.operations-hub {
-  display: grid;
-  gap: 14px;
-}
+.operations-hub { min-height: calc(100vh - 86px); color: #d9e7ef; background: rgba(7, 16, 23, 0.88); }
+.operations-hub button { border-radius: 3px; color: #041116; background: #47d7d1; border-color: #66ebe4; }
+.operations-hub button:hover { color: #041116; background: #78ebe6; }
+.operations-hub button.ghost { color: #b9cbd4; background: #12232e; border-color: #37505e; }
+.operations-hub input,
+.operations-hub select,
+.operations-hub textarea { color: #e8f4f7; background: #0d1b24; border-color: #304550; border-radius: 3px; }
+.operations-hub input::placeholder { color: #708a97; }
 
-.ops-hero,
-.ops-panel,
-.ops-stat {
-  border: 1px solid rgba(92, 140, 194, 0.34);
-  border-radius: 12px;
-  background: rgba(7, 20, 38, 0.78);
-}
+.cad-command-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; min-height: 72px; padding: 10px 16px; border-bottom: 1px solid #2a3e49; background: #0b1821; }
+.cad-wordmark { display: flex; align-items: center; gap: 10px; min-width: 205px; }
+.cad-wordmark small { display: block; color: #72909e; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.cad-wordmark strong { color: #f3fbfd; font-size: 16px; letter-spacing: 0; }
+.cad-pulse { width: 11px; height: 11px; background: #47d7d1; border: 2px solid #b7fffa; border-radius: 50%; box-shadow: 0 0 12px rgba(71, 215, 209, .7); }
+.ops-actions { display: flex; align-items: center; gap: 7px; }
+.ops-summary { display: flex; justify-content: center; gap: 1px; min-width: 0; }
+.ops-stat { min-width: 82px; padding: 7px 12px; border-left: 1px solid #2a3e49; background: #101f29; }
+.ops-stat:last-child { border-right: 1px solid #2a3e49; }
+.ops-stat span { display: block; color: #7893a0; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.ops-stat strong { display: block; margin-top: 2px; color: #f3fbfd; font-size: 15px; }
 
-.ops-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 20px;
-}
+.cad-workspace-nav { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid #2a3e49; background: #0d1a23; }
+.cad-workspace-nav button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; color: #839ca8; background: transparent; border: 0; border-right: 1px solid #223641; border-bottom: 2px solid transparent; font-size: 11px; text-transform: uppercase; }
+.cad-workspace-nav button:hover,
+.cad-workspace-nav button.active { color: #dffefa; background: #12242e; border-bottom-color: #47d7d1; }
+.cad-workspace-nav button span { min-width: 20px; padding: 2px 5px; color: #bffcf8; background: #1f4148; border-radius: 10px; font-size: 9px; text-align: center; }
 
-.ops-hero span,
-.ops-panel h3 {
-  color: #8ec8ff;
-  font-size: 11px;
-  font-weight: 950;
-  text-transform: uppercase;
-}
+.cad-workspace { min-height: calc(100vh - 198px); }
+.cad-workspace[data-ops-panel="live"] { display: grid; grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(250px, 305px); }
+.cad-rail { min-width: 0; background: #0b171f; }
+.cad-queue-panel { border-right: 1px solid #2a3e49; }
+.cad-context-rail { border-left: 1px solid #2a3e49; }
+.cad-panel-title,
+.cad-page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cad-panel-title { padding: 12px; border-bottom: 1px solid #243943; }
+.cad-panel-title small,
+.cad-page-head small { display: block; color: #62808d; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.cad-panel-title h3,
+.cad-page-head h2 { margin: 2px 0 0; color: #e8f3f6; letter-spacing: 0; }
+.cad-panel-title h3 { font-size: 14px; }
+.cad-filter-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; border-bottom: 1px solid #243943; }
+.cad-filter-strip input { grid-column: 1 / -1; }
+.cad-filter-strip input,
+.cad-filter-strip select { min-width: 0; }
+.cad-call-queue { max-height: calc(100vh - 306px); overflow-y: auto; }
+.cad-call { display: grid; grid-template-columns: 5px 1fr auto; gap: 10px; padding: 12px 10px; border-bottom: 1px solid #1d303a; cursor: pointer; }
+.cad-call:hover,
+.cad-call.selected { background: #122630; }
+.cad-call-priority { align-self: stretch; background: #4a869b; }
+.cad-call.priority-emergency .cad-call-priority { background: #ff4d5a; }
+.cad-call.priority-immediate .cad-call-priority { background: #ff9f43; }
+.cad-call.priority-priority .cad-call-priority { background: #4eb6e6; }
+.cad-call small { display: block; color: #6e8995; font-size: 9px; text-transform: uppercase; }
+.cad-call strong { display: block; margin: 3px 0; color: #eef9fb; font-size: 13px; }
+.cad-call p { margin: 0; overflow: hidden; color: #9ab0ba; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.cad-call time { color: #78939e; font-size: 10px; }
 
-.ops-hero h2 {
-  margin: 4px 0;
-  color: #f4f9ff;
-  font-size: 30px;
-}
+.cad-incident-workspace { min-width: 0; background: rgba(9, 20, 29, .78); }
+.cad-empty-workspace { display: grid; place-items: center; align-content: center; min-height: 520px; padding: 30px; color: #617c88; text-align: center; }
+.cad-empty-workspace span { display: grid; place-items: center; width: 72px; height: 72px; border: 1px solid #2e4a57; color: #47d7d1; font-size: 17px; font-weight: 950; }
+.cad-empty-workspace h2 { margin: 16px 0 4px; color: #b5c9d1; font-size: 18px; }
+.cad-empty-workspace p { max-width: 340px; margin: 0; }
+.cad-detail-head { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 16px; border-bottom: 1px solid #2a3e49; background: #0c1b24; }
+.cad-priority-block { display: grid; place-items: center; width: 52px; height: 52px; color: #fff; background: #397f98; border: 1px solid #72b4c9; font-weight: 950; }
+.cad-priority-block.emergency { background: #a62d3a; border-color: #ff6975; }
+.cad-priority-block.immediate { background: #a65b1f; border-color: #ffad62; }
+.cad-detail-head small { color: #6f8b97; font-size: 9px; text-transform: uppercase; }
+.cad-detail-head h2 { margin: 2px 0; color: #f1fafc; font-size: 20px; }
+.cad-detail-head p { margin: 0; color: #9eb3bc; }
+.cad-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cad-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(220px, .85fr); }
+.cad-detail-section { padding: 14px; border-right: 1px solid #243943; border-bottom: 1px solid #243943; }
+.cad-detail-section h3 { margin: 0 0 10px; color: #7ce5df; font-size: 10px; text-transform: uppercase; }
+.cad-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #243943; border: 1px solid #243943; }
+.cad-fact { padding: 9px; background: #0d1c25; }
+.cad-fact span { display: block; color: #66828e; font-size: 8px; text-transform: uppercase; }
+.cad-fact strong { display: block; margin-top: 3px; color: #d9e7ec; font-size: 11px; }
+.cad-timeline { display: grid; gap: 0; max-height: 430px; overflow-y: auto; }
+.cad-log-entry { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 12px; padding: 10px 0 10px 15px; border-left: 1px solid #31505d; }
+.cad-log-entry::before { content: ''; position: absolute; top: 15px; left: -4px; width: 7px; height: 7px; background: #47d7d1; border-radius: 50%; }
+.cad-log-entry time { color: #65808c; font-size: 9px; }
+.cad-log-entry strong { display: block; color: #8beae5; font-size: 9px; text-transform: uppercase; }
+.cad-log-entry p { margin: 3px 0 0; color: #c5d5db; font-size: 11px; white-space: pre-wrap; }
+.cad-attachment-list,
+.cad-link-list { display: grid; gap: 6px; }
+.cad-file-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px; color: #c7d9df; background: #10232d; border: 1px solid #29434f; }
 
-.ops-hero p {
-  margin: 0;
-  color: #b6c8dc;
-}
-
-.ops-actions,
-.ops-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ops-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-}
-
-.ops-stat {
-  padding: 12px;
-}
-
-.ops-stat span {
-  display: block;
-  color: #9fb8d5;
-  font-size: 10px;
-  font-weight: 950;
-  text-transform: uppercase;
-}
-
-.ops-stat strong {
-  display: block;
-  margin-top: 5px;
-  color: #fff;
-  font-size: 20px;
-}
-
-.ops-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.ops-wide {
-  grid-column: auto;
-}
-
-.ops-panel {
-  padding: 14px;
-}
-
-.ops-panel h3 {
-  margin: 0;
-}
+.cad-compact-panel { border-bottom: 1px solid #2a3e49; }
+.cad-compact-panel > select { width: calc(100% - 20px); margin: 10px; }
+.ops-unit-board,
+.ops-incident-list,
+.ops-bolo-list { display: grid; gap: 6px; margin: 8px; }
 
 .ops-unit-board,
 .ops-incident-list,
@@ -2058,11 +2063,11 @@ dialog .section-head .ghost:hover {
   display: grid;
   gap: 6px;
   padding: 11px;
-  border: 1px solid rgba(92, 140, 194, 0.28);
-  border-left: 4px solid #3d8bfd;
-  border-radius: 9px;
-  color: #dbeaff;
-  background: rgba(10, 29, 55, 0.82);
+  border: 1px solid #29414c;
+  border-left: 3px solid #47d7d1;
+  border-radius: 2px;
+  color: #d5e5ea;
+  background: #10212a;
 }
 
 .ops-unit {
@@ -2078,7 +2083,7 @@ dialog .section-head .ghost:hover {
 .ops-unit span,
 .ops-incident span,
 .ops-bolo span {
-  color: #8ec8ff;
+  color: #63d9d4;
   font-size: 10px;
   font-weight: 950;
   text-transform: uppercase;
@@ -2090,7 +2095,7 @@ dialog .section-head .ghost:hover {
 .ops-incident p,
 .ops-bolo p {
   margin: 0;
-  color: #abc2dc;
+  color: #91aab5;
 }
 
 .ops-unit em {
@@ -2121,6 +2126,74 @@ dialog .section-head .ghost:hover {
 
 .ops-incident.priority-priority {
   border-left-color: #36c0f0;
+}
+
+.cad-activity-feed { display: grid; max-height: 260px; overflow-y: auto; }
+.cad-activity-item { display: grid; grid-template-columns: 50px 1fr; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #1d3039; }
+.cad-activity-item time { color: #607c88; font-size: 9px; }
+.cad-activity-item p { margin: 0; color: #aabec6; font-size: 10px; }
+.cad-page-head { padding: 18px; border-bottom: 1px solid #2a3e49; background: #0b1821; }
+.cad-page-head h2 { font-size: 21px; }
+.cad-page-head > div:last-child { display: flex; gap: 8px; }
+.cad-page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+.cad-page-panel { min-width: 0; padding: 14px; border: 1px solid #29414c; background: #0c1a23; }
+.cad-page-panel h3 { margin: 0 0 12px; color: #8beae5; font-size: 11px; text-transform: uppercase; }
+.cad-unit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 9px; padding: 12px; }
+.cad-archive-filters { display: grid; grid-template-columns: minmax(240px, 1fr) repeat(4, minmax(120px, 170px)); gap: 7px; padding: 12px; border-bottom: 1px solid #2a3e49; }
+.cad-archive-table { padding: 0 12px 12px; overflow-x: auto; }
+.cad-archive-row { display: grid; grid-template-columns: 140px 100px minmax(180px, 1fr) 150px 130px 110px; gap: 12px; align-items: center; min-width: 850px; padding: 11px; border-bottom: 1px solid #233741; cursor: pointer; }
+.cad-archive-row:hover { background: #10232d; }
+.cad-archive-row.header { color: #66838f; font-size: 9px; text-transform: uppercase; cursor: default; }
+.cad-archive-row strong { color: #e2eef1; }
+.cad-archive-row span,
+.cad-archive-row small { color: #8fa6b0; }
+.cad-analytics { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; padding: 12px; }
+.cad-metric { padding: 16px; border: 1px solid #29414c; background: #0d1c25; }
+.cad-metric span { color: #67838e; font-size: 9px; text-transform: uppercase; }
+.cad-metric strong { display: block; margin: 6px 0; color: #f1fbfc; font-size: 26px; }
+.cad-metric small { color: #8fa7b1; }
+.cad-metric.wide { grid-column: span 2; }
+.cad-bar-row { display: grid; grid-template-columns: 110px 1fr 34px; gap: 8px; align-items: center; margin-top: 8px; color: #a8bbc3; font-size: 10px; }
+.cad-bar { height: 7px; background: #162a34; }
+.cad-bar i { display: block; height: 100%; background: #47d7d1; }
+.cad-review-grid,
+.cad-template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 9px; padding: 12px; }
+.cad-review-card { padding: 12px; border: 1px solid #334a55; border-top: 3px solid #ff9f43; background: #0e1e27; }
+.cad-template-grid .cad-review-card { border-top-color: #47d7d1; }
+.cad-review-card h3 { margin: 3px 0; color: #eef8fa; font-size: 14px; }
+.cad-review-card p { color: #90a8b2; font-size: 11px; }
+.cad-status-chip { display: inline-flex; padding: 3px 6px; color: #9aece8; background: #17363d; border: 1px solid #2e6266; border-radius: 2px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+
+@media (max-width: 1150px) {
+  .cad-command-bar { grid-template-columns: auto 1fr; }
+  .ops-summary { grid-column: 1 / -1; grid-row: 2; justify-content: stretch; overflow-x: auto; }
+  .ops-stat { flex: 1; }
+  .cad-workspace[data-ops-panel="live"] { grid-template-columns: 290px minmax(420px, 1fr); }
+  .cad-context-rail { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #2a3e49; border-left: 0; }
+}
+
+@media (max-width: 760px) {
+  body.operations-mode .topbar { display: none; }
+  .operations-hub { min-height: 100dvh; }
+  .cad-command-bar { position: sticky; top: 0; z-index: 20; grid-template-columns: 1fr auto; padding: 8px 10px; }
+  .cad-wordmark { min-width: 0; }
+  .ops-summary { display: none; }
+  .ops-actions button:not(.icon-button) { padding: 7px; font-size: 9px; }
+  .cad-workspace-nav { position: sticky; top: 57px; z-index: 19; }
+  .cad-workspace-nav button { min-width: max-content; padding: 0 13px; }
+  .cad-workspace[data-ops-panel="live"] { display: block; }
+  .cad-call-queue { max-height: 300px; }
+  .cad-incident-workspace { min-height: 460px; border-top: 1px solid #2a3e49; }
+  .cad-context-rail { display: block; }
+  .cad-detail-head { grid-template-columns: auto 1fr; }
+  .cad-detail-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .cad-detail-grid,
+  .cad-page-grid { grid-template-columns: 1fr; }
+  .cad-detail-section { border-right: 0; }
+  .cad-archive-filters { grid-template-columns: 1fr 1fr; }
+  .cad-archive-filters input:first-child { grid-column: 1 / -1; }
+  .cad-analytics { grid-template-columns: 1fr 1fr; }
+  .cad-metric.wide { grid-column: 1 / -1; }
 }
 
 .search-result-list {
@@ -3341,5 +3414,60 @@ body.is-authenticated .profile-actions button.ghost {
 
   .editor-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Operations is a separate workstation and must win over the personnel theme. */
+body.is-authenticated.operations-mode {
+  background: #071017;
+}
+
+body.is-authenticated.operations-mode .terminal-shell {
+  padding: 8px;
+}
+
+body.is-authenticated.operations-mode .terminal-window {
+  min-height: calc(100vh - 16px);
+  grid-template-columns: 1fr;
+  background: #09141d;
+  border-color: #263844;
+  border-radius: 4px;
+}
+
+body.is-authenticated.operations-mode .topbar {
+  color: #e9f5fa;
+  background: #0b1822;
+  border-color: #263844;
+  border-radius: 0;
+}
+
+body.is-authenticated.operations-mode .workspace {
+  padding: 0;
+  background-color: #09141d;
+  background-image:
+    linear-gradient(rgba(74, 113, 131, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 113, 131, 0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+body.is-authenticated.operations-mode .operations-hub button.ghost {
+  color: #b9cbd4;
+  background: #12232e;
+  border-color: #37505e;
+}
+
+@media (max-width: 760px) {
+  body.is-authenticated.operations-mode .terminal-shell {
+    padding: 0;
+  }
+
+  body.is-authenticated.operations-mode .terminal-window {
+    min-height: 100dvh;
+    background: #09141d;
+    border-radius: 0;
+  }
+
+  body.is-authenticated.operations-mode .workspace {
+    padding: 0;
   }
 }
