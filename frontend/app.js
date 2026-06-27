@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-27-2';
+const APP_VERSION = '2026-06-27-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -96,6 +96,9 @@ const state = {
   operationsHub: { units: [], incidents: [], archive: [], bolos: [], assigned: [], reviews: [], templates: [], people: [], vehicles: [], offences: [], operations: [], markers: [], invitations: [], shiftStatus: null },
   operationsWorkspace: 'live',
   selectedOperationalIncidentId: '',
+  selectedIntelEntity: null,
+  cadDetailTab: 'overview',
+  opsContextTab: 'units',
   officers: [],
   training: [],
   trainingSummary: [],
@@ -333,6 +336,7 @@ document.querySelector('#opsNewOperationButton')?.addEventListener('click', () =
 document.querySelector('#opsNewOffenceButton')?.addEventListener('click', () => openOpsOffenceEditor());
 document.querySelector('#opsIntelSearch')?.addEventListener('input', debounce(renderOpsIntelSearch, 120));
 document.querySelector('#opsIntelType')?.addEventListener('change', renderOpsIntelSearch);
+document.querySelector('#opsIntelBackButton')?.addEventListener('click', showOpsIntelOverview);
 document.querySelector('#opsLiveSearch')?.addEventListener('input', renderOpsCallQueue);
 document.querySelector('#opsLivePriority')?.addEventListener('change', renderOpsCallQueue);
 document.querySelector('#opsLiveStatus')?.addEventListener('change', renderOpsCallQueue);
@@ -1480,9 +1484,11 @@ async function loadOperationsHub(force = false) {
   renderOpsOperations();
   renderOpsLocationIntel();
   renderOpsDataQuality();
+  renderOpsContextTab();
   const selected = operationalIncidentById(state.selectedOperationalIncidentId);
   if (selected) renderOpsIncidentWorkspace(selected);
   else document.querySelector('#opsIncidentWorkspace').innerHTML = `<div class="cad-empty-workspace"><span>CAD</span><h2>Select an active incident</h2><p>The incident log, units, links and command information will appear here.</p></div>`;
+  if (state.operationsWorkspace === 'intel' && state.selectedIntelEntity) renderOpsRelationshipView(state.selectedIntelEntity.type, state.selectedIntelEntity.id);
   applyPermissions();
 }
 
@@ -1516,23 +1522,27 @@ function renderOpsIncidentWorkspace(row) {
   const command = row.CommandRoles || {};
   const myUnit = state.operationsHub.myUnit || null;
   const canAttach = !isClosed && myUnit?.UnitID && !(row.AssignedUnitIDs || []).includes(myUnit.UnitID);
+  const activeDetailTab = state.cadDetailTab || 'overview';
   const workspace = document.querySelector('#opsIncidentWorkspace');
   workspace.innerHTML = `<header class="cad-detail-head">
     <div class="cad-priority-block ${escapeHtml(String(row.Priority || '').toLowerCase())}">${escapeHtml(String(opsPriorityWeight(row.Priority)))}</div>
     <div><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)}</small><h2>${escapeHtml(row.Title)}</h2><p>${escapeHtml(row.Location || 'Location not recorded')}</p></div>
     <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
   </header>
-  <div class="cad-detail-grid">
+  <nav class="cad-record-tabs"><button class="${activeDetailTab === 'overview' ? 'active' : ''}" data-cad-detail-tab="overview">Overview</button><button class="${activeDetailTab === 'intelligence' ? 'active' : ''}" data-cad-detail-tab="intelligence">Intelligence <span>${escapeHtml(String((row.Entities || []).length))}</span></button><button class="${activeDetailTab === 'timeline' ? 'active' : ''}" data-cad-detail-tab="timeline">Timeline <span>${escapeHtml(String(logs.length))}</span></button><button class="${activeDetailTab === 'evidence' ? 'active' : ''}" data-cad-detail-tab="evidence">Evidence <span>${escapeHtml(String((row.Attachments || []).length + (row.Links || []).length))}</span></button></nav>
+  <section class="cad-detail-panel" data-cad-detail-panel="overview"${activeDetailTab === 'overview' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section"><h3>Incident record</h3><div class="cad-facts">
       ${opsFact('Description', row.Description || 'Not recorded')}${opsIncidentDataFacts(row)}${opsFact('Assigned units', row.AssignedUnits || 'Unassigned')}${opsFact('Required capability', row.RequiredCapabilities || 'None')}${opsFact('Radio / area', [row.RadioChannel, row.PatrolArea].filter(Boolean).join(' / ') || 'Not set')}${opsFact('Incident commander', command.IncidentCommander || 'Not assigned')}${opsFact('Command', [command.Bronze, command.Silver, command.Gold].filter(Boolean).join(' / ') || 'Not assigned')}${opsFact('Linked CADs', (row.LinkedIncidentIDs || []).join(', ') || 'None')}${opsFact('Linked intelligence', (row.LinkedBoloIDs || []).join(', ') || 'None')}${opsFact('Possible duplicate', row.DuplicateOfIncidentID || 'None')}${opsFact('Created', `${formatDisplayDateTime(row.CreatedAt)} by ${row.CreatedBy || 'Unknown'}`)}${opsFact('Outcome', row.Outcome || 'Open')}${opsFact('Closure code', row.ClosureCode || 'Open')}${opsFact('Review', row.ReviewStatus || 'Not Required')}
     </div></section>
     <section class="cad-detail-section"><h3>Unit attendance</h3>${opsAttendance(row.Attendance || [])}</section>
+    ${(row.CorrelationAlerts || []).length ? `<section class="cad-detail-section cad-correlation-panel"><h3>Intelligence correlations</h3>${row.CorrelationAlerts.map((alert) => `<div class="cad-correlation-alert"><strong>${escapeHtml(alert.Title)}</strong><p>${escapeHtml(alert.Detail)}</p></div>`).join('')}</section>` : ''}
+  </div></section>
+  <section class="cad-detail-panel" data-cad-detail-panel="intelligence"${activeDetailTab === 'intelligence' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><h3>People and vehicles</h3><div><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button></div></div>${opsIncidentEntities(row.Entities || [])}</section>
     <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><h3>Actions and outcomes</h3><button class="ghost" data-add-cad-disposal="${escapeHtml(row.IncidentID)}">Record outcome</button></div>${opsIncidentDisposals(row.Disposals || [])}</section>
-    ${(row.CorrelationAlerts || []).length ? `<section class="cad-detail-section cad-correlation-panel"><h3>Intelligence correlations</h3>${row.CorrelationAlerts.map((alert) => `<div class="cad-correlation-alert"><strong>${escapeHtml(alert.Title)}</strong><p>${escapeHtml(alert.Detail)}</p></div>`).join('')}</section>` : ''}
-    <section class="cad-detail-section"><div class="cad-panel-title"><h3>Incident timeline</h3><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add entry</button></div><div class="cad-timeline">${logs.length ? logs.map(opsLogEntry).join('') : '<p class="empty">No log entries yet.</p>'}</div></section>
-    <section class="cad-detail-section"><h3>Evidence and links</h3><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div><div class="row-actions"><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button></div></section>
-  </div>`;
+  </div></section>
+  <section class="cad-detail-panel" data-cad-detail-panel="timeline"${activeDetailTab === 'timeline' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Incident timeline</h3><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add entry</button></div><div class="cad-timeline">${logs.length ? logs.map(opsLogEntry).join('') : '<p class="empty">No log entries yet.</p>'}</div></section></section>
+  <section class="cad-detail-panel" data-cad-detail-panel="evidence"${activeDetailTab === 'evidence' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Evidence and links</h3><div><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button></div></div><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div></section></section>`;
   renderOpsCallQueue();
 }
 
@@ -1663,6 +1673,10 @@ function renderOpsRelationshipView(entityType, entityId) {
   }
   const detail = operationalEntityDetail(entityType, entityId);
   if (!detail) return;
+  state.selectedIntelEntity = { type: entityType, id: entityId };
+  document.querySelector('#opsIntelOverview').hidden = true;
+  document.querySelector('#opsIntelDetail').hidden = false;
+  document.querySelector('#opsIntelRecordTitle').textContent = detail.Title;
   const allIncidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
   const selectedOperation = entityType === 'Operation' ? (state.operationsHub.operations || []).find((row) => row.OperationID === entityId) : null;
   let incidents = allIncidents.filter((incident) => entityType === 'Incident' ? incident.IncidentID === entityId : (incident.Entities || []).some((item) => item.EntityType === entityType && item.EntityID === entityId));
@@ -1688,6 +1702,23 @@ function renderOpsRelationshipView(entityType, entityId) {
   const commonOffence = Object.entries(offenceCounts).sort((a, b) => b[1] - a[1])[0];
   detail.Subtitle = [detail.Subtitle, `${incidents.length} CAD contact${incidents.length === 1 ? '' : 's'}`, `${fpnCount} FPN`, `${arrestCount} arrest${arrestCount === 1 ? '' : 's'}`, commonOffence ? `Most recorded: ${commonOffence[0]} (${commonOffence[1]})` : ''].filter(Boolean).join(' / ');
   container.innerHTML = `<div class="relationship-core"><span>${escapeHtml(entityType)}</span><strong>${escapeHtml(detail.Title)}</strong><small>${escapeHtml(detail.Subtitle || '')}</small></div><div class="relationship-columns"><section><h4>Connected CADs</h4>${incidents.map((row) => `<button data-open-cad="${escapeHtml(row.IncidentID)}">${escapeHtml(row.IncidentNumber)}<small>${escapeHtml(row.Title)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>People and vehicles</h4>${connectedEntities.map((row) => `<button data-open-intel-entity="${escapeHtml(row.EntityType)}:${escapeHtml(row.EntityID)}">${escapeHtml(row.Label)}<small>${escapeHtml(row.InvolvementRole)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>Operations</h4>${operations.map((row) => `<button data-open-intel-entity="Operation:${escapeHtml(row.OperationID)}">${escapeHtml(row.Reference)}<small>${escapeHtml(row.Name)}</small></button>`).join('') || '<p>None</p>'}</section></div><div class="relationship-timeline"><h4>Entity timeline</h4>${incidents.sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt)).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><strong>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Location || '')} / ${escapeHtml(row.Status)}</small></article>`).join('')}${disposals.map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.IssuedAt))}</time><strong>${escapeHtml(row.OutcomeType)} / ${escapeHtml(row.Offence || 'No offence')}</strong><small>${escapeHtml(row.IncidentNumber)}</small></article>`).join('')}</div><div class="row-actions">${['Person', 'Vehicle'].includes(entityType) ? `<button class="ghost" data-edit-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Edit record</button>` : ''}${['Person', 'Vehicle'].includes(entityType) && can('VIEW_TASKS') ? `<button data-add-intel-marker="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Add marker</button><button class="ghost" data-merge-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Merge duplicate</button>` : ''}${entityType === 'Offence' && can('VIEW_TASKS') ? `<button data-edit-intel-entity="Offence:${escapeHtml(entityId)}">Edit offence</button>` : ''}${entityType === 'Operation' && can('VIEW_TASKS') ? `<button data-link-operation="${escapeHtml(entityId)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(entityId)}">Edit operation</button>` : ''}</div>`;
+  const markerHtml = opsIntelMarkerPanel(entityType, entityId);
+  if (markerHtml) container.insertAdjacentHTML('afterbegin', markerHtml);
+}
+
+function showOpsIntelOverview() {
+  state.selectedIntelEntity = null;
+  const overview = document.querySelector('#opsIntelOverview');
+  const detail = document.querySelector('#opsIntelDetail');
+  if (overview) overview.hidden = false;
+  if (detail) detail.hidden = true;
+}
+
+function opsIntelMarkerPanel(entityType, entityId) {
+  if (!['Person', 'Vehicle'].includes(entityType)) return '';
+  const markers = (state.operationsHub.markers || []).filter((marker) => entityType === 'Person' ? marker.PersonID === entityId : marker.VehicleID === entityId);
+  if (!markers.length) return '<section class="intel-marker-panel clear"><div><span>Warning markers</span><strong>No active markers</strong></div><p>No active warning or intelligence markers are recorded against this entry.</p></section>';
+  return `<section class="intel-marker-panel"><header><div><span>Warning markers</span><strong>${escapeHtml(String(markers.length))} active marker${markers.length === 1 ? '' : 's'}</strong></div></header><div class="intel-marker-list">${markers.map((marker) => `<article class="severity-${escapeHtml(marker.Severity.toLowerCase())}"><div><span>${escapeHtml(marker.Severity)}</span><strong>${escapeHtml(marker.MarkerType)}</strong></div><p>${escapeHtml(marker.Details || 'No additional details recorded.')}</p><small>${marker.ReviewAt ? `Review ${escapeHtml(formatDisplayDate(marker.ReviewAt))}` : 'No review date'}${marker.ExpiresAt ? ` / Expires ${escapeHtml(formatDisplayDate(marker.ExpiresAt))}` : ''}</small></article>`).join('')}</div></section>`;
 }
 
 function operationalEntityDetail(type, id) {
@@ -3223,11 +3254,25 @@ async function handleDocumentClick(event) {
     switchOpsWorkspace(opsWorkspace.dataset.opsWorkspace);
     return;
   }
+  const cadDetailTab = event.target.closest('[data-cad-detail-tab]');
+  if (cadDetailTab) {
+    state.cadDetailTab = cadDetailTab.dataset.cadDetailTab;
+    document.querySelectorAll('[data-cad-detail-tab]').forEach((button) => button.classList.toggle('active', button.dataset.cadDetailTab === state.cadDetailTab));
+    document.querySelectorAll('[data-cad-detail-panel]').forEach((panel) => { panel.hidden = panel.dataset.cadDetailPanel !== state.cadDetailTab; });
+    return;
+  }
+  const opsContextTab = event.target.closest('[data-ops-context-tab]');
+  if (opsContextTab) {
+    state.opsContextTab = opsContextTab.dataset.opsContextTab;
+    renderOpsContextTab();
+    return;
+  }
   const openCad = event.target.closest('[data-open-cad], [data-open-archived-cad]');
   if (openCad) {
     const incidentId = openCad.dataset.openCad || openCad.dataset.openArchivedCad;
     const record = operationalIncidentById(incidentId);
     if (record) {
+      if (state.selectedOperationalIncidentId !== incidentId) state.cadDetailTab = 'overview';
       switchOpsWorkspace('live');
       renderOpsIncidentWorkspace(record);
     }
@@ -3872,6 +3917,12 @@ function switchOpsWorkspace(name) {
     panel.hidden = panel.dataset.opsPanel !== state.operationsWorkspace;
     panel.classList.toggle('active', !panel.hidden);
   });
+  if (state.operationsWorkspace === 'intel') showOpsIntelOverview();
+}
+
+function renderOpsContextTab() {
+  document.querySelectorAll('[data-ops-context-tab]').forEach((button) => button.classList.toggle('active', button.dataset.opsContextTab === state.opsContextTab));
+  document.querySelectorAll('[data-ops-context-panel]').forEach((panel) => { panel.hidden = panel.dataset.opsContextPanel !== state.opsContextTab; });
 }
 
 async function handleDocumentChange(event) {

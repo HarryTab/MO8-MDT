@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-27-2">
+    <link rel="stylesheet" href="styles.css?v=2026-06-27-3">
   </head>
   <body>
     <main class="terminal-shell">
@@ -129,23 +129,30 @@
           </section>
 
           <section class="hub-select" id="hubSelectView" hidden>
-            <div class="hub-select-copy">
-              <span class="access-chip">Select workspace</span>
-              <h2>Choose your MDT hub</h2>
-              <p>Personnel Hub keeps officer records, training, documents and supervision tools. Operations Hub opens the live CAD-style workspace for units, incidents and BOLOs.</p>
+            <header class="hub-launcher-head">
+              <div class="hub-launcher-brand"><span>MO8</span><div><small>Metropolitan Operations 8</small><strong>Command Operating System</strong></div></div>
+              <div class="hub-session-state"><i></i><span>Authenticated session</span></div>
+            </header>
+            <div class="hub-launcher-copy">
+              <span>Workspace selection</span>
+              <h2>Where are you working?</h2>
+              <p>Choose the system required for this session. You can switch workspace at any time without signing out.</p>
             </div>
-            <div class="hub-cards">
+            <div class="hub-cards hub-launcher-grid">
               <button class="hub-card personnel" id="enterPersonnelHub" type="button">
-                <span>Personnel Hub</span>
-                <strong>Records, training and command admin</strong>
-                <small>Officer profiles, courses, LOA, documents, supervision, tasks and audit logs.</small>
+                <span class="hub-code">01 / Personnel</span>
+                <strong>Personnel Database</strong>
+                <small>Officer records, development, training, documents, requests and command administration.</small>
+                <b>Enter Personnel</b>
               </button>
               <button class="hub-card operations" id="enterOperationsHub" type="button">
-                <span>Operations Hub</span>
-                <strong>Live units and dispatch</strong>
-                <small>On-duty officers, CAD incidents, BOLOs, quick statuses and operational control.</small>
+                <span class="hub-code">02 / Operations</span>
+                <strong>Control and CAD</strong>
+                <small>Live units, dispatch, intelligence, operational cases, BOLOs and incident command.</small>
+                <b>Enter Operations</b>
               </button>
             </div>
+            <footer class="hub-launcher-foot"><span>MO8 Internal System</span><span>Roleplay data only</span></footer>
           </section>
 
           <section id="appView" hidden>
@@ -521,15 +528,16 @@
               </main>
 
               <aside class="cad-rail cad-context-rail">
-                <section class="cad-compact-panel">
+                <nav class="cad-context-tabs"><button class="active" data-ops-context-tab="units">Units</button><button data-ops-context-tab="requests">Requests</button><button data-ops-context-tab="activity">Activity</button></nav>
+                <section class="cad-compact-panel" data-ops-context-panel="units">
                   <div class="cad-panel-title"><div><small>Deployment</small><h3>Live units</h3></div><button class="ghost" id="opsNewUnitButton">New unit</button></div>
                   <select id="opsUnitStatusSelect">
                     <option value="">Set my status</option><option>Available</option><option>En Route</option><option>On Scene</option><option>Transporting</option><option>At Station</option><option>Out of Service</option>
                   </select>
                   <div id="opsUnits" class="ops-unit-board"></div>
                 </section>
-                <section class="cad-compact-panel"><div class="cad-panel-title"><div><small>Awaiting action</small><h3>Unit requests</h3></div></div><div id="opsJoinRequests" class="ops-incident-list"></div></section>
-                <section class="cad-compact-panel"><div class="cad-panel-title"><div><small>Live feed</small><h3>Activity</h3></div></div><div id="opsActivityFeed" class="cad-activity-feed"></div></section>
+                <section class="cad-compact-panel" data-ops-context-panel="requests" hidden><div class="cad-panel-title"><div><small>Awaiting action</small><h3>Unit requests</h3></div></div><div id="opsJoinRequests" class="ops-incident-list"></div></section>
+                <section class="cad-compact-panel" data-ops-context-panel="activity" hidden><div class="cad-panel-title"><div><small>Live feed</small><h3>Activity</h3></div></div><div id="opsActivityFeed" class="cad-activity-feed"></div></section>
               </aside>
             </section>
 
@@ -540,12 +548,18 @@
             </section>
 
             <section class="cad-workspace" data-ops-panel="intel" hidden>
+              <div id="opsIntelOverview">
               <div class="cad-page-head"><div><small>Operational intelligence</small><h2>Intel and operations</h2></div><div><button id="opsNewPersonButton">New person</button><button id="opsNewVehicleButton">New vehicle</button><button id="opsNewOperationButton" data-permission="VIEW_TASKS">New operation</button><button class="ghost" id="opsNewOffenceButton" data-permission="VIEW_TASKS">Offence library</button></div></div>
               <section class="intel-search-command"><div><small>Cross-system search</small><h3>Search people, vehicles, CADs, offences and operations</h3></div><input id="opsIntelSearch" type="search" placeholder="Name, username, registration, CAD number, offence or operation"><select id="opsIntelType"><option value="">Everything</option><option>Person</option><option>Vehicle</option><option>Incident</option><option>Offence</option><option>Operation</option></select></section>
               <div id="opsIntelResults" class="intel-result-grid"></div>
-              <div class="cad-page-grid intel-primary-grid"><article class="cad-page-panel"><div class="cad-panel-title"><h3>Operations and cases</h3></div><div id="opsOperations" class="ops-incident-list"></div></article><article class="cad-page-panel"><div class="cad-panel-title"><h3>Relationship view</h3></div><div id="opsRelationshipView" class="intel-relationship-view"></div></article></div>
-              <div class="cad-page-grid"><article class="cad-page-panel"><div class="cad-panel-title"><h3>Active BOLOs</h3><button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button></div><div id="opsBolos" class="ops-bolo-list"></div></article><article class="cad-page-panel"><div class="cad-panel-title"><h3>Operational briefings</h3><button class="ghost" id="opsNewBriefingButton" data-permission="VIEW_TASKS">New briefing</button></div><div id="opsBriefings" class="ops-incident-list"></div></article></div>
-              <div class="cad-page-grid"><article class="cad-page-panel"><h3>Location intelligence</h3><div id="opsLocationIntel" class="intel-stat-list"></div></article><article class="cad-page-panel"><h3>Data quality</h3><div id="opsDataQuality" class="intel-stat-list"></div></article></div>
+              <div class="cad-page-grid"><article class="cad-page-panel"><div class="cad-panel-title"><h3>Operations and cases</h3></div><div id="opsOperations" class="ops-incident-list"></div></article><article class="cad-page-panel"><div class="cad-panel-title"><h3>Active BOLOs</h3><button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button></div><div id="opsBolos" class="ops-bolo-list"></div></article></div>
+              <div class="cad-page-grid"><article class="cad-page-panel"><div class="cad-panel-title"><h3>Operational briefings</h3><button class="ghost" id="opsNewBriefingButton" data-permission="VIEW_TASKS">New briefing</button></div><div id="opsBriefings" class="ops-incident-list"></div></article><article class="cad-page-panel"><h3>Location intelligence</h3><div id="opsLocationIntel" class="intel-stat-list"></div></article></div>
+              <div class="cad-page-grid"><article class="cad-page-panel"><h3>Data quality</h3><div id="opsDataQuality" class="intel-stat-list"></div></article></div>
+              </div>
+              <section id="opsIntelDetail" class="intel-record-page" hidden>
+                <header class="intel-record-toolbar"><button class="ghost" id="opsIntelBackButton">Back to Intel</button><div><small>Intelligence record</small><strong id="opsIntelRecordTitle">Record</strong></div></header>
+                <div id="opsRelationshipView" class="intel-relationship-view intel-record-content"></div>
+              </section>
             </section>
 
             <section class="cad-workspace" data-ops-panel="archive" hidden>
@@ -612,6 +626,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-27-2"></script>
+    <script src="app.js?v=2026-06-27-3"></script>
   </body>
 </html>
