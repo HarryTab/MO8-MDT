@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-28-1">
+    <link rel="stylesheet" href="styles.css?v=2026-06-28-2">
   </head>
   <body>
     <main class="terminal-shell">
@@ -195,7 +195,7 @@
               <button class="ghost" id="saveSearchViewButton">Save current view</button>
             </div>
             <div class="filter-row operations-search-bar">
-              <input id="globalSearchInput" placeholder="Search officers, documents, courses and notices">
+              <input id="globalSearchInput" placeholder="Search officers, CADs, people, vehicles, cases, documents and deployments">
               <select id="savedViewSelect"><option value="">Saved views</option></select>
             </div>
             <div id="globalSearchResults" class="operations-results"></div>
@@ -497,6 +497,7 @@
               </div>
               <div id="opsSummary" class="ops-summary"></div>
               <div class="ops-actions">
+                <input id="opsCommandSearch" type="search" placeholder="Search MDT" aria-label="Search the MDT">
                 <button class="ghost" id="opsControllerButton">Book on control</button>
                 <button id="opsStartShiftButton">Start shift</button>
                 <button class="ghost" id="opsEndShiftButton">End shift</button>
@@ -508,6 +509,9 @@
               <button class="active" data-ops-workspace="live">Live CAD <span id="opsLiveCount">0</span></button>
               <button data-ops-workspace="units">Units</button>
               <button data-ops-workspace="control">Control Room</button>
+              <button data-ops-workspace="actions">Action Queue <span id="opsActionCount">0</span></button>
+              <button data-ops-workspace="casework">Casework</button>
+              <button data-ops-workspace="deployments">Deployments</button>
               <button data-ops-workspace="intel">Intel</button>
               <button data-ops-workspace="archive">Archive</button>
               <button data-ops-workspace="analytics">Performance</button>
@@ -530,7 +534,7 @@
               </main>
 
               <aside class="cad-rail cad-context-rail">
-                <nav class="cad-context-tabs"><button class="active" data-ops-context-tab="units">Units</button><button data-ops-context-tab="requests">Requests</button><button data-ops-context-tab="activity">Activity</button></nav>
+                <nav class="cad-context-tabs"><button class="active" data-ops-context-tab="units">Units</button><button data-ops-context-tab="briefing">Briefing</button><button data-ops-context-tab="requests">Requests</button><button data-ops-context-tab="activity">Activity</button></nav>
                 <section class="cad-compact-panel" data-ops-context-panel="units">
                   <div class="cad-panel-title"><div><small>Deployment</small><h3>Live units</h3></div><button class="ghost" id="opsNewUnitButton">New unit</button></div>
                   <select id="opsUnitStatusSelect">
@@ -538,6 +542,7 @@
                   </select>
                   <div id="opsUnits" class="ops-unit-board"></div>
                 </section>
+                <section class="cad-compact-panel" data-ops-context-panel="briefing" hidden><div class="cad-panel-title"><div><small>Required reading</small><h3>Active briefings</h3></div></div><div id="opsBriefingsLive" class="ops-incident-list"></div></section>
                 <section class="cad-compact-panel" data-ops-context-panel="requests" hidden><div class="cad-panel-title"><div><small>Awaiting action</small><h3>Unit requests</h3></div></div><div id="opsJoinRequests" class="ops-incident-list"></div></section>
                 <section class="cad-compact-panel" data-ops-context-panel="activity" hidden><div class="cad-panel-title"><div><small>Live feed</small><h3>Activity</h3></div></div><div id="opsActivityFeed" class="cad-activity-feed"></div></section>
               </aside>
@@ -558,11 +563,32 @@
                 <article class="cad-page-panel"><div class="cad-panel-title"><h3>Live callsigns</h3></div><div id="opsControlUnits" class="control-table"></div></article>
                 <article class="cad-page-panel"><div class="cad-panel-title"><h3>Incident queue</h3></div><div id="opsControlIncidents" class="control-table"></div></article>
               </div>
+              <article class="cad-page-panel control-event-panel"><div class="cad-panel-title"><div><small>Auditable control record</small><h3>Controller event log</h3></div></div><div id="opsControlEvents" class="control-event-log"></div></article>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="actions" hidden>
+              <div class="cad-page-head"><div><small>Ownership and assurance</small><h2>Incident action queue</h2></div></div>
+              <div class="cad-filter-strip action-queue-filters"><input id="opsActionSearch" type="search" placeholder="Search action, CAD, case or officer"><select id="opsActionStatus"><option value="">Open work</option><option>Critical</option><option>Review</option><option>Data Quality</option><option>Casework</option></select></div>
+              <div id="opsActionQueue" class="ops-action-board"></div>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="casework" hidden>
+              <div class="cad-page-head"><div><small>Investigations and repeat offending</small><h2>Casework</h2></div><button id="opsNewCaseButton" data-permission="VIEW_TASKS">New case</button></div>
+              <div class="casework-layout">
+                <aside class="cad-page-panel case-list-panel"><input id="opsCaseSearch" type="search" placeholder="Search reference, title, subject or status"><div id="opsCaseList" class="case-list"></div></aside>
+                <main id="opsCaseWorkspace" class="cad-page-panel case-workspace"><div class="cad-empty-workspace"><span>CASE</span><h2>Select a case</h2><p>Subjects, linked CADs, evidence, investigation actions and command decisions will appear here.</p></div></main>
+              </div>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="deployments" hidden>
+              <div class="cad-page-head"><div><small>Forward planning</small><h2>Scheduled deployments</h2></div><button id="opsNewDeploymentButton" data-permission="VIEW_TASKS">New deployment</button></div>
+              <div class="deployment-summary" id="opsDeploymentSummary"></div>
+              <div id="opsDeployments" class="deployment-board"></div>
             </section>
 
             <section class="cad-workspace" data-ops-panel="intel" hidden>
               <div id="opsIntelOverview">
-              <div class="cad-page-head"><div><small>Operational intelligence</small><h2>Intel and operations</h2></div><div><button id="opsNewPersonButton">New person</button><button id="opsNewVehicleButton">New vehicle</button><button id="opsNewOperationButton" data-permission="VIEW_TASKS">New operation</button><button class="ghost" id="opsNewOffenceButton" data-permission="VIEW_TASKS">Offence library</button></div></div>
+              <div class="cad-page-head"><div><small>Operational intelligence</small><h2>Intel and records</h2></div><div><button id="opsNewPersonButton">New person</button><button id="opsNewVehicleButton">New vehicle</button><button id="opsNewOperationButton" data-permission="VIEW_TASKS">New case</button><button class="ghost" id="opsNewOffenceButton" data-permission="VIEW_TASKS">Offence library</button></div></div>
               <section class="intel-search-command"><div><small>Cross-system search</small><h3>Search people, vehicles, CADs, offences and operations</h3></div><input id="opsIntelSearch" type="search" placeholder="Name, username, registration, CAD number, offence or operation"><select id="opsIntelType"><option value="">Everything</option><option>Person</option><option>Vehicle</option><option>Incident</option><option>Offence</option><option>Operation</option></select></section>
               <div id="opsIntelResults" class="intel-result-grid"></div>
               <div class="cad-page-grid"><article class="cad-page-panel"><div class="cad-panel-title"><h3>Operations and cases</h3></div><div id="opsOperations" class="ops-incident-list"></div></article><article class="cad-page-panel"><div class="cad-panel-title"><h3>Active BOLOs</h3><button id="opsNewBoloButton" data-permission="VIEW_TASKS">Add BOLO</button></div><div id="opsBolos" class="ops-bolo-list"></div></article></div>
@@ -639,6 +665,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-28-1"></script>
+    <script src="app.js?v=2026-06-28-2"></script>
   </body>
 </html>
