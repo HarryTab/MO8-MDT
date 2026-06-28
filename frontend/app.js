@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-27-6';
+const APP_VERSION = '2026-06-28-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -116,6 +116,7 @@ const state = {
   profileCheckins: [],
   profileDevelopmentPlans: [],
   profileOfficerNotes: [],
+  officerOperationalHistory: [],
   documents: [],
   documentFolder: '',
   announcements: [],
@@ -911,8 +912,8 @@ function inboxList(rows, emptyMessage) {
 
 function inboxCard(row) {
   const priority = String(row.Priority || 'Normal').toLowerCase();
-  const view = row.View ? ` data-view-link="${escapeHtml(row.View)}"` : '';
-  return `<article class="inbox-card priority-${escapeHtml(priority)}"${view}>
+  const action = row.AmendmentType ? ` data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"` : row.View ? ` data-view-link="${escapeHtml(row.View)}"` : '';
+  return `<article class="inbox-card priority-${escapeHtml(priority)}"${action}>
     <div>
       <span>${escapeHtml(row.Type || row.Group || 'Item')}</span>
       <strong>${escapeHtml(row.Title || row.Subject || 'Inbox item')}</strong>
@@ -920,6 +921,18 @@ function inboxCard(row) {
     </div>
     <small>${escapeHtml(inboxMeta(row))}</small>
   </article>`;
+}
+
+async function openOperationalAmendmentEditor(type, reviewId, incidentId) {
+  const detail = await api('operationalReviewDetail', { IncidentID: incidentId });
+  if (!detail.ok) return showInfo('CAD unavailable', `<p>${escapeHtml(detail.error || 'Could not load the CAD record.')}</p>`);
+  openEditor('Complete requested amendments', [
+    hiddenField('ReviewType', type),
+    hiddenField('ReviewID', reviewId),
+    hiddenField('IncidentID', incidentId),
+    field('Response', 'Changes made and response to supervisor', 'textarea', false),
+  ], async (values) => api('submitOperationalAmendment', values), { successMessage: 'The record has been returned for supervisor review.', onSuccess: async () => { invalidateCache('personalInbox'); await loadInbox(); } });
+  elements.editorFields.insertAdjacentHTML('afterbegin', `${operationalReviewSummary(detail.record)}<p class="form-guidance">Make the requested changes to the CAD or action record, then explain what you changed below. Submitting this form returns it to the supervisor queue.</p><div class="row-actions"><button type="button" class="ghost" data-open-personnel-cad="${escapeHtml(incidentId)}">Open CAD to edit</button></div>`);
 }
 
 function inboxMeta(row) {
@@ -1468,7 +1481,12 @@ async function loadOperationsHub(force = false) {
   const onDuty = Boolean(response.shiftStatus?.onDuty);
   const controlNav = document.querySelector('[data-ops-workspace="control"]');
   if (controlNav) controlNav.hidden = !response.controllerEligible;
-  if (document.querySelector('#opsControllerButton')) document.querySelector('#opsControllerButton').hidden = !response.controllerEligible;
+  const controllerButton = document.querySelector('#opsControllerButton');
+  if (controllerButton) {
+    controllerButton.hidden = !response.controllerEligible;
+    controllerButton.textContent = response.controllerSession ? `Control: ${response.controllerSession.Status}` : 'Book on control';
+    controllerButton.classList.toggle('active-control', response.controllerSession?.Status === 'Active');
+  }
   document.querySelector('#opsStartShiftButton').disabled = onDuty;
   document.querySelector('#opsEndShiftButton').disabled = !onDuty;
   document.querySelector('#opsSummary').innerHTML = [
@@ -1554,7 +1572,7 @@ function renderOpsIncidentWorkspace(row) {
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="intelligence"${activeDetailTab === 'intelligence' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><h3>People and vehicles</h3><div><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button></div></div>${opsIncidentEntities(row.Entities || [])}</section>
-    <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><h3>Actions and outcomes</h3><div><button class="ghost" data-record-cad-power="${escapeHtml(row.IncidentID)}">Use of power</button><button class="ghost" data-add-cad-action="${escapeHtml(row.IncidentID)}">Officer action</button><button class="ghost" data-add-cad-disposal="${escapeHtml(row.IncidentID)}">Record outcome</button></div></div>${opsIncidentDisposals(row.Disposals || [])}${opsIncidentPowerUses(row.PowerUses || [])}</section>
+    <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><div><h3>Actions and outcomes</h3><small>Officer involvement records what an officer did. Enforcement outcome records the disposal given to a person or vehicle.</small></div><div><button class="ghost" data-record-cad-power="${escapeHtml(row.IncidentID)}" title="Record a statutory power used on a person or vehicle">Use of power</button><button class="ghost" data-add-cad-action="${escapeHtml(row.IncidentID)}" title="Credit an officer with an operational action such as a stop, pursuit, search or assistance">Officer involvement</button><button class="ghost" data-add-cad-disposal="${escapeHtml(row.IncidentID)}" title="Record an offence outcome such as an FPN, warning or arrest">Enforcement outcome</button></div></div>${opsIncidentDisposals(row.Disposals || [])}${opsIncidentPowerUses(row.PowerUses || [])}</section>
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="timeline"${activeDetailTab === 'timeline' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Incident timeline</h3><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add entry</button></div><div class="cad-timeline">${logs.length ? logs.map(opsLogEntry).join('') : '<p class="empty">No log entries yet.</p>'}</div></section></section>
   <section class="cad-detail-panel" data-cad-detail-panel="evidence"${activeDetailTab === 'evidence' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Evidence and links</h3><div><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button></div></div><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div></section></section>`;
@@ -1907,34 +1925,67 @@ function openOpsUnitEditor(record = {}) {
 
 function openOpsControllerSessionEditor() {
   const active = state.operationsHub.controllerSession;
+  const onSuccess = async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); switchOpsWorkspace('control'); };
   if (active) {
-    openEditor('Control-room booking', [hiddenField('ControllerSessionID', active.ControllerSessionID), selectField('Status', 'Status', ['Active', 'Break', 'Ended'], active.Status), field('Notes', 'Controller notes', 'textarea', true, active.Notes || '')], async (values) => api('saveOperationalControllerSession', values), { successMessage: 'Control-room status updated.', onSuccess: refreshOperationsHub });
+    openEditor('Control-room booking', [hiddenField('ControllerSessionID', active.ControllerSessionID), selectField('Status', 'Status', ['Active', 'Break', 'Ended'], active.Status), field('Notes', 'Controller notes', 'textarea', true, active.Notes || '')], async (values) => api('saveOperationalControllerSession', values), { successMessage: 'Control-room status updated.', onSuccess });
     return;
   }
   openEditor('Book on as controller', [
     selectField('ControllerRole', 'Control role', ['Controller', 'Control Supervisor', 'Tactical Advisor', 'Force Incident Manager'], 'Controller'),
     checkboxGroupField('Capabilities', 'Control capabilities', ['Dispatch', 'Resource Management', 'Tactical Advisor', 'Incident Management', 'Intelligence Checks'], 'Dispatch, Resource Management'),
     field('Notes', 'Booking notes', 'textarea', true),
-  ], async (values) => api('saveOperationalControllerSession', values), { successMessage: 'Booked on to the control room.', onSuccess: refreshOperationsHub });
+  ], async (values) => api('saveOperationalControllerSession', values), { successMessage: 'Booked on to the control room.', onSuccess });
+}
+
+function openPresetUnitBookingEditor(preset) {
+  openEditor(`Book on as ${preset.Callsign}`, [
+    hiddenField('PresetID', preset.PresetID),
+    field('AssignedVehicleRegistration', 'Vehicle registration', 'text', false),
+    field('PatrolArea', 'Patrol area', 'text', true),
+    field('RadioChannel', 'Radio channel', 'text', true),
+    field('Notes', 'Unit notes', 'textarea', true),
+  ], async (values) => api('saveOperationalUnit', values), { successMessage: `Booked on as ${preset.Callsign}.`, onSuccess: refreshOperationsHub });
+  elements.editorFields.insertAdjacentHTML('afterbegin', `<p class="form-guidance">${escapeHtml(preset.UnitRole)} / ${escapeHtml(preset.VehicleRequirement)}. This callsign is currently available and will be assigned to you as unit lead.</p>`);
+}
+
+function openControllerRosterEditor(unitId) {
+  const unit = (state.operationsHub.units || []).find((row) => row.UnitID === unitId);
+  if (!unit) return;
+  const officers = (state.operationsHub.onDutyOfficers || []).map((row) => ({ UserID: row.OfficerID, RobloxUsername: row.RobloxUsername, Rank: row.Rank, Meta: row.Callsign || '' }));
+  openEditor(`Manage ${unit.Callsign}`, [
+    hiddenField('UnitID', unit.UnitID),
+    selectField('Status', 'Operational status', ['Available', 'Assigned', 'En Route', 'On Scene', 'Transporting', 'At Station', 'Out of Service'], unit.OperationalStatus || 'Available'),
+    field('AssignedVehicleRegistration', 'Vehicle registration', 'text', true, unit.AssignedVehicleRegistration || ''),
+    field('PatrolArea', 'Patrol area', 'text', true, unit.PatrolArea || ''),
+    field('RadioChannel', 'Radio channel', 'text', true, unit.RadioChannel || ''),
+    searchableReferenceCheckboxGroupField('OfficerIDs', 'Assigned crew', officers, unit.MemberIDs || '', 'Search on-duty officer, rank or callsign'),
+    field('Notes', 'Controller notes', 'textarea', true, unit.Notes || ''),
+  ], async (values) => api('controlUpdateOperationalUnit', values), { successMessage: `${unit.Callsign} roster updated.`, onSuccess: refreshOperationsHub });
 }
 
 function renderOpsCallsignBoard() {
   const container = document.querySelector('#opsCallsignBoard');
   if (!container) return;
   const rows = state.operationsHub.callsignPresets || [];
-  container.innerHTML = `<div class="callsign-row heading"><span>Status</span><span>Callsign</span><span>Role</span><span>Vehicle</span><span>Crew</span><span>Capabilities / notes</span></div>${rows.map((row) => `<article class="callsign-row ${row.Available ? 'available' : 'occupied'}"><span>${row.Available ? 'Available' : escapeHtml(row.UnitStatus || 'In use')}</span><strong>${escapeHtml(row.Callsign)}</strong><span>${escapeHtml(row.UnitRole)}</span><span>${escapeHtml(row.VehicleRequirement)}</span><span>${escapeHtml(row.Crew || '-')}</span><span>${escapeHtml([row.Capabilities, row.Notes].filter(Boolean).join(' / '))}</span></article>`).join('') || emptyState('No preset callsigns configured.')}`;
+  const activeController = state.operationsHub.controllerSession?.Status === 'Active';
+  container.innerHTML = `<div class="callsign-row heading"><span>Status</span><span>Callsign</span><span>Role</span><span>Vehicle</span><span>Crew</span><span>Capabilities / notes</span><span>Action</span></div>${rows.map((row) => {
+    const officerAction = row.Available ? `<button class="mini" data-book-preset-unit="${escapeHtml(row.PresetID)}">Book on</button>` : row.IsMember ? '<span>Booked on</span>' : `<button class="mini ghost" data-request-join-unit="${escapeHtml(row.UnitID)}">Request join</button>`;
+    const controlAction = activeController && row.UnitID ? `<button class="mini ghost" data-control-manage-unit="${escapeHtml(row.UnitID)}">Manage</button>` : '';
+    return `<article class="callsign-row ${row.Available ? 'available' : 'occupied'}"><span>${row.Available ? 'Available' : escapeHtml(row.UnitStatus || 'In use')}</span><strong>${escapeHtml(row.Callsign)}</strong><span>${escapeHtml(row.UnitRole)}</span><span>${escapeHtml(row.AssignedVehicleRegistration || row.VehicleRequirement)}</span><span>${escapeHtml(row.Crew || '-')}</span><span>${escapeHtml([row.Capabilities, row.UnitNotes || row.Notes].filter(Boolean).join(' / '))}</span><span class="row-actions">${officerAction}${controlAction}</span></article>`;
+  }).join('') || emptyState('No preset callsigns configured.')}`;
 }
 
 function renderOpsControlRoom() {
   const session = state.operationsHub.controllerSession;
+  const activeController = session?.Status === 'Active';
   const eligible = state.operationsHub.controllerEligible;
   const status = document.querySelector('#opsControllerStatus');
   if (!status) return;
   status.innerHTML = session ? `<article><strong>${escapeHtml(session.ControllerRole)}</strong><span>${escapeHtml(session.Status)} / ${escapeHtml(session.Capabilities || 'No capabilities selected')}</span><button class="ghost" data-edit-controller-session>Update booking</button></article>` : `<article><strong>${eligible ? 'Not booked on control' : 'Controller authority not assigned'}</strong><span>${eligible ? 'Book on to use dispatch controls.' : 'A Controller tag or CONTROL_OPERATIONS permission is required.'}</span>${eligible ? '<button data-edit-controller-session>Book on control</button>' : ''}</article>`;
   const incidents = state.operationsHub.incidents || [];
   const unitOptions = (state.operationsHub.units || []).filter((row) => row.UnitID).map((row) => `<option value="${escapeHtml(row.UnitID)}">${escapeHtml(row.Callsign)} / ${escapeHtml(row.OperationalStatus)}</option>`).join('');
-  document.querySelector('#opsControlUnits').innerHTML = `<div class="control-row heading"><span>Callsign</span><span>Crew / capability</span><span>Status</span><span>CAD</span></div>${(state.operationsHub.units || []).filter((row) => row.UnitID).map((row) => `<article class="control-row"><strong>${escapeHtml(row.Callsign)}</strong><span>${escapeHtml(row.Members)}<small>${escapeHtml(row.Capabilities)}</small></span><select data-control-unit-status="${escapeHtml(row.UnitID)}"${session ? '' : ' disabled'}>${['Available', 'Assigned', 'En Route', 'On Scene', 'Transporting', 'At Station', 'Out of Service'].map((value) => `<option${value === row.OperationalStatus ? ' selected' : ''}>${value}</option>`).join('')}</select><span>${escapeHtml(row.CurrentIncident || 'Unassigned')}</span></article>`).join('') || emptyState('No active callsigns.')}`;
-  document.querySelector('#opsControlIncidents').innerHTML = `<div class="control-row incident heading"><span>CAD</span><span>Incident</span><span>Priority</span><span>Assign</span></div>${incidents.map((row) => `<article class="control-row incident"><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}<small>${escapeHtml(row.Location || '')}</small></span><span>${escapeHtml(row.Priority)}</span><div><select data-control-assignment-select="${escapeHtml(row.IncidentID)}"${session ? '' : ' disabled'}><option value="">Select callsign</option>${unitOptions}</select><button class="mini" data-control-assign="${escapeHtml(row.IncidentID)}"${session ? '' : ' disabled'}>Assign</button></div></article>`).join('') || emptyState('No active incidents.')}`;
+  document.querySelector('#opsControlUnits').innerHTML = `<div class="control-row heading"><span>Callsign</span><span>Crew / capability</span><span>Status</span><span>CAD / controls</span></div>${(state.operationsHub.units || []).filter((row) => row.UnitID).map((row) => `<article class="control-row"><strong>${escapeHtml(row.Callsign)}</strong><span>${escapeHtml(row.Members)}<small>${escapeHtml(row.Capabilities)}</small></span><select data-control-unit-status="${escapeHtml(row.UnitID)}"${activeController ? '' : ' disabled'}>${['Available', 'Assigned', 'En Route', 'On Scene', 'Transporting', 'At Station', 'Out of Service'].map((value) => `<option${value === row.OperationalStatus ? ' selected' : ''}>${value}</option>`).join('')}</select><span>${escapeHtml(row.CurrentIncident || 'Unassigned')}${activeController ? `<button class="mini ghost" data-control-manage-unit="${escapeHtml(row.UnitID)}">Manage roster</button>` : ''}</span></article>`).join('') || emptyState('No active callsigns.')}`;
+  document.querySelector('#opsControlIncidents').innerHTML = `<div class="control-row incident heading"><span>CAD</span><span>Incident</span><span>Priority</span><span>Assign</span></div>${incidents.map((row) => `<article class="control-row incident"><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}<small>${escapeHtml(row.Location || '')}</small></span><span>${escapeHtml(row.Priority)}</span><div><select data-control-assignment-select="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}><option value="">Select callsign</option>${unitOptions}</select><button class="mini" data-control-assign="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}>Assign</button></div></article>`).join('') || emptyState('No active incidents.')}`;
   renderOpsControlOfficerSearch();
 }
 
@@ -2007,6 +2058,35 @@ function openOpsClosureEditor(record) {
   });
 }
 
+function operationalReviewSummary(record, actionTask = null) {
+  const logs = [...(record.Logs || [])].sort((a, b) => new Date(a.CreatedAt) - new Date(b.CreatedAt));
+  return `<section class="operational-review-summary">
+    <header><div><span>${escapeHtml(record.IncidentNumber || record.IncidentID)}</span><h3>${escapeHtml(record.Title || 'CAD incident')}</h3></div><strong>${escapeHtml(record.Priority || '')} / ${escapeHtml(record.Status || '')}</strong></header>
+    <div class="review-fact-grid">${opsFact('Location', record.Location || 'Not recorded')}${opsFact('Type', record.IncidentType || 'Not recorded')}${opsFact('Created', formatDisplayDateTime(record.CreatedAt))}${opsFact('Units', record.AssignedUnits || 'Unassigned')}${opsFact('Closure', record.ClosureCode || 'Not recorded')}${opsFact('Outcome', record.Outcome || 'Not recorded')}</div>
+    <article><h4>Incident description</h4><p>${escapeHtml(record.Description || 'No description recorded.')}</p></article>
+    ${actionTask ? `<article class="review-focus"><h4>Action under review: ${escapeHtml(actionTask.ActionType || '')}</h4><p><strong>Officer:</strong> ${escapeHtml(actionTask.Officer || '')}</p><p><strong>Rationale:</strong> ${escapeHtml(actionTask.Rationale || actionTask.Reason || 'Not supplied')}</p><p><strong>Officer outcome report:</strong> ${escapeHtml(actionTask.OutcomeReport || 'Not supplied')}</p></article>` : ''}
+    ${(actionTask?.AmendmentResponse || record.ReviewAmendmentResponse) ? `<article class="review-focus"><h4>Officer amendment response</h4><p>${escapeHtml(actionTask?.AmendmentResponse || record.ReviewAmendmentResponse)}</p></article>` : ''}
+    <div class="review-detail-columns">
+      <article><h4>People and vehicles</h4>${(record.Entities || []).map((row) => `<p><strong>${escapeHtml(row.InvolvementRole)}</strong> ${escapeHtml(row.Label)} <small>${escapeHtml(row.Detail || '')}</small></p>`).join('') || '<p>None linked.</p>'}</article>
+      <article><h4>Attendance</h4>${(record.Attendance || []).map((row) => `<p><strong>${escapeHtml(row.Callsign)}</strong> ${escapeHtml(row.Duration || 'Active')} <small>${escapeHtml(formatDisplayDateTime(row.AssignedAt))}</small></p>`).join('') || '<p>No attendance recorded.</p>'}</article>
+      <article><h4>Enforcement outcomes</h4>${(record.Disposals || []).map((row) => `<p><strong>${escapeHtml(row.OutcomeType)}</strong> ${escapeHtml(row.Subject || '')} / ${escapeHtml(row.Offence || 'No offence')} <small>${escapeHtml(row.Notes || '')}</small></p>`).join('') || '<p>No outcomes recorded.</p>'}</article>
+      <article><h4>Powers used</h4>${(record.PowerUses || []).map((row) => `<p><strong>${escapeHtml(row.PowerCode)} / ${escapeHtml(row.Power)}</strong> ${escapeHtml(row.Officer || '')}<small>${escapeHtml([row.Grounds, row.Necessity, row.Outcome].filter(Boolean).join(' / ') || 'No narrative supplied')}</small></p>`).join('') || '<p>No powers recorded.</p>'}</article>
+    </div>
+    <article><h4>Incident timeline and notes</h4><div class="review-timeline">${logs.map((row) => `<p><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><strong>${escapeHtml(row.EntryType)} / ${escapeHtml(row.Author || 'System')}</strong><span>${escapeHtml(row.Body)}</span></p>`).join('') || '<p>No log entries recorded.</p>'}</div></article>
+    <article><h4>Evidence and links</h4><p>${escapeHtml(String((record.Attachments || []).length))} attachment(s) / ${escapeHtml(String((record.Links || []).length))} external link(s)</p></article>
+  </section>`;
+}
+
+async function openOperationalIncidentReview(incidentId) {
+  let record = operationalIncidentById(incidentId);
+  if (!record) {
+    const response = await api('operationalReviewDetail', { IncidentID: incidentId });
+    if (!response.ok) return showInfo('Review unavailable', `<p>${escapeHtml(response.error || 'Could not load the CAD record.')}</p>`);
+    record = response.record;
+  }
+  openOpsReviewEditor(record);
+}
+
 function openOpsReviewEditor(record) {
   openEditor(`Review ${record.IncidentNumber}`, [
     hiddenField('IncidentID', record.IncidentID),
@@ -2019,6 +2099,7 @@ function openOpsReviewEditor(record) {
     successMessage: 'Incident review saved.',
     onSuccess: async () => { invalidateCache('operationsHub'); await loadOperationsHub(true); },
   });
+  elements.editorFields.insertAdjacentHTML('afterbegin', operationalReviewSummary(record));
 }
 
 function openOpsAttachmentEditor(incidentId) {
@@ -2136,10 +2217,11 @@ function openOpsDisposalEditor(incidentId = '', subjectReference = '') {
     selectField('OutcomeType', 'Action / disposal', ['FPN', 'Warning', 'Arrested', 'Vehicle Seizure', 'Reported for Summons', 'No Further Action', 'Other'], 'FPN'),
     field('FineAmount', 'Fine override (single offence only)', 'number'),
     field('PrisonMinutes', 'Arrest time override in minutes', 'number'),
-    field('Rationale', 'Full grounds and decision rationale', 'textarea', false),
-    field('OutcomeReport', 'Outcome report and actions taken', 'textarea', false),
+    field('Rationale', 'Grounds and decision rationale (recommended)', 'textarea', true),
+    field('OutcomeReport', 'Outcome report and actions taken (recommended)', 'textarea', true),
     field('Notes', 'Additional notes', 'textarea', true),
   ], async (values) => api('saveOperationalDisposal', values), { successMessage: 'Outcome recorded and submitted for review where required.', onSuccess: refreshOperationsHub });
+  elements.editorFields.insertAdjacentHTML('afterbegin', '<p class="form-guidance">Use this for the final enforcement disposal given to a person or vehicle, such as an FPN, warning, arrest or vehicle seizure. Detailed rationale is strongly encouraged but is not required to submit.</p>');
   const renderGuidance = () => {
     const selectedIds = [...elements.editorFields.querySelectorAll('input[name="OffenceIDs"]:checked')].map((input) => input.value);
     const subjectInput = elements.editorFields.querySelector('[name="SubjectReference"]');
@@ -2172,17 +2254,18 @@ function openOpsOfficerActionEditor(incidentId) {
   const subjects = (incident.Entities || []).map((row) => ({ value: `${row.EntityType}:${row.EntityID} | ${row.Label}`, label: row.InvolvementRole }));
   const offences = (state.operationsHub.offences || []).map((row) => ({ value: `${row.OffenceID} | ${row.Title}`, label: `${row.Code} / ${row.Category}` }));
   const officers = (state.operationsHub.onDutyOfficers || state.officers || []).map((row) => ({ UserID: row.OfficerID, RobloxUsername: row.RobloxUsername, Rank: row.Rank, Meta: row.Callsign || '' }));
-  openEditor('Record attributed officer action', [
+  openEditor('Record officer involvement', [
     hiddenField('IncidentID', incidentId),
     selectField('ActionType', 'Action', ['Traffic Stop', 'Arrested', 'FPN Issued', 'Warning Issued', 'Search', 'Vehicle Seizure', 'Pursuit', 'Report', 'Assist', 'Other'], 'Traffic Stop'),
     datalistField('SubjectReference', 'Linked person or vehicle', subjects),
     datalistField('OffenceReference', 'Related offence', offences),
     searchableReferenceCheckboxGroupField('AssistingOfficerIDs', 'Assisting officers', officers, '', 'Search officer, rank or callsign'),
     field('OccurredAt', 'Date and time', 'datetime-local', false, localDateTimeValue(new Date())),
-    field('Rationale', 'Grounds and decision rationale', 'textarea', false),
-    field('OutcomeReport', 'Outcome report', 'textarea', false),
+    field('Rationale', 'Grounds and decision rationale (recommended)', 'textarea', true),
+    field('OutcomeReport', 'Officer account of their actions (recommended)', 'textarea', true),
     field('Notes', 'Additional notes', 'textarea', true),
-  ], async (values) => api('saveOperationalOfficerAction', values), { successMessage: 'Officer action recorded and submitted for review where required.', onSuccess: refreshOperationsHub });
+  ], async (values) => api('saveOperationalOfficerAction', values), { successMessage: 'Officer involvement recorded and submitted for review where required.', onSuccess: refreshOperationsHub });
+  elements.editorFields.insertAdjacentHTML('afterbegin', '<p class="form-guidance">Use this to attribute operational activity to an officer, such as conducting a traffic stop, assisting, searching or pursuing. Use Enforcement outcome when recording the final disposal given to a person or vehicle.</p>');
 }
 
 function openOpsPowerUseEditor(entityType = '', entityId = '', incidentId = '') {
@@ -2196,9 +2279,9 @@ function openOpsPowerUseEditor(entityType = '', entityId = '', incidentId = '') 
     ...(incidentId ? [] : [datalistField('IncidentReference', 'Related CAD', incidentOptions)]),
     datalistField('SubjectReference', 'Person or vehicle', subjects, selectedSubject),
     datalistField('PowerReference', 'Power exercised', powers),
-    field('Grounds', 'Objective grounds and facts', 'textarea', false),
-    field('Necessity', 'Necessity and proportionality', 'textarea', false),
-    field('Outcome', 'Outcome of exercising the power', 'textarea', false),
+    field('Grounds', 'Objective grounds and facts (recommended)', 'textarea', true),
+    field('Necessity', 'Necessity and proportionality (recommended)', 'textarea', true),
+    field('Outcome', 'Outcome of exercising the power (recommended)', 'textarea', true),
     field('ItemsSeized', 'Items seized or retained', 'textarea', true),
     field('DurationMinutes', 'Detention/search duration in minutes', 'number', false, 0),
     field('OccurredAt', 'Date and time', 'datetime-local', false, localDateTimeValue(new Date())),
@@ -2212,12 +2295,19 @@ function openOpsPowerUseEditor(entityType = '', entityId = '', incidentId = '') 
   });
 }
 
-function openOperationalActionReviewEditor(task) {
+async function openOperationalActionReviewEditor(task) {
+  let incident = operationalIncidentById(task.IncidentID);
+  if (!incident) {
+    const response = await api('operationalReviewDetail', { IncidentID: task.IncidentID });
+    if (!response.ok) return showInfo('Review unavailable', `<p>${escapeHtml(response.error || 'Could not load the CAD record.')}</p>`);
+    incident = response.record;
+  }
   openEditor(`Review ${task.ActionType || 'operational action'}`, [
     hiddenField('ActionReviewID', task.ActionReviewID),
     selectField('Status', 'Decision', ['Approved', 'Amendments Required', 'Completed'], task.Status === 'Pending' ? 'Approved' : task.Status),
     field('SupervisorFeedback', 'Supervisor feedback', 'textarea', false, task.SupervisorFeedback || ''),
   ], async (values) => api('reviewOperationalAction', values), { successMessage: 'Operational action review completed.', onSuccess: async () => { invalidateCache('tasks'); if (state.activeHub === 'operations') await refreshOperationsHub(); else await loadTasks(); } });
+  elements.editorFields.insertAdjacentHTML('afterbegin', operationalReviewSummary(incident, task));
 }
 
 function openOpsMarkerEditor(entityType, entityId) {
@@ -2855,6 +2945,7 @@ function renderOfficerProfile(data) {
   state.profileCheckins = data.checkins || [];
   state.profileDevelopmentPlans = data.developmentPlans || [];
   state.profileOfficerNotes = data.officerNotes || [];
+  state.officerOperationalHistory = data.operationalCadHistory || [];
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -2899,12 +2990,7 @@ function renderOfficerProfile(data) {
     </section>
 
     <section class="profile-columns">
-      ${profileTable('Operational Activity', data.operationalActions || [], ['CAD', 'Incident', 'Action', 'Offence', 'Notes', 'OccurredAt'], {
-        actions: (row) => `<button class="mini ghost" data-open-personnel-cad="${escapeHtml(row.IncidentID)}">Open CAD</button>`,
-      })}
-      ${profileTable('CAD Attendance', data.operationalCadLinks || [], ['CAD', 'Incident', 'Status', 'AssignedAt', 'OnSceneAt', 'ClearedAt'], {
-        actions: (row) => `<button class="mini ghost" data-open-personnel-cad="${escapeHtml(row.IncidentID)}">Open CAD</button>`,
-      })}
+      ${officerCadHistoryPanel(data.operationalCadHistory || [])}
       ${profileTable('Scoped Notes', data.officerNotes || [], ['Visibility', 'Title', 'Body', 'Author', 'CreatedAt'], {
         actions: (row) => can('VIEW_TASKS') || can('FULL_ACCESS') ? `<button class="mini" data-edit-officer-note="${escapeHtml(row.NoteID)}">Edit</button><button class="mini ghost" data-delete-officer-note="${escapeHtml(row.NoteID)}">Delete</button>` : '',
       })}
@@ -2942,6 +3028,27 @@ function renderOfficerProfile(data) {
     </section>
   `;
   applyPermissions();
+}
+
+function officerCadHistoryPanel(rows) {
+  const recent = rows.slice(0, 5);
+  return `<section class="profile-table officer-cad-history"><div class="section-head"><div><h3>Operational CAD History</h3><p>${escapeHtml(String(rows.length))} linked or attended record${rows.length === 1 ? '' : 's'}.</p></div><button class="ghost" data-view-officer-cads>Search all CADs</button></div>${recent.length ? `<div class="officer-cad-list">${recent.map(officerCadHistoryRow).join('')}</div>` : '<p class="empty">No CAD involvement recorded.</p>'}</section>`;
+}
+
+function officerCadHistoryRow(row) {
+  return `<article><div><strong>${escapeHtml(row.CAD)} / ${escapeHtml(row.Incident)}</strong><span>${escapeHtml(formatDisplayDateTime(row.Date))} / ${escapeHtml(row.Location || 'No location')} / ${escapeHtml(row.Status)}</span><small>${escapeHtml(row.Involvement || 'Unit attendance')}${row.Outcome ? ` / ${escapeHtml(row.Outcome)}` : ''}</small></div><button class="mini ghost" data-open-personnel-cad="${escapeHtml(row.IncidentID)}">Open CAD</button></article>`;
+}
+
+function openOfficerCadHistory() {
+  showInfo('Officer CAD history', '<input class="search-input" id="officerCadHistorySearch" type="search" placeholder="Search CAD number, incident, date, location, status or involvement"><div id="officerCadHistoryResults" class="officer-cad-list"></div>');
+  const input = document.querySelector('#officerCadHistorySearch');
+  const render = () => {
+    const query = String(input?.value || '').trim().toLowerCase();
+    const rows = state.officerOperationalHistory.filter((row) => !query || [row.CAD, row.Incident, row.Date, formatDisplayDate(row.Date), row.Location, row.Status, row.Outcome, row.Involvement].some((value) => String(value || '').toLowerCase().includes(query)));
+    document.querySelector('#officerCadHistoryResults').innerHTML = rows.length ? rows.map(officerCadHistoryRow).join('') : '<p class="empty">No matching CAD records.</p>';
+  };
+  input?.addEventListener('input', render);
+  render();
 }
 
 function openOfficerEditor(officer = {}) {
@@ -3464,19 +3571,31 @@ async function handleDocumentClick(event) {
   if (!event.target.closest('.searchable-officer-field')) {
     document.querySelectorAll('.searchable-officer-options').forEach((options) => { options.hidden = true; });
   }
+  const amendmentTask = event.target.closest('[data-open-operational-amendment]');
+  if (amendmentTask) {
+    const [type, reviewId, incidentId] = amendmentTask.dataset.openOperationalAmendment.split(':');
+    await openOperationalAmendmentEditor(type, reviewId, incidentId);
+    return;
+  }
   const cadReviewTask = event.target.closest('[data-open-cad-review-task]');
   if (cadReviewTask) {
-    const task = (state.tasks || []).find((row) => row.IncidentID === cadReviewTask.dataset.openCadReviewTask);
-    if (task) openOpsReviewEditor({ IncidentID: task.IncidentID, IncidentNumber: task.IncidentNumber || task.IncidentID, ReviewStatus: task.Status || 'Pending', ReviewFeedback: task.Reason || '' });
+    await openOperationalIncidentReview(cadReviewTask.dataset.openCadReviewTask);
     return;
   }
   const actionReview = event.target.closest('[data-open-action-review]');
-  if (actionReview) { const task = (state.tasks || []).find((row) => row.ActionReviewID === actionReview.dataset.openActionReview); if (task) openOperationalActionReviewEditor(task); return; }
+  if (actionReview) { const task = (state.tasks || []).find((row) => row.ActionReviewID === actionReview.dataset.openActionReview); if (task) await openOperationalActionReviewEditor(task); return; }
   const personnelCad = event.target.closest('[data-open-personnel-cad]');
   if (personnelCad) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
+    if (elements.editorDialog.open) elements.editorDialog.close();
     await enterOperationsHub();
     const record = operationalIncidentById(personnelCad.dataset.openPersonnelCad);
     if (record) { switchOpsWorkspace('live'); renderOpsIncidentWorkspace(record); }
+    return;
+  }
+  const officerCadHistory = event.target.closest('[data-view-officer-cads]');
+  if (officerCadHistory) {
+    openOfficerCadHistory();
     return;
   }
 
@@ -3599,6 +3718,10 @@ async function handleDocumentClick(event) {
   if (editOperation) { const record = (state.operationsHub.operations || []).find((row) => row.OperationID === editOperation.dataset.editOperation); if (record) openOpsOperationEditor(record); return; }
   const editOpsUnit = event.target.closest('[data-edit-ops-unit]');
   if (editOpsUnit) { const record = (state.operationsHub.units || []).find((row) => row.UnitID === editOpsUnit.dataset.editOpsUnit); if (record) openOpsUnitEditor(record); return; }
+  const bookPresetUnit = event.target.closest('[data-book-preset-unit]');
+  if (bookPresetUnit) { const preset = (state.operationsHub.callsignPresets || []).find((row) => row.PresetID === bookPresetUnit.dataset.bookPresetUnit); if (preset) openPresetUnitBookingEditor(preset); return; }
+  const controlManageUnit = event.target.closest('[data-control-manage-unit]');
+  if (controlManageUnit) { openControllerRosterEditor(controlManageUnit.dataset.controlManageUnit); return; }
   const inviteOpsUnit = event.target.closest('[data-invite-ops-unit]');
   if (inviteOpsUnit) { openOpsUnitInvitationEditor(inviteOpsUnit.dataset.inviteOpsUnit); return; }
   const reviewUnitInvitation = event.target.closest('[data-review-unit-invitation]');
@@ -3618,8 +3741,7 @@ async function handleDocumentClick(event) {
   }
   const reviewCad = event.target.closest('[data-review-cad]');
   if (reviewCad) {
-    const record = operationalIncidentById(reviewCad.dataset.reviewCad);
-    if (record) openOpsReviewEditor(record);
+    await openOperationalIncidentReview(reviewCad.dataset.reviewCad);
     return;
   }
   const reviewOpsAction = event.target.closest('[data-review-ops-action]');
@@ -5200,6 +5322,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       addOperationalIncidentLink: supabaseAddOperationalIncidentLink,
       uploadOperationalAttachment: supabaseUploadOperationalAttachment,
       reviewOperationalIncident: supabaseReviewOperationalIncident,
+      operationalReviewDetail: supabaseOperationalReviewDetail,
+      submitOperationalAmendment: supabaseSubmitOperationalAmendment,
       reopenOperationalIncident: supabaseReopenOperationalIncident,
       saveOperationalIncidentTemplate: supabaseSaveOperationalIncidentTemplate,
       attachMyOperationalUnit: supabaseAttachMyOperationalUnit,
@@ -5228,6 +5352,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       saveOperationalControllerSession: supabaseSaveOperationalControllerSession,
       controlAssignOperationalUnit: supabaseControlAssignOperationalUnit,
       controlUpdateOperationalUnitStatus: supabaseControlUpdateOperationalUnitStatus,
+      controlUpdateOperationalUnit: supabaseControlUpdateOperationalUnit,
       requestRetrospectiveShift: supabaseRequestRetrospectiveShift,
       reviewRetrospectiveShift: supabaseReviewRetrospectiveShift,
       saveShift: supabaseSaveShift,
@@ -5439,11 +5564,14 @@ async function supabaseMyActions() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [documents, acknowledgements, courses, bookings, training, reviews, probation, restrictions, handovers, notifications] = await Promise.all([
+  const [documents, acknowledgements, courses, bookings, training, reviews, probation, restrictions, handovers, notifications, incidentReviews, actionReviews, incidents] = await Promise.all([
     supabaseVisibleDocuments(), supabaseAll('document_acknowledgements'), supabaseAll('training_courses'), supabaseAll('course_bookings'),
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [], officer ? supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id) : [],
     officer ? supabaseOptionalRows('probation_records', 'officer_id', officer.officer_id) : [], officer ? supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id) : [],
     can('VIEW_TASKS') ? supabaseOptionalAll('handover_entries') : [], supabaseNotificationRows(profile.member_id),
+    supabaseOptionalAll('operational_incident_reviews'),
+    supabaseOptionalAll('operational_action_reviews'),
+    supabaseOptionalAll('operational_incidents'),
   ]);
   const now = new Date();
   const inDays = (value) => Math.ceil((new Date(value) - now) / 86400000);
@@ -5461,6 +5589,14 @@ async function supabaseMyActions() {
   probation.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Information', Priority: 'Normal', Type: 'Probation', Title: `${row.stage} probation`, Detail: `${row.progress}% complete`, DueDate: row.target_date, View: 'myProfile' }));
   restrictions.filter((row) => row.status === 'Active').forEach((row) => rows.push({ Group: 'Urgent', Priority: 'High', Type: 'Restriction', Title: row.restriction_type, Detail: row.details || 'Active restriction on your officer record.', DueDate: row.ends_on, View: 'myProfile' }));
   handovers.filter((row) => row.status !== 'Resolved' && (row.owner_user_id === me.user.UserID || (row.recipient_user_ids || []).includes(me.user.UserID) || !row.owner_user_id)).forEach((row) => rows.push({ Group: row.priority === 'Critical' ? 'Urgent' : 'Due Soon', Priority: row.priority, Type: 'Handover', Title: row.title, Detail: row.details, DueDate: row.due_at, View: 'handover' }));
+  incidentReviews.filter((row) => row.status === 'Amendments Required' && row.amendment_assignee_user_id === me.user.UserID).forEach((row) => {
+    const incident = incidents.find((item) => item.incident_id === row.incident_id) || {};
+    rows.push({ Group: 'Urgent', Priority: 'Critical', Type: 'CAD Amendments', Title: `${incident.incident_number || row.incident_id} / ${incident.title || 'Incident review'}`, Detail: row.feedback || 'Your supervisor has requested changes to this CAD.', IncidentID: row.incident_id, ReviewID: row.review_id, AmendmentType: 'Incident', View: 'inbox' });
+  });
+  actionReviews.filter((row) => row.status === 'Amendments Required' && row.officer_id === officer?.officer_id).forEach((row) => {
+    const incident = incidents.find((item) => item.incident_id === row.incident_id) || {};
+    rows.push({ Group: 'Urgent', Priority: 'Critical', Type: 'Action Amendments', Title: `${row.action_type} / ${incident.incident_number || row.incident_id}`, Detail: row.supervisor_feedback || 'Your supervisor has requested changes to this operational action.', IncidentID: row.incident_id, ReviewID: row.action_review_id, AmendmentType: 'Action', View: 'inbox' });
+  });
   return { ok: true, rows };
 }
 
@@ -5912,7 +6048,12 @@ async function supabaseGetOfficerProfile(data) {
     const incident = operationalIncidents.find((item) => item.incident_id === row.incident_id) || {};
     return { IncidentID: row.incident_id, CAD: incident.incident_number || row.incident_id, Incident: incident.title || '', Status: incident.status || '', AssignedAt: row.assigned_at || '', OnSceneAt: row.on_scene_at || '', ClearedAt: row.cleared_at || '' };
   });
-  operationalStats.CADsAttended = new Set([...operationalCadLinks.map((row) => row.IncidentID), ...actionRows.map((row) => row.IncidentID)]).size;
+  const operationalCadIds = new Set([...operationalCadLinks.map((row) => row.IncidentID), ...actionRows.map((row) => row.IncidentID)]);
+  const operationalCadHistory = operationalIncidents.filter((row) => operationalCadIds.has(row.incident_id)).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((row) => {
+    const actions = actionRows.filter((item) => item.IncidentID === row.incident_id).map((item) => item.Action);
+    return { IncidentID: row.incident_id, CAD: row.incident_number || row.incident_id, Incident: row.title || '', Date: row.created_at, Location: row.location || '', Status: row.status || '', Outcome: row.closure_code || row.outcome || '', Involvement: [...new Set(actions)].join(', ') || 'Unit attendance' };
+  });
+  operationalStats.CADsAttended = operationalCadIds.size;
   const payload = {
     officer: decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }),
     training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
@@ -5932,6 +6073,7 @@ async function supabaseGetOfficerProfile(data) {
     operationalActions: actionRows,
     operationalStats,
     operationalCadLinks,
+    operationalCadHistory,
   };
   payload.timeline = supabaseTimeline(payload);
   return Object.assign({ ok: true }, payload);
@@ -6643,7 +6785,7 @@ async function supabaseTasks() {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
     const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {};
     const assignee = (profiles || []).find((profile) => profile.user_id === row.assigned_reviewer_user_id) || {};
-    return { TaskType: 'Operational Action Review', ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', Supervisor: assignee.roblox_username || 'Command queue', ActionType: row.action_type, Subject: row.action_type, Reason: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', Status: row.status, EndDate: row.due_at, MySupervisee: row.assigned_reviewer_user_id === state.user?.UserID, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID };
+    return { TaskType: 'Operational Action Review', ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', Supervisor: assignee.roblox_username || 'Command queue', ActionType: row.action_type, Subject: row.action_type, Reason: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', AmendmentResponse: row.amendment_response || '', Status: row.status, EndDate: row.due_at, MySupervisee: row.assigned_reviewer_user_id === state.user?.UserID, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID };
   }).filter((row) => row.AssignedToMe || can('FULL_ACCESS') || can('VIEW_TASKS'));
   const all = prioritizeTasks([...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...accountRequests, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews]);
   return {
@@ -7316,13 +7458,13 @@ async function supabaseOperationsHub() {
     afterActionReviews: afterActionReviews || [],
     powers: (powers || []).filter((row) => row.active !== false).map(supabaseOperationalPower),
     powerUses: (powerUses || []).map((row) => supabaseOperationalPowerUse(row, powers || [], officers || [], incidents || [])),
-    actionReviews: (actionReviews || []).filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).map((row) => ({ ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: (incidents || []).find((incident) => incident.incident_id === row.incident_id)?.incident_number || row.incident_id, Officer: (officers || []).find((item) => item.officer_id === row.officer_id)?.roblox_username || row.officer_id, ActionType: row.action_type, Rationale: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', Status: row.status, DueAt: row.due_at })),
+    actionReviews: (actionReviews || []).filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).map((row) => ({ ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: (incidents || []).find((incident) => incident.incident_id === row.incident_id)?.incident_number || row.incident_id, Officer: (officers || []).find((item) => item.officer_id === row.officer_id)?.roblox_username || row.officer_id, ActionType: row.action_type, Rationale: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', AmendmentResponse: row.amendment_response || '', Status: row.status, DueAt: row.due_at })),
     controllerEligible,
     controllerSession: controllerSession ? supabaseControllerSession(controllerSession) : null,
     callsignPresets: (callsignPresets || []).filter((row) => row.active !== false).sort((a, b) => a.sort_order - b.sort_order).map((preset) => {
       const unit = (units || []).find((row) => row.preset_id === preset.preset_id && !row.closed_at);
       const convertedUnit = unit ? activeUnits.find((row) => row.UnitID === unit.unit_id) : null;
-      return { PresetID: preset.preset_id, Callsign: preset.callsign, Division: preset.division, UnitRole: preset.unit_role, VehicleRequirement: preset.vehicle_requirement, RequiredCapabilities: (preset.required_capabilities || []).join(', '), Notes: preset.notes || '', Available: !unit, UnitID: unit?.unit_id || '', UnitStatus: unit?.status || '', Crew: convertedUnit?.Members || '', Capabilities: convertedUnit?.Capabilities || '' };
+      return { PresetID: preset.preset_id, Callsign: preset.callsign, Division: preset.division, UnitRole: preset.unit_role, VehicleRequirement: preset.vehicle_requirement, RequiredCapabilities: (preset.required_capabilities || []).join(', '), Notes: preset.notes || '', Available: !unit, UnitID: unit?.unit_id || '', UnitStatus: unit?.status || '', Crew: convertedUnit?.Members || '', Capabilities: convertedUnit?.Capabilities || '', AssignedVehicleRegistration: convertedUnit?.AssignedVehicleRegistration || '', UnitNotes: convertedUnit?.Notes || '', IsMember: Boolean(convertedUnit?.MemberIDs?.includes(officer?.officer_id)), IsLead: convertedUnit?.LeadOfficerID === officer?.officer_id };
     }),
     operations: convertedOperations,
     locationIntel: operationalLocationIntel([...activeIncidents, ...archivedIncidents]),
@@ -7372,6 +7514,11 @@ async function supabaseSaveOperationalUnit(data) {
   const shiftStatus = await supabaseShiftStatus();
   if (!shiftStatus.onDuty) return { ok: false, error: 'Start a shift before creating or joining a unit.' };
   const existingUnit = data.UnitID ? await supabaseById('operational_units', 'unit_id', data.UnitID) : null;
+  if (!existingUnit) {
+    const [activeUnits, memberships] = await Promise.all([supabaseOptionalAll('operational_units'), supabaseOptionalAll('operational_unit_members')]);
+    const currentMembership = memberships.find((row) => row.officer_id === officer.officer_id && row.status === 'Active' && activeUnits.some((unit) => unit.unit_id === row.unit_id && !unit.closed_at));
+    if (currentMembership) return { ok: false, error: 'Leave your current callsign before booking onto another one.' };
+  }
   const preset = data.PresetID ? await supabaseById('operational_callsign_presets', 'preset_id', data.PresetID) : null;
   if (!preset && !data.Callsign) return { ok: false, error: 'Select an available preset callsign.' };
   if (!preset && !can('CONTROL_OPERATIONS') && !can('FULL_ACCESS')) return { ok: false, error: 'Custom callsigns require controller authority.' };
@@ -7451,6 +7598,7 @@ async function supabaseCloseOperationalUnit(data) {
   const { error } = await supabaseClient.from('operational_units').update({ closed_at: new Date().toISOString(), status: 'Out of Service', updated_at: new Date().toISOString() }).eq('unit_id', data.UnitID);
   if (error) return { ok: false, error: error.message };
   await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).eq('unit_id', data.UnitID).eq('status', 'Active');
+  await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).in('officer_id', officerIds).eq('status', 'Active').neq('unit_id', data.UnitID);
   return { ok: true };
 }
 
@@ -7825,14 +7973,59 @@ async function supabaseReviewOperationalIncident(data) {
   const status = data.Status || 'Completed';
   const reviewRows = await supabaseOptionalAll('operational_incident_reviews');
   const pending = reviewRows.filter((row) => row.incident_id === data.IncidentID).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-  const reviewRecord = { reviewer_user_id: me.user.UserID, status, feedback: data.Feedback || '', task_status: status === 'Amendments Required' ? 'In Progress' : 'Completed', completed_at: status === 'Amendments Required' ? null : new Date().toISOString() };
+  let amendmentAssignee = null;
+  if (status === 'Amendments Required') {
+    const actions = (await supabaseOptionalAll('operational_officer_actions')).filter((row) => row.incident_id === data.IncidentID).sort((a, b) => String(a.occurred_at || a.created_at).localeCompare(String(b.occurred_at || b.created_at)));
+    const responsibleOfficer = actions[0]?.officer_id ? await supabaseById('officers', 'officer_id', actions[0].officer_id) : null;
+    const responsibleProfile = responsibleOfficer?.member_id ? (await supabaseOptionalAll('profiles')).find((row) => row.member_id === responsibleOfficer.member_id) : null;
+    amendmentAssignee = responsibleProfile?.user_id || incident.created_by || null;
+  }
+  const reviewRecord = { reviewer_user_id: me.user.UserID, status, feedback: data.Feedback || '', task_status: status === 'Amendments Required' ? 'In Progress' : 'Completed', amendment_assignee_user_id: amendmentAssignee, amendment_response: status === 'Amendments Required' ? pending?.amendment_response || '' : '', amendment_submitted_at: null, completed_at: status === 'Amendments Required' ? null : new Date().toISOString() };
   const { error } = pending ? await supabaseClient.from('operational_incident_reviews').update(reviewRecord).eq('review_id', pending.review_id) : await supabaseClient.from('operational_incident_reviews').insert({ incident_id: data.IncidentID, assigned_reviewer_user_id: me.user.UserID, ...reviewRecord });
   if (error) return { ok: false, error: error.message };
   const afterActions = await supabaseOptionalAll('operational_after_action_reviews');
   if (afterActions.some((row) => row.incident_id === data.IncidentID) || data.DecisionSummary || data.LearningPoints || data.FollowUpActions) await supabaseClient.from('operational_after_action_reviews').upsert({ incident_id: data.IncidentID, assigned_reviewer_user_id: pending?.assigned_reviewer_user_id || me.user.UserID, status: status === 'Amendments Required' ? 'In Progress' : 'Completed', decision_summary: data.DecisionSummary || '', learning_points: data.LearningPoints || '', follow_up_actions: data.FollowUpActions || '', completed_by: status === 'Amendments Required' ? null : me.user.UserID, completed_at: status === 'Amendments Required' ? null : new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: 'incident_id' });
   await supabaseClient.from('operational_incidents').update({ review_status: status, reviewed_at: status === 'Amendments Required' ? null : new Date().toISOString(), updated_at: new Date().toISOString() }).eq('incident_id', data.IncidentID);
   await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Supervisor Review', Body: `${status}${data.Feedback ? `: ${data.Feedback}` : ''}` });
+  if (status === 'Amendments Required' && amendmentAssignee) {
+    const assignee = await supabaseById('profiles', 'user_id', amendmentAssignee);
+    if (assignee) await supabaseNotify(assignee.member_id, 'CAD amendments required', notificationDetails([detailLine('CAD', incident.incident_number || incident.incident_id), detailLine('Incident', incident.title), detailLine('Supervisor feedback', data.Feedback || 'Review the CAD and make the requested changes.'), detailLine('Action', 'Update the record and return it for review')]), me.user.UserID);
+  }
   await supabaseAudit(me.user.UserID, 'REVIEW_CAD', 'operational_incident', data.IncidentID, { status, feedback: data.Feedback || '' });
+  return { ok: true };
+}
+
+async function supabaseOperationalReviewDetail(data) {
+  const response = await supabaseOperationsHub();
+  if (!response.ok) return response;
+  const record = [...(response.incidents || []), ...(response.archive || [])].find((row) => row.IncidentID === data.IncidentID);
+  return record ? { ok: true, record } : { ok: false, error: 'CAD incident not found.' };
+}
+
+async function supabaseSubmitOperationalAmendment(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const responseText = String(data.Response || '').trim();
+  if (!responseText) return { ok: false, error: 'Explain the changes made before returning the record for review.' };
+  if (data.ReviewType === 'Incident') {
+    const review = await supabaseById('operational_incident_reviews', 'review_id', data.ReviewID);
+    if (!review || review.amendment_assignee_user_id !== me.user.UserID) return { ok: false, error: 'This amendment task is not assigned to your account.' };
+    const { error } = await supabaseClient.from('operational_incident_reviews').update({ status: 'Pending', task_status: 'Pending', amendment_response: responseText, amendment_submitted_at: new Date().toISOString(), completed_at: null }).eq('review_id', data.ReviewID);
+    if (error) return { ok: false, error: error.message };
+    await supabaseClient.from('operational_incidents').update({ review_status: 'Pending', reviewed_at: null, updated_at: new Date().toISOString() }).eq('incident_id', review.incident_id);
+    await supabaseAddOperationalIncidentLog({ IncidentID: review.incident_id, EntryType: 'Review Amendments', Body: `${me.user.RobloxUsername} returned the CAD for supervisor review: ${responseText}` });
+    const reviewer = await supabaseById('profiles', 'user_id', review.assigned_reviewer_user_id || review.reviewer_user_id);
+    if (reviewer) await supabaseNotify(reviewer.member_id, 'CAD amendments returned for review', notificationDetails([detailLine('CAD', review.incident_id), detailLine('Officer', me.user.RobloxUsername), detailLine('Changes made', responseText)]), me.user.UserID);
+    return { ok: true };
+  }
+  const review = await supabaseById('operational_action_reviews', 'action_review_id', data.ReviewID);
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile?.member_id);
+  if (!review || review.officer_id !== officer?.officer_id) return { ok: false, error: 'This amendment task is not assigned to your account.' };
+  const { error } = await supabaseClient.from('operational_action_reviews').update({ status: 'Pending', amendment_response: responseText, amendment_submitted_at: new Date().toISOString(), reviewed_at: null }).eq('action_review_id', data.ReviewID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseAddOperationalIncidentLog({ IncidentID: review.incident_id, EntryType: 'Action Amendments', Body: `${me.user.RobloxUsername} returned the action for supervisor review: ${responseText}` });
+  const reviewer = await supabaseById('profiles', 'user_id', review.assigned_reviewer_user_id);
+  if (reviewer) await supabaseNotify(reviewer.member_id, 'Operational action returned for review', notificationDetails([detailLine('CAD', review.incident_id), detailLine('Officer', me.user.RobloxUsername), detailLine('Changes made', responseText)]), me.user.UserID);
   return { ok: true };
 }
 
@@ -8046,7 +8239,6 @@ async function supabaseSaveOperationalDisposal(data) {
   const offenceIds = splitTags(data.OffenceIDs || '').filter((id) => id.startsWith('OFF_'));
   if (!offenceIds.length && data.OffenceReference) offenceIds.push(referenceId(data.OffenceReference));
   if (!offenceIds.length) return { ok: false, error: 'Select at least one offence.' };
-  if (!data.Rationale || !data.OutcomeReport) return { ok: false, error: 'Full grounds and an outcome report are required.' };
   const [offences, previousDisposals] = await Promise.all([supabaseOptionalAll('operational_offences'), supabaseOptionalAll('operational_disposals')]);
   const selectedOffences = offenceIds.map((id) => offences.find((row) => row.offence_id === id)).filter(Boolean);
   const records = selectedOffences.map((offence) => {
@@ -8077,7 +8269,6 @@ async function supabaseSaveOperationalOfficerAction(data) {
   if (!officer) return { ok: false, error: 'No linked officer profile.' };
   const [subjectType, subjectId] = referenceId(data.SubjectReference).split(':');
   const offenceId = referenceId(data.OffenceReference);
-  if (!data.Rationale || !data.OutcomeReport) return { ok: false, error: 'Grounds and an outcome report are required.' };
   const record = { incident_id: data.IncidentID, officer_id: officer.officer_id, assisting_officer_ids: splitTags(data.AssistingOfficerIDs || ''), action_type: data.ActionType || 'Other', person_id: subjectType === 'Person' ? subjectId : null, vehicle_id: subjectType === 'Vehicle' ? subjectId : null, offence_id: offenceId?.startsWith('OFF_') ? offenceId : null, notes: [data.Rationale, data.OutcomeReport, data.Notes].filter(Boolean).join('\n\n'), occurred_at: data.OccurredAt || new Date().toISOString(), created_by: me.user.UserID };
   const { data: saved, error } = await supabaseClient.from('operational_officer_actions').insert(record).select('action_id').maybeSingle();
   if (error) return { ok: false, error: error.message };
@@ -8087,7 +8278,7 @@ async function supabaseSaveOperationalOfficerAction(data) {
 }
 
 async function createOperationalActionReview({ incidentId, officer, actionType, sourceType, sourceId, rationale, outcomeReport }) {
-  const { error } = await supabaseClient.from('operational_action_reviews').upsert({ incident_id: incidentId, officer_id: officer.officer_id, action_type: actionType, source_type: sourceType, source_id: sourceId, assigned_reviewer_user_id: officer.supervisor_user_id || null, rationale, outcome_report: outcomeReport, status: 'Pending', due_at: new Date(Date.now() + 7 * 86400000).toISOString() }, { onConflict: 'source_type,source_id' });
+  const { error } = await supabaseClient.from('operational_action_reviews').upsert({ incident_id: incidentId, officer_id: officer.officer_id, action_type: actionType, source_type: sourceType, source_id: sourceId, assigned_reviewer_user_id: officer.supervisor_user_id || null, rationale: rationale || '', outcome_report: outcomeReport || '', status: 'Pending', due_at: new Date(Date.now() + 7 * 86400000).toISOString() }, { onConflict: 'source_type,source_id' });
   if (!error && officer.supervisor_user_id) {
     const supervisor = await supabaseById('profiles', 'user_id', officer.supervisor_user_id);
     if (supervisor) await supabaseNotify(supervisor.member_id, 'Operational action requires review', notificationDetails([detailLine('Officer', officer.roblox_username), detailLine('Action', actionType), detailLine('CAD', incidentId), detailLine('Status', 'Pending review')]), state.user?.UserID);
@@ -8104,10 +8295,9 @@ async function supabaseSaveOperationalPowerUse(data) {
   const powerId = referenceId(data.PowerReference);
   const [subjectType, subjectId] = referenceId(data.SubjectReference).split(':');
   if (!incidentId || !powerId || !subjectId) return { ok: false, error: 'CAD, power and subject are required.' };
-  if (!data.Grounds || !data.Necessity || !data.Outcome) return { ok: false, error: 'Grounds, necessity and outcome must be fully recorded.' };
   const power = await supabaseById('operational_powers', 'power_id', powerId);
   if (!power) return { ok: false, error: 'Police power not found.' };
-  const record = { incident_id: incidentId, officer_id: officer.officer_id, power_id: powerId, person_id: subjectType === 'Person' ? subjectId : null, vehicle_id: subjectType === 'Vehicle' ? subjectId : null, grounds: data.Grounds, necessity: data.Necessity, outcome: data.Outcome, items_seized: data.ItemsSeized || '', duration_minutes: Number(data.DurationMinutes) || 0, occurred_at: data.OccurredAt || new Date().toISOString(), created_by: me.user.UserID };
+  const record = { incident_id: incidentId, officer_id: officer.officer_id, power_id: powerId, person_id: subjectType === 'Person' ? subjectId : null, vehicle_id: subjectType === 'Vehicle' ? subjectId : null, grounds: data.Grounds || '', necessity: data.Necessity || '', outcome: data.Outcome || '', items_seized: data.ItemsSeized || '', duration_minutes: Number(data.DurationMinutes) || 0, occurred_at: data.OccurredAt || new Date().toISOString(), created_by: me.user.UserID };
   const { data: saved, error } = await supabaseClient.from('operational_power_uses').insert(record).select('power_use_id').maybeSingle();
   if (error) return { ok: false, error: error.message };
   await supabaseClient.from('operational_officer_actions').insert({ incident_id: incidentId, officer_id: officer.officer_id, action_type: power.category === 'Arrest' ? 'Arrested' : power.category, person_id: record.person_id, vehicle_id: record.vehicle_id, notes: data.Outcome, occurred_at: record.occurred_at, created_by: me.user.UserID });
@@ -8122,8 +8312,12 @@ async function supabaseReviewOperationalAction(data) {
   const review = await supabaseById('operational_action_reviews', 'action_review_id', data.ActionReviewID);
   if (!review) return { ok: false, error: 'Review task not found.' };
   const status = data.Status || 'Approved';
-  const { error } = await supabaseClient.from('operational_action_reviews').update({ status, supervisor_feedback: data.SupervisorFeedback || '', reviewed_by: me.user.UserID, reviewed_at: new Date().toISOString() }).eq('action_review_id', data.ActionReviewID);
+  const { error } = await supabaseClient.from('operational_action_reviews').update({ status, supervisor_feedback: data.SupervisorFeedback || '', amendment_submitted_at: null, reviewed_by: me.user.UserID, reviewed_at: status === 'Amendments Required' ? null : new Date().toISOString() }).eq('action_review_id', data.ActionReviewID);
   if (!error) await supabaseAddOperationalIncidentLog({ IncidentID: review.incident_id, EntryType: 'Action Review', Body: `${review.action_type} review ${status.toLowerCase()} by ${me.user.RobloxUsername}${data.SupervisorFeedback ? `: ${data.SupervisorFeedback}` : ''}.` });
+  if (!error && status === 'Amendments Required') {
+    const officer = await supabaseById('officers', 'officer_id', review.officer_id);
+    if (officer) await supabaseNotify(officer.member_id, 'Operational action amendments required', notificationDetails([detailLine('Action', review.action_type), detailLine('CAD', review.incident_id), detailLine('Supervisor feedback', data.SupervisorFeedback || 'Review your record and provide the requested changes.'), detailLine('Action required', 'Update the record and return it for review')]), me.user.UserID);
+  }
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
@@ -8208,6 +8402,28 @@ async function supabaseControlUpdateOperationalUnitStatus(data) {
   const { error } = await supabaseClient.from('operational_units').update({ status: data.Status, updated_at: new Date().toISOString() }).eq('unit_id', data.UnitID);
   if (!error && unit.current_incident_id && ['En Route', 'On Scene'].includes(data.Status)) await supabaseClient.from('operational_incidents').update({ status: data.Status, updated_at: new Date().toISOString() }).eq('incident_id', unit.current_incident_id);
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseControlUpdateOperationalUnit(data) {
+  const control = await requireActiveController(); if (!control.ok) return control;
+  const unit = await supabaseById('operational_units', 'unit_id', data.UnitID);
+  if (!unit || unit.closed_at) return { ok: false, error: 'Callsign is no longer active.' };
+  const officerIds = splitTags(data.OfficerIDs || '');
+  if (!officerIds.length) return { ok: false, error: 'Assign at least one on-duty officer to the callsign.' };
+  const activeShifts = await supabaseOptionalAll('shift_logs');
+  const onDutyIds = new Set(activeShifts.filter((row) => row.status === 'On Duty' && !row.ended_at).map((row) => row.officer_id));
+  if (officerIds.some((id) => !onDutyIds.has(id))) return { ok: false, error: 'Only officers currently on duty can be assigned to an operational callsign.' };
+  const leadOfficerId = officerIds.includes(unit.lead_officer_id) ? unit.lead_officer_id : officerIds[0];
+  const { error } = await supabaseClient.from('operational_units').update({ status: data.Status || unit.status, assigned_vehicle_registration: String(data.AssignedVehicleRegistration || '').trim().toUpperCase(), patrol_area: data.PatrolArea || '', radio_channel: data.RadioChannel || '', notes: data.Notes || '', lead_officer_id: leadOfficerId, updated_at: new Date().toISOString() }).eq('unit_id', data.UnitID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.from('operational_unit_members').update({ status: 'Left', left_at: new Date().toISOString() }).eq('unit_id', data.UnitID).eq('status', 'Active');
+  for (const officerId of officerIds) {
+    const membership = { unit_id: data.UnitID, officer_id: officerId, role: officerId === leadOfficerId ? 'Lead' : 'Crew', status: 'Active', joined_at: new Date().toISOString(), left_at: null };
+    const result = await supabaseClient.from('operational_unit_members').upsert(membership, { onConflict: 'unit_id,officer_id' });
+    if (result.error) return { ok: false, error: result.error.message };
+  }
+  await supabaseAddOperationalUnitLog(data.UnitID, 'Controller', `${control.officer.roblox_username} updated status, vehicle, notes and crew for ${unit.callsign}.`);
+  return { ok: true };
 }
 
 async function supabaseAcknowledgeOperationalMarker(data) {
@@ -8417,6 +8633,7 @@ function supabaseOperationalIncident(row, officers, profiles, units = [], logs =
     IncidentData: row.incident_data || {},
     ReviewStatus: latestReview.status || row.review_status || 'Not Required',
     ReviewFeedback: latestReview.feedback || '',
+    ReviewAmendmentResponse: latestReview.amendment_response || '',
     ReviewDueAt: row.review_due_at || '',
     DuplicateOfIncidentID: row.duplicate_of_incident_id || '',
   };
