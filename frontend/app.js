@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-28-2';
+const APP_VERSION = '2026-06-29-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -110,6 +110,8 @@ const state = {
   discipline: [],
   loa: [],
   tasks: [],
+  allTasks: [],
+  taskScope: 'mine',
   profileAppeals: [],
   profileDiscipline: [],
   profileLoa: [],
@@ -338,6 +340,8 @@ document.querySelector('#opsNewVehicleButton')?.addEventListener('click', () => 
 document.querySelector('#opsNewOperationButton')?.addEventListener('click', () => openOpsOperationEditor());
 document.querySelector('#opsNewCaseButton')?.addEventListener('click', () => openOpsOperationEditor());
 document.querySelector('#opsNewDeploymentButton')?.addEventListener('click', () => openOpsDeploymentEditor());
+document.querySelector('#newMdtTaskButton')?.addEventListener('click', () => openMdtTaskEditor());
+document.querySelectorAll('[data-task-scope]').forEach((button) => button.addEventListener('click', () => { state.taskScope = button.dataset.taskScope; renderTaskView(); }));
 document.querySelector('#opsNewOffenceButton')?.addEventListener('click', () => openOpsOffenceEditor());
 document.querySelector('#opsControllerButton')?.addEventListener('click', openOpsControllerSessionEditor);
 document.querySelector('#opsControlSessionButton')?.addEventListener('click', openOpsControllerSessionEditor);
@@ -347,6 +351,8 @@ document.querySelector('#opsCommandSearch')?.addEventListener('keydown', (event)
 document.querySelector('#opsActionSearch')?.addEventListener('input', debounce(renderOpsActionQueue, 120));
 document.querySelector('#opsActionStatus')?.addEventListener('change', renderOpsActionQueue);
 document.querySelector('#opsCaseSearch')?.addEventListener('input', debounce(renderOpsCasework, 120));
+document.querySelector('#opsReferenceSearch')?.addEventListener('input', debounce(renderOpsReference, 120));
+document.querySelector('#opsReferenceType')?.addEventListener('change', renderOpsReference);
 document.querySelector('#opsIntelType')?.addEventListener('change', renderOpsIntelSearch);
 document.querySelector('#opsIntelBackButton')?.addEventListener('click', showOpsIntelOverview);
 document.querySelector('#opsLiveSearch')?.addEventListener('input', renderOpsCallQueue);
@@ -454,7 +460,7 @@ function bootTasks() {
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
-  if (can('VIEW_TASKS')) tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
+  tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Processing calendar reminders', run: () => api('processCalendarReminders', {}) });
   if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
@@ -508,6 +514,7 @@ function backgroundPreload() {
     ['operationalCalendar', {}],
     ['personalInbox', {}],
     ['savedViews', {}],
+    ['tasks', {}],
     can('VIEW_TASKS') ? ['supervisorDashboard', {}] : null,
     can('VIEW_TASKS') ? ['developmentRecords', {}] : null,
     can('VIEW_TASKS') ? ['listHandovers', {}] : null,
@@ -1366,7 +1373,7 @@ async function loadTasks() {
     document.querySelector('#tasksSummary').innerHTML = '';
     return renderTable('#tasksTable', [], ['Error'], { emptyMessage: response.error || 'Could not load tasks.' });
   }
-  state.tasks = [
+  const legacyRows = [
     ...(response.pendingLoa || []),
     ...(response.pendingTransfers || []),
     ...(response.pendingSupervisorRequests || []),
@@ -1383,23 +1390,24 @@ async function loadTasks() {
     ...(response.afterActionReviews || []),
     ...(response.actionReviews || []),
   ];
+  state.allTasks = response.allTasks || legacyRows;
+  state.tasks = response.myTasks || state.allTasks.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee);
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
-    stat('Pending LOA', counts.pendingLoa || 0),
-    stat('Transfer Requests', counts.pendingTransfers || 0),
-    stat('Supervisor Requests', counts.pendingSupervisorRequests || 0),
-    stat('Course Requests', counts.pendingCourseBookings || 0),
-    stat('Appeals', counts.pendingAppeals || 0),
-    stat('Development Reviews', counts.developmentReviews || 0),
-    stat('Account Requests', counts.accountRequests || 0),
-    stat('Shift Requests', counts.retrospectiveShifts || 0),
-    stat('Operational Reviews', (counts.operationalReviews || 0) + (counts.afterActionReviews || 0) + (counts.actionReviews || 0)),
-    stat('Your Supervisees', counts.mySuperviseeTasks || 0),
-    stat('Total Tasks', counts.total || 0),
+    stat('My Open Tasks', counts.mine || state.tasks.length),
+    stat('Due Soon', counts.dueSoon || 0),
+    stat('Amendments', counts.amendments || 0),
+    stat('Available Queue', counts.available || state.allTasks.length),
   ].join('');
-  renderTable('#tasksTable', state.tasks, ['Priority', 'TaskType', 'Officer', 'Rank', 'Supervisor', 'Course', 'Subject', 'SourceType', 'StartDate', 'EndDate', 'TargetDivision', 'Reason'], {
-    rowAction: (row) => `${row.MySupervisee ? 'class="supervisor-task"' : ''} ${taskOpenAttr(row)}`,
-    actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Review</button>`,
+  renderTaskView();
+}
+
+function renderTaskView() {
+  document.querySelectorAll('[data-task-scope]').forEach((button) => button.classList.toggle('active', button.dataset.taskScope === state.taskScope));
+  const rows = state.taskScope === 'all' ? state.allTasks : state.tasks;
+  renderTable('#tasksTable', rows, ['Priority', 'TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'Status', 'EndDate', 'Reason'], {
+    rowAction: (row) => `${row.IsMine || row.MySupervisee || row.AssignedToMe ? 'class="my-task"' : ''} ${taskOpenAttr(row)}`,
+    actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>${String(row.TaskType).includes('Amendment') ? 'Complete amendments' : String(row.TaskType).includes('Review') ? 'Review and sign off' : 'Open'}</button>`,
   });
 }
 
@@ -1416,7 +1424,20 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Activity Review' || row.TaskType === 'Training Review') return `data-open-officer="${escapeHtml(row.OfficerID)}"`;
   if (row.TaskType === 'CAD Review' || row.TaskType === 'After Action Review') return `data-open-cad-review-task="${escapeHtml(row.IncidentID)}"`;
   if (row.TaskType === 'Operational Action Review') return `data-open-action-review="${escapeHtml(row.ActionReviewID)}"`;
+  if (row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
+  if (row.TaskType === 'Assigned Task') return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
+  if (row.TaskType === 'Casework Action') return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
+}
+
+function openMdtTaskEditor(task = {}) {
+  if (task.TaskID && !can('VIEW_TASKS')) {
+    openEditor('Update my task', [hiddenField('TaskID', task.TaskID), selectField('Status', 'Status', ['Open', 'In Progress', 'Blocked', 'Completed'], task.Status || 'Open')], async (values) => api('saveMdtTask', values), { successMessage: 'Task updated.', onSuccess: async () => { invalidateCache('tasks'); await loadTasks(); } });
+    elements.editorFields.insertAdjacentHTML('afterbegin', `<section class="task-brief"><span>${escapeHtml(task.Category || 'Assigned task')}</span><h3>${escapeHtml(task.Subject || task.Title || '')}</h3><p>${escapeHtml(task.Reason || task.Details || '')}</p>${task.EndDate ? `<small>Due ${escapeHtml(formatDisplayDateTime(task.EndDate))}</small>` : ''}</section>`);
+    return;
+  }
+  const officers = (state.officers || []).map((row) => ({ value: `${row.OfficerID} | ${row.RobloxUsername}`, label: `${row.Rank} / ${row.Callsign || 'No callsign'}` }));
+  openEditor(task.TaskID ? 'Update assigned task' : 'Assign task', [hiddenField('TaskID', task.TaskID || ''), field('Title', 'Task title', 'text', false, task.Subject || task.Title || ''), field('Details', 'Instructions', 'textarea', true, task.Reason || task.Details || ''), selectField('Category', 'Category', ['General', 'Operational', 'Development', 'Training', 'Casework', 'Administration'], task.Category || 'General'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], task.Priority || 'Normal'), selectField('Status', 'Status', ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled'], task.Status || 'Open'), datalistField('AssignedOfficerReference', 'Assigned officer', officers, task.OfficerID ? `${task.OfficerID} | ${task.Officer}` : '', true), field('DueAt', 'Due date', 'datetime-local', false, localDateTimeValue(task.EndDate || task.DueAt))], async (values) => api('saveMdtTask', values), { successMessage: 'Task saved.', onSuccess: async () => { invalidateCache('tasks'); await loadTasks(); } });
 }
 
 async function loadSupervisor() {
@@ -1536,6 +1557,7 @@ async function loadOperationsHub(force = false) {
   renderOpsActionQueue();
   renderOpsCasework();
   renderOpsDeployments();
+  renderOpsReference();
   renderOpsContextTab();
   const selected = operationalIncidentById(state.selectedOperationalIncidentId);
   if (selected) renderOpsIncidentWorkspace(selected);
@@ -1575,11 +1597,12 @@ function renderOpsIncidentWorkspace(row) {
   const myUnit = state.operationsHub.myUnit || null;
   const canAttach = !isClosed && myUnit?.UnitID && !(row.AssignedUnitIDs || []).includes(myUnit.UnitID);
   const activeDetailTab = state.cadDetailTab || 'overview';
+  const workflow = cadWorkflowProgress(row);
   const workspace = document.querySelector('#opsIncidentWorkspace');
   workspace.innerHTML = `<header class="cad-detail-head">
     <div class="cad-priority-block ${escapeHtml(String(row.Priority || '').toLowerCase())}">${escapeHtml(String(opsPriorityWeight(row.Priority)))}</div>
     <div><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)}</small><h2>${escapeHtml(row.Title)}</h2><p>${escapeHtml(row.Location || 'Location not recorded')}</p></div>
-    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed ? `<button data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
+    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed ? `<button class="workflow-action" data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow ${workflow.completed}/${workflow.total}</button><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
   </header>
   <nav class="cad-record-tabs"><button class="${activeDetailTab === 'overview' ? 'active' : ''}" data-cad-detail-tab="overview">Overview</button><button class="${activeDetailTab === 'intelligence' ? 'active' : ''}" data-cad-detail-tab="intelligence">Intelligence <span>${escapeHtml(String((row.Entities || []).length))}</span></button><button class="${activeDetailTab === 'command' ? 'active' : ''}" data-cad-detail-tab="command">Command</button><button class="${activeDetailTab === 'timeline' ? 'active' : ''}" data-cad-detail-tab="timeline">Timeline <span>${escapeHtml(String(logs.length))}</span></button><button class="${activeDetailTab === 'evidence' ? 'active' : ''}" data-cad-detail-tab="evidence">Evidence <span>${escapeHtml(String((row.Attachments || []).length + (row.Links || []).length))}</span></button></nav>
   <section class="cad-detail-panel" data-cad-detail-panel="overview"${activeDetailTab === 'overview' ? '' : ' hidden'}><div class="cad-detail-grid">
@@ -1591,7 +1614,7 @@ function renderOpsIncidentWorkspace(row) {
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="intelligence"${activeDetailTab === 'intelligence' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><h3>People and vehicles</h3><div><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button></div></div>${opsIncidentEntities(row.Entities || [])}</section>
-    <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><div><h3>Actions and outcomes</h3><small>Officer involvement records what an officer did. Enforcement outcome records the disposal given to a person or vehicle.</small></div><div><button class="ghost" data-record-cad-power="${escapeHtml(row.IncidentID)}" title="Record a statutory power used on a person or vehicle">Use of power</button><button class="ghost" data-add-cad-action="${escapeHtml(row.IncidentID)}" title="Credit an officer with an operational action such as a stop, pursuit, search or assistance">Officer involvement</button><button class="ghost" data-add-cad-disposal="${escapeHtml(row.IncidentID)}" title="Record an offence outcome such as an FPN, warning or arrest">Enforcement outcome</button></div></div>${opsIncidentDisposals(row.Disposals || [])}${opsIncidentPowerUses(row.PowerUses || [])}</section>
+    <section class="cad-detail-section cad-intel-section"><div class="cad-panel-title"><div><h3>Actions and outcomes</h3><small>Officer activity records what an officer did. An enforcement result records what happened to the person or vehicle.</small></div><div><button class="ghost" data-record-cad-power="${escapeHtml(row.IncidentID)}" title="Record a statutory power used on a person or vehicle">Use of power</button><button class="ghost" data-add-cad-action="${escapeHtml(row.IncidentID)}" title="Credit an officer with an operational action such as a stop, pursuit, search or assistance">Record officer activity</button><button class="ghost" data-add-cad-disposal="${escapeHtml(row.IncidentID)}" title="Record an offence result such as an FPN, warning or arrest">Record enforcement result</button></div></div>${opsIncidentDisposals(row.Disposals || [])}${opsIncidentPowerUses(row.PowerUses || [])}</section>
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="command"${activeDetailTab === 'command' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section"><h3>Command structure</h3><div class="cad-facts">${opsFact('Incident commander', command.IncidentCommander || 'Not assigned')}${opsFact('Bronze', command.Bronze || 'Not assigned')}${opsFact('Silver', command.Silver || 'Not assigned')}${opsFact('Gold', command.Gold || 'Not assigned')}</div></section>
@@ -2028,7 +2051,7 @@ function renderOpsActionQueue() {
   const query = String(document.querySelector('#opsActionSearch')?.value || '').trim().toLowerCase();
   const group = document.querySelector('#opsActionStatus')?.value || '';
   const rows = (state.operationsHub.actionQueue || []).filter((row) => (!group || row.Group === group) && (!query || [row.Title, row.Detail, row.Reference, row.Owner, row.Group].some((value) => String(value || '').toLowerCase().includes(query))));
-  container.innerHTML = rows.length ? rows.map((row) => `<article class="ops-action-card priority-${escapeHtml(String(row.Priority || 'normal').toLowerCase())}"><header><span>${escapeHtml(row.Group || 'Action')}</span><strong>${escapeHtml(row.Reference || '')}</strong></header><h3>${escapeHtml(row.Title)}</h3><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml(row.Owner || 'Unassigned')}${row.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(row.DueAt))}` : ''}</small><div class="row-actions">${row.IncidentID ? `<button class="mini" data-open-cad="${escapeHtml(row.IncidentID)}">Open CAD</button>` : ''}${row.OperationID ? `<button class="mini" data-open-case="${escapeHtml(row.OperationID)}">Open case</button>` : ''}${row.ActionID ? `<button class="mini ghost" data-edit-case-action="${escapeHtml(row.ActionID)}">Update</button>` : ''}</div></article>`).join('') : emptyState('No actions match this view.');
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="ops-action-card priority-${escapeHtml(String(row.Priority || 'normal').toLowerCase())}${row.IsMine ? ' my-task' : ''}"><header><span>${escapeHtml(row.Group || 'Action')}</span><strong>${escapeHtml(row.Reference || '')}</strong></header><h3>${escapeHtml(row.Title)}</h3><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml(row.Owner || 'Unassigned')}${row.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(row.DueAt))}` : ''}</small><div class="row-actions">${row.IncidentID ? `<button class="mini ghost" data-open-cad="${escapeHtml(row.IncidentID)}">Open CAD</button>` : ''}${row.ReviewKind === 'Incident' && can('VIEW_TASKS') ? `<button class="mini" data-review-cad="${escapeHtml(row.IncidentID)}">Review and sign off</button>` : ''}${row.ReviewKind === 'Action' && can('VIEW_TASKS') ? `<button class="mini" data-review-ops-action="${escapeHtml(row.ActionReviewID)}">Review action</button>` : ''}${row.OperationID ? `<button class="mini" data-open-case="${escapeHtml(row.OperationID)}">Open case</button>` : ''}${row.ActionID ? `<button class="mini ghost" data-edit-case-action="${escapeHtml(row.ActionID)}">Update</button>` : ''}</div></article>`).join('') : emptyState('No actions match this view.');
 }
 
 function renderOpsCasework() {
@@ -2036,7 +2059,7 @@ function renderOpsCasework() {
   if (!list) return;
   const query = String(document.querySelector('#opsCaseSearch')?.value || '').trim().toLowerCase();
   const rows = (state.operationsHub.operations || []).filter((row) => !query || [row.Reference, row.Name, row.Status, row.CaseType, row.Summary, row.Objectives, ...(row.Links || []).map((link) => link.Label)].some((value) => String(value || '').toLowerCase().includes(query)));
-  list.innerHTML = rows.length ? rows.map((row) => `<button class="case-list-item${row.OperationID === state.selectedCaseId ? ' selected' : ''}" data-open-case="${escapeHtml(row.OperationID)}"><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.Name)}</strong><small>${escapeHtml(row.CaseType)} / ${escapeHtml(String(row.LinkCount || 0))} linked records / ${escapeHtml(String((row.Actions || []).filter((item) => !['Completed', 'Cancelled'].includes(item.Status)).length))} open actions</small></button>`).join('') : emptyState('No casework records match this search.');
+  list.innerHTML = rows.length ? rows.map((row) => `<button class="case-list-item${row.OperationID === state.selectedCaseId ? ' selected' : ''}${row.ArchivedAt ? ' archived' : ''}" data-open-case="${escapeHtml(row.OperationID)}"><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.ArchivedAt ? 'Archived' : row.Status)}</span><strong>${escapeHtml(row.Name)}</strong><small>${escapeHtml(row.CaseType)} / ${escapeHtml(String(row.LinkCount || 0))} linked records / ${escapeHtml(String((row.Actions || []).filter((item) => !['Completed', 'Cancelled'].includes(item.Status)).length))} open actions</small></button>`).join('') : emptyState('No casework records match this search.');
   const selected = rows.find((row) => row.OperationID === state.selectedCaseId) || (state.operationsHub.operations || []).find((row) => row.OperationID === state.selectedCaseId);
   if (selected) renderOpsCaseWorkspace(selected);
 }
@@ -2047,7 +2070,7 @@ function renderOpsCaseWorkspace(row) {
   const links = row.Links || [];
   const actions = row.Actions || [];
   const updates = row.Updates || [];
-  workspace.innerHTML = `<header class="case-head"><div><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.CaseType)}</span><h2>${escapeHtml(row.Name)}</h2><p>${escapeHtml(row.Summary || row.Objectives || 'No case summary recorded.')}</p></div><div class="row-actions"><button data-add-case-action="${escapeHtml(row.OperationID)}">New action</button><button class="ghost" data-add-case-update="${escapeHtml(row.OperationID)}">Add update</button><button class="ghost" data-link-operation="${escapeHtml(row.OperationID)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(row.OperationID)}">Edit case</button></div></header><div class="case-status-strip">${opsFact('Status', row.Status)}${opsFact('Sensitivity', row.Sensitivity)}${opsFact('Lead', row.Lead || 'Unassigned')}${opsFact('Review date', row.ReviewDate ? formatDisplayDate(row.ReviewDate) : 'Not set')}</div><section class="case-command-strip"><div><span>Gold</span><strong>${escapeHtml(row.CommandStructure?.Gold || 'Not assigned')}</strong></div><div><span>Silver</span><strong>${escapeHtml(row.CommandStructure?.Silver || 'Not assigned')}</strong></div><div><span>Bronze</span><strong>${escapeHtml(row.CommandStructure?.Bronze || 'Not assigned')}</strong></div></section><div class="case-grid"><section><h3>Linked records</h3>${links.length ? links.map((link) => `<article class="case-record"><div><span>${escapeHtml(link.SubjectType)} / ${escapeHtml(link.Relationship)}</span><strong>${escapeHtml(link.Label || link.SubjectID)}</strong><small>${escapeHtml(link.Notes || '')}</small></div>${link.SubjectType === 'Incident' ? `<button class="mini ghost" data-open-cad="${escapeHtml(link.SubjectID)}">Open</button>` : `<button class="mini ghost" data-open-intel-entity="${escapeHtml(link.SubjectType)}:${escapeHtml(link.SubjectID)}">Open</button>`}</article>`).join('') : '<p class="empty">No records linked yet.</p>'}</section><section><h3>Investigation actions</h3>${actions.length ? actions.map((action) => `<article class="case-record"><div><span>${escapeHtml(action.Priority)} / ${escapeHtml(action.Status)}</span><strong>${escapeHtml(action.Title)}</strong><small>${escapeHtml(action.Owner || 'Unassigned')}${action.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(action.DueAt))}` : ''}</small></div><button class="mini ghost" data-edit-case-action="${escapeHtml(action.ActionID)}">Update</button></article>`).join('') : '<p class="empty">No investigation actions.</p>'}</section><section class="case-timeline"><h3>Case timeline</h3>${updates.length ? updates.map((update) => `<article><time>${escapeHtml(formatDisplayDateTime(update.CreatedAt))}</time><div><strong>${escapeHtml(update.UpdateType)} / ${escapeHtml(update.Author || 'System')}</strong><p>${escapeHtml(update.Body)}</p></div></article>`).join('') : '<p class="empty">No case updates.</p>'}</section></div>`;
+  workspace.innerHTML = `<header class="case-head"><div><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.CaseType)}</span><h2>${escapeHtml(row.Name)}</h2><p>${escapeHtml(row.Summary || row.Objectives || 'No case summary recorded.')}</p></div><div class="row-actions">${!row.ArchivedAt ? `<button data-add-case-action="${escapeHtml(row.OperationID)}">New action</button><button class="ghost" data-add-case-update="${escapeHtml(row.OperationID)}">Add update</button><button class="ghost" data-link-operation="${escapeHtml(row.OperationID)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(row.OperationID)}">Edit case</button><button class="ghost" data-archive-case="${escapeHtml(row.OperationID)}">Archive</button>` : ''}<button class="danger" data-delete-case="${escapeHtml(row.OperationID)}">Delete</button></div></header><div class="case-status-strip">${opsFact('Status', row.ArchivedAt ? 'Archived' : row.Status)}${opsFact('Sensitivity', row.Sensitivity)}${opsFact('Lead', row.Lead || 'Unassigned')}${opsFact('Review date', row.ReviewDate ? formatDisplayDate(row.ReviewDate) : 'Not set')}</div><section class="case-command-strip"><div><span>Gold</span><strong>${escapeHtml(row.CommandStructure?.Gold || 'Not assigned')}</strong></div><div><span>Silver</span><strong>${escapeHtml(row.CommandStructure?.Silver || 'Not assigned')}</strong></div><div><span>Bronze</span><strong>${escapeHtml(row.CommandStructure?.Bronze || 'Not assigned')}</strong></div></section><div class="case-grid"><section><h3>Linked intelligence</h3>${links.length ? links.map((link) => `<article class="case-record intelligence-link"><div><span>${escapeHtml(link.SubjectType)} / ${escapeHtml(link.Relationship)}</span><strong>${escapeHtml(link.Label || link.SubjectID)}</strong><small>${escapeHtml(link.IntelligenceSummary || link.Notes || '')}</small>${(link.Associations || []).length ? `<div class="case-associations">${link.Associations.slice(0, 5).map((item) => `<button class="mini ghost" data-open-intel-entity="${escapeHtml(item.EntityType)}:${escapeHtml(item.EntityID)}">${escapeHtml(item.Label)}</button>`).join('')}</div>` : ''}</div>${link.SubjectType === 'Incident' ? `<button class="mini ghost" data-open-cad="${escapeHtml(link.SubjectID)}">Open</button>` : `<button class="mini ghost" data-open-intel-entity="${escapeHtml(link.SubjectType)}:${escapeHtml(link.SubjectID)}">Full intelligence</button>`}</article>`).join('') : '<p class="empty">No records linked yet.</p>'}</section><section><h3>Investigation actions</h3>${actions.length ? actions.map((action) => `<article class="case-record"><div><span>${escapeHtml(action.Priority)} / ${escapeHtml(action.Status)}</span><strong>${escapeHtml(action.Title)}</strong><small>${escapeHtml(action.Owner || 'Unassigned')}${action.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(action.DueAt))}` : ''}</small></div><button class="mini ghost" data-edit-case-action="${escapeHtml(action.ActionID)}">Update</button></article>`).join('') : '<p class="empty">No investigation actions.</p>'}</section><section class="case-timeline"><h3>Case timeline</h3>${updates.length ? updates.map((update) => `<article><time>${escapeHtml(formatDisplayDateTime(update.CreatedAt))}</time><div><strong>${escapeHtml(update.UpdateType)} / ${escapeHtml(update.Author || 'System')}</strong><p>${escapeHtml(update.Body)}</p></div></article>`).join('') : '<p class="empty">No case updates.</p>'}</section></div>`;
   renderOpsCaseworkListSelection();
 }
 
@@ -2079,10 +2102,36 @@ function openOpsDeploymentEditor(record = {}) {
   openEditor(record.DeploymentID ? 'Edit deployment' : 'Plan deployment', [hiddenField('DeploymentID', record.DeploymentID || ''), field('Title', 'Deployment title', 'text', false, record.Title || ''), selectField('DeploymentType', 'Type', ['Planned Operation', 'Traffic Operation', 'Roads Crime', 'Training Support', 'Major Event', 'Targeted Patrol', 'Other'], record.DeploymentType || 'Planned Operation'), selectField('Status', 'Status', ['Draft', 'Planned', 'Open for Registration', 'Confirmed', 'Active', 'Completed', 'Cancelled'], record.Status || 'Planned'), field('StartsAt', 'Starts at', 'datetime-local', false, localDateTimeValue(record.StartsAt)), field('EndsAt', 'Ends at', 'datetime-local', false, localDateTimeValue(record.EndsAt)), field('Location', 'Location / patrol area', 'text', false, record.Location || ''), field('Capacity', 'Capacity (0 for unlimited)', 'number', false, record.Capacity || 0), checkboxGroupField('RequiredCapabilities', 'Required capabilities', ['Taser', 'MOE', 'Blue Ticket', 'Motorbike', 'Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC', 'Supervisor', 'Roads Crime Team'], record.RequiredCapabilities || ''), searchableReferenceCheckboxGroupField('AssignedOfficerIDs', 'Assigned officers', officers, record.AssignedOfficerIDs || '', 'Search officer, rank, callsign or capability'), field('Briefing', 'Deployment briefing', 'textarea', true, record.Briefing || '')], async (values) => api('saveOperationalDeployment', values), { successMessage: 'Deployment saved.', onSuccess: refreshOperationsHub });
 }
 
+function renderOpsReference() {
+  const container = document.querySelector('#opsReferenceResults');
+  if (!container) return;
+  const query = String(document.querySelector('#opsReferenceSearch')?.value || '').trim().toLowerCase();
+  const type = document.querySelector('#opsReferenceType')?.value || '';
+  const offences = (state.operationsHub.offences || []).map((row) => ({ Type: 'Offence', ID: row.OffenceID, Title: row.Title, Code: row.Code, Source: [row.LegislationSource, row.SectionReference].filter(Boolean).join(' / '), Summary: row.Description, Meta: [row.SuggestedOutcome, row.DefaultFine ? `FPN £${row.DefaultFine}` : '', row.DefaultPrisonMinutes ? `${row.DefaultPrisonMinutes} minute arrest` : ''].filter(Boolean).join(' / '), Guidance: [row.EscalationGuidance, row.GuidanceNotes].filter(Boolean).join(' ') }));
+  const powers = (state.operationsHub.powers || []).map((row) => ({ Type: 'Power', ID: row.PowerID, Title: row.Title, Code: row.Code, Source: [row.LegislationSource, row.SectionReference].filter(Boolean).join(' / '), Summary: row.Definition, Meta: row.LegalTest, Guidance: row.RequiredRecordFields }));
+  const rows = [...offences, ...powers].filter((row) => (!type || row.Type === type) && (!query || [row.Title, row.Code, row.Source, row.Summary, row.Meta, row.Guidance].some((value) => String(value || '').toLowerCase().includes(query)))).sort((a, b) => a.Title.localeCompare(b.Title));
+  container.innerHTML = rows.length ? rows.map((row) => `<button class="cad-reference-card" data-open-reference="${escapeHtml(row.Type)}:${escapeHtml(row.ID)}"><span>${escapeHtml(row.Type)} / ${escapeHtml(row.Code || 'No code')}</span><strong>${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Source || 'Source not recorded')}</small><p>${escapeHtml(row.Summary || 'No summary recorded.')}</p><em>${escapeHtml(row.Meta || row.Guidance || '')}</em></button>`).join('') : emptyState('No offences or powers match this search.');
+}
+
+function cadWorkflowProgress(row) {
+  const entities = row.Entities || [];
+  const steps = [
+    Boolean(row.Description || row.Location),
+    entities.some((item) => item.EntityType === 'Person'),
+    entities.some((item) => item.EntityType === 'Vehicle'),
+    Boolean((row.PowerUses || []).length),
+    Boolean((row.OfficerActions || []).length || (row.Disposals || []).length),
+    ['Resolved', 'Cancelled'].includes(row.Status),
+  ];
+  return { steps, completed: steps.filter(Boolean).length, total: steps.length };
+}
+
 function openOpsGuidedWorkflow(incidentId) {
   const row = operationalIncidentById(incidentId);
   if (!row) return;
-  showInfo(`${row.IncidentType} workflow`, `<div class="workflow-launcher"><header><span>${escapeHtml(row.IncidentNumber)}</span><h3>${escapeHtml(row.Title)}</h3><p>Complete the relevant records as the incident develops. Items already recorded remain available in the CAD tabs.</p></header><button data-link-cad-person="${escapeHtml(row.IncidentID)}"><strong>1. People involved</strong><small>Add or link drivers, subjects, witnesses and victims.</small></button><button data-link-cad-vehicle="${escapeHtml(row.IncidentID)}"><strong>2. Vehicles involved</strong><small>Add or link vehicles and registrations.</small></button><button data-record-cad-power="${escapeHtml(row.IncidentID)}"><strong>3. Police powers</strong><small>Record searches, arrests, seizures or use of force.</small></button><button data-add-cad-action="${escapeHtml(row.IncidentID)}"><strong>4. Officer involvement</strong><small>Record which officer carried out each operational action.</small></button><button data-add-cad-disposal="${escapeHtml(row.IncidentID)}"><strong>5. Enforcement outcomes</strong><small>Record offences, warnings, FPNs, arrests and seizures.</small></button><button data-close-cad="${escapeHtml(row.IncidentID)}"><strong>6. Close and submit</strong><small>Record the final outcome and create any required supervisor review.</small></button></div>`);
+  const progress = cadWorkflowProgress(row);
+  const step = (index, attrs, title, detail) => `<button class="${progress.steps[index] ? 'complete' : 'pending'}" ${attrs}><i>${progress.steps[index] ? '&#10003;' : index + 1}</i><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></button>`;
+  showInfo(`${row.IncidentType} workflow`, `<div class="workflow-launcher"><header><span>${escapeHtml(row.IncidentNumber)}</span><h3>${escapeHtml(row.Title)}</h3><p>${progress.completed} of ${progress.total} stages complete</p><div class="workflow-progress"><i style="width:${(progress.completed / progress.total) * 100}%"></i></div></header>${step(0, `data-edit-ops-incident="${escapeHtml(row.IncidentID)}"`, 'Incident facts', 'Confirm location, description, priority and initial circumstances.')}${step(1, `data-link-cad-person="${escapeHtml(row.IncidentID)}"`, 'People involved', 'Add or link drivers, subjects, witnesses and victims.')}${step(2, `data-link-cad-vehicle="${escapeHtml(row.IncidentID)}"`, 'Vehicles involved', 'Add or link vehicles and registrations.')}${step(3, `data-record-cad-power="${escapeHtml(row.IncidentID)}"`, 'Police powers', 'Record searches, arrests, seizures or use of force.')}${step(4, `data-add-cad-action="${escapeHtml(row.IncidentID)}"`, 'Officer activity and results', 'Record officer activity, offences and enforcement results.')}${step(5, `data-close-cad="${escapeHtml(row.IncidentID)}"`, 'Close and submit', 'Record the final outcome and create any required supervisor review.')}</div>`);
 }
 
 function renderOpsControlOfficerSearch() {
@@ -2355,9 +2404,9 @@ function openOpsDisposalEditor(incidentId = '', subjectReference = '') {
 function openOpsOfficerActionEditor(incidentId) {
   const incident = operationalIncidentById(incidentId) || {};
   const subjects = (incident.Entities || []).map((row) => ({ value: `${row.EntityType}:${row.EntityID} | ${row.Label}`, label: row.InvolvementRole }));
-  const offences = (state.operationsHub.offences || []).map((row) => ({ value: `${row.OffenceID} | ${row.Title}`, label: `${row.Code} / ${row.Category}` }));
+  const offences = (state.operationsHub.offences || []).map((row) => ({ value: `${row.Title} | ${row.OffenceID}`, label: `${row.Code} / ${row.Category}` }));
   const officers = (state.operationsHub.onDutyOfficers || state.officers || []).map((row) => ({ UserID: row.OfficerID, RobloxUsername: row.RobloxUsername, Rank: row.Rank, Meta: row.Callsign || '' }));
-  openEditor('Record officer involvement', [
+  openEditor('Record officer activity', [
     hiddenField('IncidentID', incidentId),
     selectField('ActionType', 'Action', ['Traffic Stop', 'Arrested', 'FPN Issued', 'Warning Issued', 'Search', 'Vehicle Seizure', 'Pursuit', 'Report', 'Assist', 'Other'], 'Traffic Stop'),
     datalistField('SubjectReference', 'Linked person or vehicle', subjects),
@@ -2367,15 +2416,16 @@ function openOpsOfficerActionEditor(incidentId) {
     field('Rationale', 'Grounds and decision rationale (recommended)', 'textarea', true),
     field('OutcomeReport', 'Officer account of their actions (recommended)', 'textarea', true),
     field('Notes', 'Additional notes', 'textarea', true),
-  ], async (values) => api('saveOperationalOfficerAction', values), { successMessage: 'Officer involvement recorded and submitted for review where required.', onSuccess: refreshOperationsHub });
-  elements.editorFields.insertAdjacentHTML('afterbegin', '<p class="form-guidance">Use this to attribute operational activity to an officer, such as conducting a traffic stop, assisting, searching or pursuing. Use Enforcement outcome when recording the final disposal given to a person or vehicle.</p>');
+  ], async (values) => api('saveOperationalOfficerAction', values), { successMessage: 'Officer activity recorded and submitted for review where required.', onSuccess: refreshOperationsHub });
+  elements.editorFields.insertAdjacentHTML('afterbegin', '<p class="form-guidance">Use this to record what an officer did, such as conducting a traffic stop, assisting, searching or pursuing. Use Record enforcement result for the final action taken against a person or vehicle.</p>');
 }
 
 function openOpsPowerUseEditor(entityType = '', entityId = '', incidentId = '') {
   const allIncidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
   const incidentOptions = allIncidents.map((row) => ({ value: `${row.IncidentID} | ${row.IncidentNumber}`, label: `${row.Title} / ${formatDisplayDate(row.CreatedAt)}` }));
-  const subjects = [...(state.operationsHub.people || []).map((row) => ({ value: `Person:${row.PersonID} | ${row.DisplayName}`, label: row.RobloxUsername || '' })), ...(state.operationsHub.vehicles || []).map((row) => ({ value: `Vehicle:${row.VehicleID} | ${row.Registration}`, label: [row.Colour, row.Make, row.Model].filter(Boolean).join(' ') }))];
-  const powers = (state.operationsHub.powers || []).map((row) => ({ value: `${row.PowerID} | ${row.Title}`, label: `${row.Code} / ${row.SectionReference}` }));
+  const linkedIds = new Set((operationalIncidentById(incidentId)?.Entities || []).map((row) => `${row.EntityType}:${row.EntityID}`));
+  const subjects = [...(state.operationsHub.people || []).map((row) => ({ value: `Person:${row.PersonID} | ${row.DisplayName}`, label: `${linkedIds.has(`Person:${row.PersonID}`) ? 'Linked to this CAD / ' : ''}${row.RobloxUsername || ''}` })), ...(state.operationsHub.vehicles || []).map((row) => ({ value: `Vehicle:${row.VehicleID} | ${row.Registration}`, label: `${linkedIds.has(`Vehicle:${row.VehicleID}`) ? 'Linked to this CAD / ' : ''}${[row.Colour, row.Make, row.Model].filter(Boolean).join(' ')}` }))].sort((a, b) => Number(linkedIds.has(referenceId(b.value))) - Number(linkedIds.has(referenceId(a.value))) || a.value.localeCompare(b.value));
+  const powers = (state.operationsHub.powers || []).map((row) => ({ value: `${row.Title} | ${row.PowerID}`, label: `${row.Code} / ${row.SectionReference}` }));
   const selectedSubject = entityType && entityId ? `${entityType}:${entityId} | ${entityType === 'Person' ? (state.operationsHub.people || []).find((row) => row.PersonID === entityId)?.DisplayName || '' : (state.operationsHub.vehicles || []).find((row) => row.VehicleID === entityId)?.Registration || ''}` : '';
   openEditor('Record use of police power', [
     hiddenField('IncidentID', incidentId),
@@ -3722,6 +3772,12 @@ async function handleDocumentClick(event) {
     openOfficerCadHistory();
     return;
   }
+  const editMdtTask = event.target.closest('[data-edit-mdt-task]');
+  if (editMdtTask) {
+    const task = [...state.tasks, ...state.allTasks].find((row) => row.TaskID === editMdtTask.dataset.editMdtTask);
+    if (task) openMdtTaskEditor(task);
+    return;
+  }
   const opsSearchResult = event.target.closest('[data-open-ops-search]');
   if (opsSearchResult) {
     const [type, id] = opsSearchResult.dataset.openOpsSearch.split(':');
@@ -3760,6 +3816,15 @@ async function handleDocumentClick(event) {
   }
   const addCaseUpdate = event.target.closest('[data-add-case-update]');
   if (addCaseUpdate) { openOpsCaseUpdateEditor(addCaseUpdate.dataset.addCaseUpdate); return; }
+  const archiveCase = event.target.closest('[data-archive-case]');
+  if (archiveCase) {
+    const response = await api('archiveOperationalCase', { OperationID: archiveCase.dataset.archiveCase });
+    if (!response.ok) showInfo('Archive failed', `<p>${escapeHtml(response.error || 'Could not archive the case.')}</p>`);
+    await refreshOperationsHub();
+    return;
+  }
+  const deleteCase = event.target.closest('[data-delete-case]');
+  if (deleteCase) { await confirmDelete('Permanently delete this case and its actions, updates and links?', 'deleteOperationalCase', { OperationID: deleteCase.dataset.deleteCase }, async () => { state.selectedCaseId = ''; await refreshOperationsHub(); }); return; }
   const editDeployment = event.target.closest('[data-edit-deployment]');
   if (editDeployment) {
     const deployment = (state.operationsHub.deployments || []).find((row) => row.DeploymentID === editDeployment.dataset.editDeployment);
@@ -3848,6 +3913,14 @@ async function handleDocumentClick(event) {
     const [entityType, entityId] = String(openIntelEntity.dataset.openIntelEntity || '').split(':');
     switchOpsWorkspace('intel');
     renderOpsRelationshipView(entityType, entityId);
+    return;
+  }
+  const openReference = event.target.closest('[data-open-reference]');
+  if (openReference) {
+    const [type, id] = openReference.dataset.openReference.split(':');
+    const row = type === 'Offence' ? (state.operationsHub.offences || []).find((item) => item.OffenceID === id) : (state.operationsHub.powers || []).find((item) => item.PowerID === id);
+    if (row && type === 'Offence') showInfo(row.Title, `<div class="legal-reference-detail"><span>${escapeHtml(row.Code)} / ${escapeHtml([row.LegislationSource, row.SectionReference].filter(Boolean).join(' / '))}</span><p>${escapeHtml(row.Description || 'No definition recorded.')}</p><dl><div><dt>Suggested result</dt><dd>${escapeHtml(row.SuggestedOutcome || 'Officer discretion')}</dd></div><div><dt>FPN</dt><dd>${row.DefaultFine ? `£${escapeHtml(String(row.DefaultFine))}` : 'No tariff recorded'}${row.RepeatFine ? ` / repeat £${escapeHtml(String(row.RepeatFine))}` : ''}</dd></div><div><dt>Arrest time</dt><dd>${row.DefaultPrisonMinutes ? `${escapeHtml(String(row.DefaultPrisonMinutes))} minutes` : 'No tariff recorded'}</dd></div><div><dt>Permitted results</dt><dd>${escapeHtml(row.AllowedOutcomes || 'Not specified')}</dd></div></dl><aside>${escapeHtml([row.EscalationGuidance, row.GuidanceNotes].filter(Boolean).join(' ') || 'Apply professional judgement and record the rationale for the result.')}</aside></div>`);
+    if (row && type === 'Power') showInfo(row.Title, `<div class="legal-reference-detail"><span>${escapeHtml(row.Code)} / ${escapeHtml([row.LegislationSource, row.SectionReference].filter(Boolean).join(' / '))}</span><p>${escapeHtml(row.Definition || 'No definition recorded.')}</p><dl><div><dt>Legal test</dt><dd>${escapeHtml(row.LegalTest || 'Not recorded')}</dd></div><div><dt>Required record</dt><dd>${escapeHtml(row.RequiredRecordFields || 'Grounds and outcome')}</dd></div><div><dt>Supervisor review</dt><dd>${row.RequiresSupervisorReview ? 'Required' : 'Not automatically required'}</dd></div></dl></div>`);
     return;
   }
   const addIntelMarker = event.target.closest('[data-add-intel-marker]');
@@ -5455,6 +5528,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       saveHandover: supabaseSaveHandover,
       deleteHandover: supabaseDeleteHandover,
       tasks: supabaseTasks,
+      saveMdtTask: supabaseSaveMdtTask,
       supervisorDashboard: supabaseSupervisorDashboard,
       togglePinnedOfficer: supabaseTogglePinnedOfficer,
       listOfficers: supabaseListOfficers,
@@ -5553,6 +5627,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       deleteOperationalDisposal: supabaseDeleteOperationalDisposal,
       acknowledgeOperationalMarker: supabaseAcknowledgeOperationalMarker,
       saveOperationalOperation: supabaseSaveOperationalOperation,
+      archiveOperationalCase: supabaseArchiveOperationalCase,
+      deleteOperationalCase: supabaseDeleteOperationalCase,
       linkOperationalOperation: supabaseLinkOperationalOperation,
       linkCadToOperationalCase: supabaseLinkCadToOperationalCase,
       saveOperationalCaseAction: supabaseSaveOperationalCaseAction,
@@ -5642,6 +5718,8 @@ async function supabaseMyProfile() {
   ]);
   return {
     ok: true,
+    myTasks: mine,
+    allTasks: can('VIEW_TASKS') ? all : mine,
     user: me.user,
     officer: officer ? decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }) : null,
     training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
@@ -5685,6 +5763,10 @@ async function supabaseDashboard() {
     ok: true,
     widgets: widgetPreferences.length ? widgetPreferences.filter((row) => row.enabled).map((row) => row.widget_key) : DASHBOARD_WIDGETS.map(([key]) => key),
     counts: {
+      mine: mine.length,
+      available: can('VIEW_TASKS') ? all.length : mine.length,
+      amendments: mine.filter((row) => String(row.TaskType).includes('Amendment')).length,
+      dueSoon: mine.filter((row) => { const due = row.EndDate || row.DueAt; return due && new Date(due) <= new Date(Date.now() + 7 * 86400000); }).length,
       activeOfficers: (officers.data || []).filter((row) => row.status === 'Active').length,
       currentlyOnLoa: activeLoa.length,
       loaPending: pendingLoa.length,
@@ -5838,7 +5920,7 @@ async function supabasePersonalInbox() {
     supabaseVisibleDocuments(),
     supabaseAll('document_acknowledgements'),
     supabaseOperationalCalendar(),
-    can('VIEW_TASKS') ? supabaseTasks() : Promise.resolve({ ok: true }),
+    supabaseTasks(),
     officer ? supabaseOptionalRows('supervisor_requests', 'officer_id', officer.officer_id, 'created_at') : [],
   ]);
   if (!actions.ok) return actions;
@@ -5851,7 +5933,7 @@ async function supabasePersonalInbox() {
     .slice(0, 8)
     .map((row) => ({ Type: row.Type || 'Calendar', Priority: row.Priority || 'Normal', Title: row.Title, Detail: [formatDisplayDateTime(row.Start), row.Location, row.Detail].filter(Boolean).join(' / '), DueDate: row.Start, View: 'calendar' }));
   const notificationRows = (notifications || []).slice(0, 10).map((row) => ({ Type: row.ReadAt ? 'Notification' : 'Unread Notification', Priority: importantNotice(row) ? 'Critical' : positiveNotice(row) ? 'Low' : 'Normal', Title: row.Title, Detail: row.Message, CreatedAt: row.CreatedAt, View: 'myProfile' }));
-  const taskRows = can('VIEW_TASKS') ? [
+  const taskRows = (tasks.myTasks || (can('VIEW_TASKS') ? [
     ...(tasks.pendingLoa || []),
     ...(tasks.pendingTransfers || []),
     ...(tasks.pendingSupervisorRequests || []),
@@ -5861,7 +5943,7 @@ async function supabasePersonalInbox() {
     ...(tasks.performanceReviews || []),
     ...(tasks.restrictionReviews || []),
     ...(tasks.retrospectiveShifts || []),
-  ].map((row) => ({ Type: row.TaskType, Priority: row.Priority || (row.MySupervisee ? 'High' : 'Normal'), Title: row.Officer || row.Course || row.Subject || row.TaskType, Detail: row.Subject || row.Reason || row.Status || '', DueDate: row.EndDate || row.TargetDate || row.NextReviewDate || row.RequestedAt || '', Status: row.Status, View: 'tasks' })) : [];
+  ] : [])).map((row) => ({ Type: row.TaskType, Priority: row.Priority || (row.MySupervisee ? 'High' : 'Normal'), Title: row.Subject || row.Officer || row.Course || row.TaskType, Detail: row.Reason || row.Status || '', DueDate: row.EndDate || row.TargetDate || row.NextReviewDate || row.RequestedAt || '', Status: row.Status, View: 'tasks' }));
   const docRows = pendingDocs.map((doc) => ({ Type: 'Document', Priority: 'High', Title: doc.Title, Detail: `${doc.Category || 'Document'} acknowledgement required`, CreatedAt: doc.UpdatedAt, View: 'documents' }));
   const supervisorRows = (supervisorRequests || []).slice(0, 8).map((row) => ({ Type: 'Supervisor', Priority: row.status === 'Pending' ? 'High' : 'Normal', Title: row.subject || 'Supervisor request', Detail: `${row.category || 'General'} / ${row.status || 'Pending'}${row.review_reason ? ` / ${row.review_reason}` : ''}`, CreatedAt: row.created_at, Status: row.status, View: 'myProfile' }));
   const actionRows = (actions.rows || []).map((row) => ({ ...row, Type: row.Type || 'Action', View: row.View || 'dashboard' }));
@@ -6900,7 +6982,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows, genericTaskRows, caseActionRows, operationRows, operationalOfficerActions, operationalUnitMembers] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -6920,7 +7002,19 @@ async function supabaseTasks() {
     supabaseOptionalAll('operational_incidents'),
     supabaseOptionalAll('operational_after_action_reviews'),
     supabaseOptionalAll('operational_action_reviews'),
+    supabaseOptionalAll('mdt_tasks'),
+    supabaseOptionalAll('operational_case_actions'),
+    supabaseOptionalAll('operational_operations'),
+    supabaseOptionalAll('operational_officer_actions'),
+    supabaseOptionalAll('operational_unit_members'),
   ]);
+  const currentProfile = (profiles || []).find((profile) => profile.user_id === state.user?.UserID) || {};
+  const currentOfficer = (officers || []).find((officer) => officer.member_id === currentProfile.member_id) || {};
+  const involvedOfficerIds = (incident) => [...new Set([
+    ...(operationalOfficerActions || []).filter((row) => row.incident_id === incident.incident_id).map((row) => row.officer_id),
+    ...(operationalUnitMembers || []).filter((row) => (incident.assigned_unit_ids || []).includes(row.unit_id)).map((row) => row.officer_id),
+  ].filter(Boolean))];
+  const supervisesIncident = (incident) => involvedOfficerIds(incident).some((officerId) => (officers || []).find((row) => row.officer_id === officerId)?.supervisor_user_id === state.user?.UserID);
   const decorate = (row, type) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
     const supervisor = (profiles || []).find((profile) => profile.user_id === officer.supervisor_user_id) || {};
@@ -6949,10 +7043,10 @@ async function supabaseTasks() {
       Status: row.status || '',
     });
   };
-  const pendingLoa = (loa || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'LOA Approval'));
-  const pendingTransfers = (transfers || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Transfer Request'));
-  const pendingSupervisorRequests = (supervisorRequests || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Supervisor Request'));
-  const pendingAppeals = (appeals || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Appeal / Review'));
+  const pendingLoa = can('APPROVE_LOA') ? (loa || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'LOA Approval')) : [];
+  const pendingTransfers = can('VIEW_TASKS') ? (transfers || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Transfer Request')) : [];
+  const pendingSupervisorRequests = can('VIEW_TASKS') ? (supervisorRequests || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Supervisor Request')) : [];
+  const pendingAppeals = can('VIEW_TASKS') ? (appeals || []).filter((row) => row.status === 'Pending').map((row) => decorate(row, 'Appeal / Review')) : [];
   const pendingCourseBookings = (courseBookings || []).filter((row) => row.status === 'Requested').map((booking) => {
     const course = (courses || []).find((row) => row.course_id === booking.course_id) || {};
     const officer = (officers || []).find((row) => row.officer_id === booking.officer_id) || {};
@@ -7010,7 +7104,8 @@ async function supabaseTasks() {
   const operationalReviews = (cadReviews || []).filter((row) => !['Completed', 'Cancelled'].includes(row.task_status || '') && ['Pending', 'Amendments Required'].includes(row.status)).map((row) => {
     const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {};
     const assignee = (profiles || []).find((profile) => profile.user_id === row.assigned_reviewer_user_id) || {};
-    return { TaskType: 'CAD Review', ReviewID: row.review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: incident.created_by ? ((profiles || []).find((profile) => profile.user_id === incident.created_by)?.roblox_username || 'CAD owner') : 'CAD owner', Supervisor: assignee.roblox_username || 'Command queue', Subject: incident.title || 'Supervisor CAD review', Reason: row.feedback || 'Closed CAD requires supervisor review.', Status: row.status, EndDate: row.due_at || incident.review_due_at || '', Priority: incident.priority || '', MySupervisee: row.assigned_reviewer_user_id === state.user?.UserID, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID };
+    const relevantSupervisor = supervisesIncident(incident);
+    return { TaskType: 'CAD Review', ReviewID: row.review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: incident.created_by ? ((profiles || []).find((profile) => profile.user_id === incident.created_by)?.roblox_username || 'CAD owner') : 'CAD owner', Supervisor: assignee.roblox_username || 'Command queue', Subject: incident.title || 'Supervisor CAD review', Reason: row.feedback || 'Closed CAD requires supervisor review.', Status: row.status, EndDate: row.due_at || incident.review_due_at || '', Priority: incident.priority || '', MySupervisee: relevantSupervisor, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID, RelevantSupervisor: relevantSupervisor };
   }).filter((row) => row.AssignedToMe || can('FULL_ACCESS') || can('VIEW_TASKS'));
   const afterActionReviews = (afterActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => {
     const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {};
@@ -7021,11 +7116,22 @@ async function supabaseTasks() {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
     const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {};
     const assignee = (profiles || []).find((profile) => profile.user_id === row.assigned_reviewer_user_id) || {};
-    return { TaskType: 'Operational Action Review', ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', Supervisor: assignee.roblox_username || 'Command queue', ActionType: row.action_type, Subject: row.action_type, Reason: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', AmendmentResponse: row.amendment_response || '', Status: row.status, EndDate: row.due_at, MySupervisee: row.assigned_reviewer_user_id === state.user?.UserID, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID };
+    const relevantSupervisor = officer.supervisor_user_id === state.user?.UserID;
+    return { TaskType: 'Operational Action Review', ActionReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', Supervisor: assignee.roblox_username || 'Command queue', ActionType: row.action_type, Subject: row.action_type, Reason: row.rationale, OutcomeReport: row.outcome_report, SupervisorFeedback: row.supervisor_feedback || '', AmendmentResponse: row.amendment_response || '', Status: row.status, EndDate: row.due_at, MySupervisee: relevantSupervisor, AssignedToMe: row.assigned_reviewer_user_id === state.user?.UserID, RelevantSupervisor: relevantSupervisor };
   }).filter((row) => row.AssignedToMe || can('FULL_ACCESS') || can('VIEW_TASKS'));
-  const all = prioritizeTasks([...pendingLoa, ...pendingTransfers, ...pendingSupervisorRequests, ...pendingCourseBookings, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...accountRequests, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews]);
+  const incidentAmendments = (cadReviews || []).filter((row) => row.status === 'Amendments Required' && row.amendment_assignee_user_id === state.user?.UserID).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'CAD Amendment', AmendmentType: 'Incident', ReviewID: row.review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: incident.title || 'CAD amendments', Reason: row.feedback || 'Update the CAD and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
+  const actionAmendments = (actionReviewRows || []).filter((row) => row.status === 'Amendments Required' && row.officer_id === currentOfficer.officer_id).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'Operational Action Amendment', AmendmentType: 'Action', ReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: row.action_type, Reason: row.supervisor_feedback || 'Update the action record and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
+  const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; return { TaskType: 'Assigned Task', TaskID: row.task_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' }; });
+  const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
+  const authorisedQueue = can('VIEW_TASKS') ? [...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews] : [];
+  const all = prioritizeTasks([...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...assignedTasks, ...caseworkTasks, ...incidentAmendments, ...actionAmendments]);
+  const mine = all.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee || row.RelevantSupervisor);
+  const available = can('VIEW_TASKS') ? all : mine;
+  const dueSoon = mine.filter((row) => row.EndDate && new Date(row.EndDate) <= new Date(Date.now() + 7 * 86400000)).length;
   return {
     ok: true,
+    myTasks: mine,
+    allTasks: available,
     pendingLoa: all.filter((row) => row.TaskType === 'LOA Approval'),
     pendingTransfers: all.filter((row) => row.TaskType === 'Transfer Request'),
     pendingSupervisorRequests: all.filter((row) => row.TaskType === 'Supervisor Request'),
@@ -7054,9 +7160,43 @@ async function supabaseTasks() {
       afterActionReviews: afterActionReviews.length,
       actionReviews: actionReviews.length,
       mySuperviseeTasks: all.filter((row) => row.MySupervisee).length,
-      total: all.length,
+      mine: mine.length,
+      available: available.length,
+      amendments: mine.filter((row) => String(row.TaskType).includes('Amendment')).length,
+      dueSoon,
+      total: available.length,
     },
   };
+}
+
+async function supabaseSaveMdtTask(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const existing = data.TaskID ? await supabaseById('mdt_tasks', 'task_id', data.TaskID) : null;
+  if (!existing && !can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to assign tasks.' };
+  if (!existing && (!data.Title || !referenceId(data.AssignedOfficerReference))) return { ok: false, error: 'Task title and assigned officer are required.' };
+  const status = data.Status || existing?.status || 'Open';
+  const record = can('VIEW_TASKS') ? {
+    title: data.Title || existing?.title,
+    details: data.Details ?? existing?.details ?? '',
+    category: data.Category || existing?.category || 'General',
+    priority: data.Priority || existing?.priority || 'Normal',
+    status,
+    assigned_officer_id: referenceId(data.AssignedOfficerReference) || existing?.assigned_officer_id,
+    source_type: existing?.source_type || '',
+    source_id: existing?.source_id || '',
+    due_at: data.DueAt || existing?.due_at || null,
+    completed_at: status === 'Completed' ? existing?.completed_at || new Date().toISOString() : null,
+    created_by: existing?.created_by || me.user.UserID,
+    updated_at: new Date().toISOString(),
+  } : { status, completed_at: status === 'Completed' ? new Date().toISOString() : null, updated_at: new Date().toISOString() };
+  const query = existing ? supabaseClient.from('mdt_tasks').update(record).eq('task_id', data.TaskID) : supabaseClient.from('mdt_tasks').insert(record);
+  const { error } = await query;
+  if (error) return { ok: false, error: error.message };
+  if (!existing || record.assigned_officer_id !== existing.assigned_officer_id) {
+    const officer = await supabaseById('officers', 'officer_id', record.assigned_officer_id);
+    if (officer) await supabaseNotify(officer.member_id, 'New task assigned', notificationDetails([detailLine('Task', record.title), detailLine('Category', record.category), detailLine('Priority', record.priority), detailLine('Due', record.due_at ? formatDisplayDateTime(record.due_at) : 'No deadline'), detailLine('Assigned by', me.user.RobloxUsername)]), me.user.UserID);
+  }
+  return { ok: true };
 }
 
 function prioritizeTasks(rows) {
@@ -7068,6 +7208,10 @@ function prioritizeTasks(rows) {
 
 function taskPriorityScore(row) {
   let score = row.MySupervisee ? 15 : 0;
+  if (row.IsMine || row.AssignedToMe || row.RelevantSupervisor) score += 20;
+  if (String(row.TaskType || '').includes('Amendment')) score += 75;
+  if (row.Priority === 'Critical') score += 65;
+  else if (row.Priority === 'High') score += 40;
   if (['Discipline Review', 'Restriction Review', 'Appeal / Review', 'CAD Review', 'After Action Review', 'Operational Action Review'].includes(row.TaskType)) score += 55;
   if (['LOA Approval', 'Transfer Request', 'Retrospective Shift'].includes(row.TaskType)) score += 45;
   if (['Training Review', 'Probation Review', 'Performance Review', 'Activity Review'].includes(row.TaskType)) score += 35;
@@ -7647,12 +7791,12 @@ async function supabaseOperationsHub() {
     .filter((row) => !['Resolved', 'Cancelled'].includes(row.status))
     .sort((a, b) => opsPriorityWeight(b.priority) - opsPriorityWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
     .map((row) => supabaseOperationalIncident(row, officers, profiles, activeUnits, logs || [], links || [], attendance || [], reviews || [], attachmentRows, members || []))
-    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || []));
+    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []));
   const archivedIncidents = (incidents || [])
     .filter((row) => ['Resolved', 'Cancelled'].includes(row.status))
     .sort((a, b) => String(b.closed_at || b.updated_at).localeCompare(String(a.closed_at || a.updated_at)))
     .map((row) => supabaseOperationalIncident(row, officers, profiles, activeUnits, logs || [], links || [], attendance || [], reviews || [], attachmentRows, members || []))
-    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || []));
+    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []));
   const boloRows = await Promise.all((bolos || []).map(async (row) => {
     if (!row.image_storage_path) return row;
     const { data: signed } = await supabaseClient.storage.from('mo8-bolo-images').createSignedUrl(row.image_storage_path, 60 * 60);
@@ -7669,7 +7813,7 @@ async function supabaseOperationsHub() {
   const myUnitIds = activeUnits.filter((unit) => unit.MemberIDs.includes(officer?.officer_id)).map((unit) => unit.UnitID);
   const relevantJoinRequests = (joinRequests || []).filter((row) => row.status === 'Pending').map((row) => supabaseUnitJoinRequest(row, activeUnits, officers, officer)).filter((row) => row.CanReview || row.OfficerID === officer?.officer_id);
   const relevantInvitations = (invitations || []).filter((row) => row.status === 'Pending' && (row.officer_id === officer?.officer_id || activeUnits.find((unit) => unit.UnitID === row.unit_id)?.LeadOfficerID === officer?.officer_id)).map((row) => supabaseUnitInvitation(row, activeUnits, officers, officer));
-  const convertedOperations = (operations || []).map((row) => supabaseOperationalOperation(row, profiles, operationLinks || [], caseActions || [], caseUpdates || [], officers || [], incidents || [], people || [], vehicles || [], bolos || []));
+  const convertedOperations = (operations || []).map((row) => supabaseOperationalOperation(row, profiles, operationLinks || [], caseActions || [], caseUpdates || [], officers || [], incidents || [], people || [], vehicles || [], bolos || [], incidentEntities || [], disposals || [], offences || []));
   const convertedPeople = (people || []).map((row) => supabaseOperationalPerson(row, incidentEntities || [], markers || []));
   const convertedVehicles = (vehicles || []).map((row) => supabaseOperationalVehicle(row, people || [], incidentEntities || [], markers || []));
   return {
@@ -8017,7 +8161,9 @@ async function supabaseSaveOperationalIncident(data) {
     const existingReviews = await supabaseOptionalAll('operational_incident_reviews');
     const creatorProfile = await supabaseProfileByUserId(incident.created_by);
     const creatorOfficer = await supabaseOfficerForMember(creatorProfile?.member_id);
-    const assignedReviewer = creatorOfficer?.supervisor_user_id || null;
+    const [incidentActions, unitMembers, officerRows] = await Promise.all([supabaseOptionalRows('operational_officer_actions', 'incident_id', incident.incident_id), supabaseOptionalAll('operational_unit_members'), supabaseAll('officers')]);
+    const involvedIds = [...new Set([creatorOfficer?.officer_id, ...incidentActions.map((row) => row.officer_id), ...unitMembers.filter((row) => (incident.assigned_unit_ids || []).includes(row.unit_id)).map((row) => row.officer_id)].filter(Boolean))];
+    const assignedReviewer = involvedIds.map((id) => officerRows.find((row) => row.officer_id === id)?.supervisor_user_id).find(Boolean) || creatorOfficer?.supervisor_user_id || null;
     const dueAt = new Date(Date.now() + 7 * 86400000).toISOString();
     if (!existingReviews.some((review) => review.incident_id === incident.incident_id && review.task_status !== 'Completed')) await supabaseClient.from('operational_incident_reviews').insert({ incident_id: incident.incident_id, assigned_reviewer_user_id: assignedReviewer, status: 'Pending', task_status: 'Pending', due_at: dueAt });
     if (['Emergency', 'Immediate'].includes(incident.priority) || incident.incident_type === 'Pursuit') await supabaseClient.from('operational_after_action_reviews').upsert({ incident_id: incident.incident_id, assigned_reviewer_user_id: assignedReviewer, status: 'Pending', due_at: dueAt, updated_at: new Date().toISOString() }, { onConflict: 'incident_id' });
@@ -8700,6 +8846,24 @@ async function supabaseSaveOperationalOperation(data) {
   return error ? { ok: false, error: error.message } : { ok: true, OperationID: saved?.operation_id || data.OperationID };
 }
 
+async function supabaseArchiveOperationalCase(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to archive cases.' };
+  const { error } = await supabaseClient.from('operational_operations').update({ archived_at: new Date().toISOString(), archived_by: me.user.UserID, status: 'Completed', updated_at: new Date().toISOString() }).eq('operation_id', data.OperationID);
+  if (!error) await supabaseClient.from('operational_case_updates').insert({ operation_id: data.OperationID, update_type: 'Archived', body: `Case archived by ${me.user.RobloxUsername}.`, created_by: me.user.UserID });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseDeleteOperationalCase(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to delete cases.' };
+  const record = await supabaseById('operational_operations', 'operation_id', data.OperationID);
+  if (!record) return { ok: false, error: 'Case not found.' };
+  const { error } = await supabaseClient.from('operational_operations').delete().eq('operation_id', data.OperationID);
+  if (!error) await supabaseAudit(me.user.UserID, 'DELETE_OPERATIONAL_CASE', 'operational_operation', data.OperationID, { reference: record.reference, name: record.name });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
 async function supabaseLinkOperationalOperation(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
   if (!can('VIEW_TASKS')) return { ok: false, error: 'Only supervisors can manage operation links.' };
@@ -8820,7 +8984,8 @@ async function mergeOperationalOperationLinks(subjectType, sourceId, targetId) {
 }
 
 function referenceId(value) {
-  return String(value || '').split('|')[0].trim();
+  const parts = String(value || '').split('|').map((item) => item.trim()).filter(Boolean);
+  return parts.find((item) => /^(?:Person:|Vehicle:|INC_|OFF_|PWR_|OP_|ACT_|[0-9a-f]{8}-[0-9a-f-]{27,})/i.test(item)) || parts[0] || '';
 }
 
 function registrationSimilarity(left, right) {
@@ -9011,12 +9176,25 @@ function supabaseOperationalMarker(row) {
   return { MarkerID: row.marker_id, PersonID: row.person_id || '', VehicleID: row.vehicle_id || '', MarkerType: row.marker_type, Severity: row.severity, Details: row.details || '', SourceIncidentID: row.source_incident_id || '', ReviewAt: row.review_at || '', ExpiresAt: row.expires_at || '', Status: row.status, CreatedAt: row.created_at };
 }
 
-function supabaseOperationalOperation(row, profiles, links, actions = [], updates = [], officers = [], incidents = [], people = [], vehicles = [], bolos = []) {
+function supabaseOperationalOperation(row, profiles, links, actions = [], updates = [], officers = [], incidents = [], people = [], vehicles = [], bolos = [], incidentEntities = [], disposals = [], offences = []) {
   const labelFor = (link) => link.subject_type === 'Incident' ? `${incidents.find((item) => item.incident_id === link.subject_id)?.incident_number || link.subject_id} / ${incidents.find((item) => item.incident_id === link.subject_id)?.title || ''}` : link.subject_type === 'Person' ? people.find((item) => item.person_id === link.subject_id)?.display_name || link.subject_id : link.subject_type === 'Vehicle' ? vehicles.find((item) => item.vehicle_id === link.subject_id)?.registration || link.subject_id : bolos.find((item) => item.bolo_id === link.subject_id)?.title || link.subject_id;
-  const operationLinks = (links || []).filter((link) => link.operation_id === row.operation_id).map((link) => ({ LinkID: link.operation_link_id, SubjectType: link.subject_type, SubjectID: link.subject_id, Relationship: link.relationship, Notes: link.notes || '', Label: labelFor(link), CreatedAt: link.created_at }));
+  const intelligenceFor = (link) => {
+    if (!['Person', 'Vehicle'].includes(link.subject_type)) return { summary: link.notes || '', associations: [] };
+    const matching = incidentEntities.filter((item) => link.subject_type === 'Person' ? item.person_id === link.subject_id : item.vehicle_id === link.subject_id);
+    const incidentIds = [...new Set(matching.map((item) => item.incident_id))];
+    const history = incidents.filter((item) => incidentIds.includes(item.incident_id)).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const outcomes = disposals.filter((item) => link.subject_type === 'Person' ? item.person_id === link.subject_id : item.vehicle_id === link.subject_id);
+    const count = (type) => outcomes.filter((item) => String(item.outcome_type || '').toLowerCase().includes(type)).length;
+    const latest = history[0];
+    const associations = incidentEntities.filter((item) => incidentIds.includes(item.incident_id) && !(link.subject_type === 'Person' ? item.person_id === link.subject_id : item.vehicle_id === link.subject_id)).map((item) => item.person_id ? { EntityType: 'Person', EntityID: item.person_id, Label: people.find((person) => person.person_id === item.person_id)?.display_name || item.person_id } : { EntityType: 'Vehicle', EntityID: item.vehicle_id, Label: vehicles.find((vehicle) => vehicle.vehicle_id === item.vehicle_id)?.registration || item.vehicle_id });
+    const uniqueAssociations = [...new Map(associations.map((item) => [`${item.EntityType}:${item.EntityID}`, item])).values()];
+    const outcomeNames = [...new Set(outcomes.slice(0, 4).map((item) => offences.find((offence) => offence.offence_id === item.offence_id)?.title || item.outcome_type).filter(Boolean))];
+    return { summary: `${count('arrest')} arrest(s) / ${count('fpn')} FPN(s) / ${count('warning')} warning(s) / ${history.length} CAD contact(s)${latest ? `. Latest: ${latest.incident_number} ${latest.title}` : ''}${outcomeNames.length ? `. Recent: ${outcomeNames.join(', ')}` : ''}`, associations: uniqueAssociations };
+  };
+  const operationLinks = (links || []).filter((link) => link.operation_id === row.operation_id).map((link) => { const intel = intelligenceFor(link); return { LinkID: link.operation_link_id, SubjectType: link.subject_type, SubjectID: link.subject_id, Relationship: link.relationship, Notes: link.notes || '', Label: labelFor(link), IntelligenceSummary: intel.summary, Associations: intel.associations, CreatedAt: link.created_at }; });
   const operationActions = actions.filter((item) => item.operation_id === row.operation_id).map((item) => supabaseOperationalCaseAction(item, officers));
   const operationUpdates = updates.filter((item) => item.operation_id === row.operation_id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((item) => ({ UpdateID: item.update_id, UpdateType: item.update_type, Body: item.body, Author: profiles.find((profile) => profile.user_id === item.created_by)?.roblox_username || '', CreatedAt: item.created_at }));
-  return { OperationID: row.operation_id, Reference: row.reference, Name: row.name, Status: row.status, Classification: row.classification || 'Routine', CaseType: row.case_type || 'Casework', Summary: row.summary || '', Sensitivity: row.sensitivity || 'Internal', ReviewDate: row.review_date || '', CommandStructure: row.command_structure || {}, Objectives: row.objectives || '', LeadUserID: row.lead_user_id || '', Lead: profiles.find((profile) => profile.user_id === row.lead_user_id)?.roblox_username || '', StartsAt: row.starts_at || '', EndsAt: row.ends_at || '', Links: operationLinks, LinkCount: operationLinks.length, Actions: operationActions, Updates: operationUpdates, CreatedAt: row.created_at };
+  return { OperationID: row.operation_id, Reference: row.reference, Name: row.name, Status: row.status, ArchivedAt: row.archived_at || '', Classification: row.classification || 'Routine', CaseType: row.case_type || 'Casework', Summary: row.summary || '', Sensitivity: row.sensitivity || 'Internal', ReviewDate: row.review_date || '', CommandStructure: row.command_structure || {}, Objectives: row.objectives || '', LeadUserID: row.lead_user_id || '', Lead: profiles.find((profile) => profile.user_id === row.lead_user_id)?.roblox_username || '', StartsAt: row.starts_at || '', EndsAt: row.ends_at || '', Links: operationLinks, LinkCount: operationLinks.length, Actions: operationActions, Updates: operationUpdates, CreatedAt: row.created_at };
 }
 
 function supabaseOperationalCaseAction(row, officers) {
@@ -9036,8 +9214,8 @@ function operationalActionQueue(active, archive, cases, actionReviews, incidentR
   active.filter((row) => !(row.AssignedUnitIDs || []).length).forEach((row) => rows.push({ Group: 'Critical', Priority: ['Emergency', 'Immediate'].includes(row.Priority) ? 'Critical' : 'High', Title: 'Unassigned active CAD', Detail: `${row.Title} / ${row.Location || 'No location'}`, Reference: row.IncidentNumber, IncidentID: row.IncidentID }));
   active.filter((row) => !(row.Entities || []).length && ['On Scene', 'En Route'].includes(row.Status)).forEach((row) => rows.push({ Group: 'Data Quality', Priority: 'Normal', Title: 'No people or vehicles linked', Detail: row.Title, Reference: row.IncidentNumber, IncidentID: row.IncidentID }));
   archive.filter((row) => !row.Outcome && !(row.Disposals || []).length).forEach((row) => rows.push({ Group: 'Data Quality', Priority: 'High', Title: 'Closed CAD missing outcome', Detail: row.Title, Reference: row.IncidentNumber, IncidentID: row.IncidentID }));
-  actionReviews.filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).forEach((row) => rows.push({ Group: 'Review', Priority: row.status === 'Amendments Required' ? 'Critical' : 'High', Title: `${row.action_type} review`, Detail: row.supervisor_feedback || row.rationale || 'Supervisor review required.', Reference: archive.find((item) => item.IncidentID === row.incident_id)?.IncidentNumber || row.incident_id, IncidentID: row.incident_id, DueAt: row.due_at }));
-  incidentReviews.filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).forEach((row) => rows.push({ Group: 'Review', Priority: row.status === 'Amendments Required' ? 'Critical' : 'High', Title: 'CAD supervisor review', Detail: row.feedback || 'Incident review required.', Reference: archive.find((item) => item.IncidentID === row.incident_id)?.IncidentNumber || row.incident_id, IncidentID: row.incident_id, DueAt: row.due_at }));
+  actionReviews.filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).forEach((row) => rows.push({ Group: 'Review', Priority: row.status === 'Amendments Required' ? 'Critical' : 'High', Title: `${row.action_type} review`, Detail: row.supervisor_feedback || row.rationale || 'Supervisor review required.', Reference: archive.find((item) => item.IncidentID === row.incident_id)?.IncidentNumber || row.incident_id, IncidentID: row.incident_id, ActionReviewID: row.action_review_id, ReviewKind: 'Action', DueAt: row.due_at }));
+  incidentReviews.filter((row) => ['Pending', 'Amendments Required'].includes(row.status)).forEach((row) => rows.push({ Group: 'Review', Priority: row.status === 'Amendments Required' ? 'Critical' : 'High', Title: 'CAD supervisor review', Detail: row.feedback || 'Incident review required.', Reference: archive.find((item) => item.IncidentID === row.incident_id)?.IncidentNumber || row.incident_id, IncidentID: row.incident_id, ReviewID: row.review_id, ReviewKind: 'Incident', DueAt: row.due_at }));
   cases.flatMap((record) => record.Actions || []).filter((action) => !['Completed', 'Cancelled'].includes(action.Status)).forEach((action) => rows.push({ Group: 'Casework', Priority: action.Priority, Title: action.Title, Detail: action.Details, Reference: cases.find((item) => item.OperationID === action.OperationID)?.Reference || '', OperationID: action.OperationID, ActionID: action.ActionID, Owner: action.Owner, DueAt: action.DueAt, Status: action.Status }));
   return rows.sort((a, b) => priorityWeight(b.Priority) - priorityWeight(a.Priority) || String(a.DueAt || '9999').localeCompare(String(b.DueAt || '9999')));
 }
@@ -9048,7 +9226,7 @@ function supabaseUnitInvitation(row, units, officers, currentOfficer) {
   return { RequestType: 'Invitation', InvitationID: row.invitation_id, UnitID: row.unit_id, Callsign: unit.Callsign || row.unit_id, OfficerID: row.officer_id, Officer: officer.roblox_username || row.officer_id, Role: row.role || 'Crew', Message: row.message || '', Status: row.status, CanRespond: row.officer_id === currentOfficer?.officer_id };
 }
 
-function enrichOperationalIncident(row, people, vehicles, offences, entityLinks, disposals, markers, rawIncidents, bolos, officers, powerUses, powers) {
+function enrichOperationalIncident(row, people, vehicles, offences, entityLinks, disposals, markers, rawIncidents, bolos, officers, powerUses, powers, officerActions = []) {
   const links = (entityLinks || []).filter((item) => item.incident_id === row.IncidentID);
   const entities = links.map((item) => {
     const person = people.find((record) => record.person_id === item.person_id);
@@ -9082,7 +9260,7 @@ function enrichOperationalIncident(row, people, vehicles, offences, entityLinks,
     boloMatches.forEach((bolo) => alerts.push({ Title: `Active BOLO: ${bolo.title}`, Detail: `${entity.Label} matches an active ${bolo.priority || 'Normal'} priority BOLO.` }));
   });
   const incidentPowerUses = (powerUses || []).filter((item) => item.incident_id === row.IncidentID).map((item) => supabaseOperationalPowerUse(item, powers || [], officers || [], rawIncidents || []));
-  return { ...row, Entities: entities, Disposals: incidentDisposals, PowerUses: incidentPowerUses, CorrelationAlerts: alerts, IncidentData: row.IncidentData || {} };
+  return { ...row, Entities: entities, Disposals: incidentDisposals, PowerUses: incidentPowerUses, OfficerActions: officerActions.filter((item) => item.incident_id === row.IncidentID), CorrelationAlerts: alerts, IncidentData: row.IncidentData || {} };
 }
 
 function operationalLocationIntel(incidents) {

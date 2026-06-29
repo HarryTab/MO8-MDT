@@ -7,7 +7,8 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-28-2">
+    <link rel="stylesheet" href="styles.css?v=2026-06-29-1">
+    <link rel="stylesheet" href="cad-refinement.css?v=2026-06-29-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -47,7 +48,7 @@
             </section>
             <section class="nav-group">
               <span>People</span>
-              <button class="nav-item" data-view="tasks" data-permission="VIEW_TASKS">Tasks</button>
+              <button class="nav-item" data-view="tasks">Tasks</button>
               <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
               <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
               <button class="nav-item" data-view="development" data-permission="VIEW_TASKS">Development</button>
@@ -276,8 +277,10 @@
 
           <section class="data-view" id="tasksView" hidden>
             <div class="section-head">
-              <h2>Tasks</h2>
+              <div><h2>Tasks</h2><p>Assigned work and authorised team queues.</p></div>
+              <div class="section-actions"><button id="newMdtTaskButton" data-permission="VIEW_TASKS">Assign task</button></div>
             </div>
+            <div class="segmented-control task-scope-control" role="group" aria-label="Task view"><button class="active" data-task-scope="mine">My Tasks</button><button data-task-scope="all">All Available Tasks</button></div>
             <div id="tasksSummary" class="stat-row"></div>
             <div class="table-wrap">
               <table id="tasksTable"></table>
@@ -509,13 +512,14 @@
               <button class="active" data-ops-workspace="live">Live CAD <span id="opsLiveCount">0</span></button>
               <button data-ops-workspace="units">Units</button>
               <button data-ops-workspace="control">Control Room</button>
-              <button data-ops-workspace="actions">Action Queue <span id="opsActionCount">0</span></button>
+              <button data-ops-workspace="actions">Work Queue <span id="opsActionCount">0</span></button>
               <button data-ops-workspace="casework">Casework</button>
               <button data-ops-workspace="deployments">Deployments</button>
               <button data-ops-workspace="intel">Intel</button>
+              <button data-ops-workspace="reference">Legal Reference</button>
               <button data-ops-workspace="archive">Archive</button>
               <button data-ops-workspace="analytics">Performance</button>
-              <button data-ops-workspace="reviews" data-permission="VIEW_TASKS">Reviews <span id="opsReviewCount">0</span></button>
+              <button data-ops-workspace="reviews" data-permission="VIEW_TASKS">Supervisor Sign-off <span id="opsReviewCount">0</span></button>
             </nav>
 
             <section class="cad-workspace active" data-ops-panel="live">
@@ -567,9 +571,15 @@
             </section>
 
             <section class="cad-workspace" data-ops-panel="actions" hidden>
-              <div class="cad-page-head"><div><small>Ownership and assurance</small><h2>Incident action queue</h2></div></div>
+              <div class="cad-page-head"><div><small>Outstanding operational work</small><h2>Work queue</h2><p>Incomplete records, amendments, case actions and reviews requiring attention. Supervisor decisions are completed in Supervisor Sign-off.</p></div></div>
               <div class="cad-filter-strip action-queue-filters"><input id="opsActionSearch" type="search" placeholder="Search action, CAD, case or officer"><select id="opsActionStatus"><option value="">Open work</option><option>Critical</option><option>Review</option><option>Data Quality</option><option>Casework</option></select></div>
               <div id="opsActionQueue" class="ops-action-board"></div>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="reference" hidden>
+              <div class="cad-page-head"><div><small>Operational legislation and guidance</small><h2>Offences and police powers</h2></div></div>
+              <div class="cad-reference-search"><input id="opsReferenceSearch" type="search" placeholder="Search offence or power by title, section, code or keyword"><select id="opsReferenceType"><option value="">Offences and powers</option><option value="Offence">Offences</option><option value="Power">Police powers</option></select></div>
+              <div id="opsReferenceResults" class="cad-reference-grid"></div>
             </section>
 
             <section class="cad-workspace" data-ops-panel="casework" hidden>
@@ -613,7 +623,7 @@
             </section>
 
             <section class="cad-workspace" data-ops-panel="reviews" hidden>
-              <div class="cad-page-head"><div><small>Supervisor assurance</small><h2>Incident reviews</h2></div><button id="opsNewTemplateButton">Manage templates</button></div>
+              <div class="cad-page-head"><div><small>Supervisor assurance and approval</small><h2>Supervisor sign-off</h2><p>Review the complete incident or officer action, approve it, or return it to the officer with amendments.</p></div><button id="opsNewTemplateButton">Manage templates</button></div>
               <div id="opsReviewQueue" class="cad-review-grid"></div>
               <article class="cad-page-panel"><h3>Incident templates</h3><div id="opsTemplates" class="cad-template-grid"></div></article>
             </section>
@@ -665,6 +675,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-28-2"></script>
+    <script src="app.js?v=2026-06-29-1"></script>
   </body>
 </html>

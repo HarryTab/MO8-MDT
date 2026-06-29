@@ -2323,6 +2323,210 @@ dialog .section-head .ghost:hover {
   .intel-marker-list { grid-template-columns: 1fr; }
 }
 
+/* 2026-06 operational workstation refinement */
+.hub-select {
+  min-height: calc(100vh - 150px);
+  color: #243347;
+  background: #f3f6f9;
+  border-color: #cbd5df;
+}
+.hub-launcher-head,
+.hub-launcher-foot { background: #fff; border-color: #d8e0e8; }
+.hub-launcher-brand > span { color: #fff; background: #243f65; }
+.hub-launcher-brand small,
+.hub-launcher-copy > span,
+.hub-session-state,
+.hub-launcher-foot { color: #68798d; }
+.hub-launcher-brand strong,
+.hub-launcher-copy h2 { color: #17283f; }
+.hub-launcher-copy { padding: 48px 28px 26px; }
+.hub-launcher-copy p { color: #617186; }
+.hub-launcher-grid { width: min(920px, 100%); margin: 0 auto; }
+.hub-card,
+.hub-card.operations {
+  min-height: 154px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto 1fr;
+  gap: 7px 20px;
+  color: #17283f;
+  background: #fff;
+  border: 1px solid #cbd5df;
+  border-left: 4px solid #315f8b;
+  border-radius: 4px;
+  box-shadow: none;
+}
+.hub-card:hover,
+.hub-card.operations:hover { color: #17283f; background: #f7faff; border-color: #7797b5; }
+.hub-card .hub-code,
+.hub-card.operations .hub-code { color: #527397; }
+.hub-card strong,
+.hub-card.operations strong { color: #17283f; font-size: 20px; }
+.hub-card small,
+.hub-card.operations small { color: #66778a; }
+.hub-card b,
+.hub-card.operations b {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
+  padding: 10px 14px;
+  color: #fff;
+  background: #315f8b;
+  border: 0;
+  border-radius: 3px;
+}
+
+body.is-authenticated.operations-mode { background: #101214; }
+body.is-authenticated.operations-mode .terminal-window { background: #15181b; border-color: #373c41; }
+body.is-authenticated.operations-mode .topbar { color: #e4e8eb; background: #1b1e21; border-color: #373c41; }
+body.is-authenticated.operations-mode .workspace { background: #15181b; background-image: none; }
+.operations-hub { color: #d5dade; background: #15181b; }
+.operations-hub button { color: #f4f7f9; background: #315f85; border-color: #46779d; border-radius: 2px; box-shadow: none; }
+.operations-hub button:hover { color: #fff; background: #3c6e95; }
+body.is-authenticated.operations-mode .operations-hub button.ghost { color: #cbd2d7; background: #25292d; border-color: #464c52; }
+body.is-authenticated.operations-mode .operations-hub button.ghost:hover { color: #fff; background: #30353a; border-color: #667078; }
+.cad-command-bar { background: #1b1e21; border-color: #3b4045; }
+.cad-pulse { width: 10px; height: 10px; background: #4c87b3; border: 0; border-radius: 1px; box-shadow: none; animation: none; }
+.cad-wordmark small,
+.cad-page-head small,
+.cad-panel-title small { color: #78838c; }
+.cad-wordmark strong,
+.cad-page-head h2,
+.cad-panel-title h3 { color: #eef1f3; }
+.ops-stat { background: #23272a; border-color: #3d4348; }
+.ops-stat span { color: #89949c; }
+.ops-stat strong { color: #edf1f3; }
+.cad-workspace-nav { background: #202326; border-color: #3b4045; }
+.cad-workspace-nav button { color: #aeb6bc; background: transparent; border-color: transparent; }
+.cad-workspace-nav button:hover { color: #fff; background: #2a2e32; }
+.cad-workspace-nav button.active { color: #fff; background: #293d50; border-color: #4c7699; }
+.cad-workspace,
+.cad-rail,
+.cad-incident-workspace,
+.cad-context-rail,
+.cad-page-panel,
+.cad-detail-section,
+.cad-compact-panel,
+.case-grid > section { color: #d4d9dd; background: #1b1e21; border-color: #383e43; box-shadow: none; }
+.cad-panel-title,
+.cad-page-head,
+.cad-filter-strip,
+.cad-record-tabs,
+.cad-detail-head { background: #202326; border-color: #3b4146; }
+.cad-call-queue,
+.ops-unit-board,
+.ops-incident-list { background: #17191c; }
+.cad-call { background: #1b1e21; border-color: #363c41; }
+.cad-call:hover,
+.cad-call.selected { background: #252a2e; border-color: #557998; }
+.cad-call strong,
+.ops-incident strong,
+.ops-unit strong { color: #e8ecef; }
+.cad-call p,
+.cad-call small,
+.cad-call time,
+.ops-incident p,
+.ops-incident small,
+.ops-unit small { color: #929ca4; }
+.cad-detail-actions .workflow-action { color: #fff; background: #b06d24; border-color: #d28b3b; font-weight: 850; }
+.cad-detail-actions .workflow-action:hover { background: #c0792c; }
+.cad-detail-head h2,
+.case-head h2 { color: #f0f2f4; }
+.cad-detail-head p,
+.case-head p { color: #9fa8af; }
+.cad-record-tabs button { color: #9ca6ad; background: transparent; }
+.cad-record-tabs button.active { color: #fff; background: #2d3236; border-color: #5881a2; }
+.cad-fact { background: #202428; border-color: #393f44; }
+.cad-fact span { color: #7f8991; }
+.cad-fact strong { color: #d9dee1; }
+.intel-search-command,
+.intel-record-page,
+.intel-record-toolbar { background: #1b1e21; border-color: #3a4045; }
+.intel-result-grid { background: #383e43; }
+.intel-result-card { background: #1b1e21 !important; border-top-color: #527fa3 !important; }
+.intel-result-card:hover { background: #252a2e !important; }
+.relationship-core,
+.relationship-columns section,
+.intel-stat-list article,
+.entity-outcome-panel,
+.offence-record-panel { background: #202428; border-color: #3c4348; }
+.relationship-core { border-left-color: #527fa3; }
+.ops-action-card,
+.deployment-card { color: #d8dde0; background: #1e2225; border-color: #3c4348; border-left-color: #587b98; }
+.ops-action-card p,
+.ops-action-card small,
+.deployment-card p { color: #9ba4ab; }
+.ops-action-card.my-task { background: #202a33; border-left-color: #6c9bc0; }
+.case-list-item { color: #cbd1d5; background: #1d2124; border-color: #3a4045; }
+.case-list-item:hover,
+.case-list-item.selected { color: #fff; background: #29323a; border-color: #5f83a0; }
+.case-list-item span,
+.case-head span,
+.case-command-strip span,
+.case-record span { color: #77a3c4; }
+.case-list-item.archived { opacity: .68; }
+.case-command-strip { background: #3b4146; }
+.case-command-strip div { background: #202428; }
+.case-grid > section > h3 { color: #dce3e8; }
+.case-record,
+.case-timeline article { border-color: #373d42; }
+.callsign-roster,
+.control-table { color: #cfd5d9; background: #191c1f; border-color: #3b4146; }
+.callsign-row,
+.control-row { border-color: #353b40; }
+.callsign-row > *,
+.control-row > * { border-color: #353b40; }
+.callsign-row.heading,
+.control-row.heading { color: #f1f3f4; background: #292e32; }
+.controller-status article,
+.control-officer-results button { color: #d8dde0 !important; background: #202428 !important; border-color: #41484e !important; }
+.cad-reference-search { display: grid; grid-template-columns: minmax(260px, 1fr) 220px; gap: 8px; padding: 12px; border-bottom: 1px solid #3b4146; background: #1b1e21; }
+.cad-reference-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 1px; padding: 1px; background: #3b4146; }
+.cad-reference-card { display: grid; gap: 5px; min-height: 150px; padding: 13px; color: #d7dde0 !important; text-align: left; background: #1d2023 !important; border: 0 !important; border-left: 3px solid #517da1 !important; }
+.cad-reference-card:hover { background: #272c30 !important; }
+.cad-reference-card span { color: #77a3c4; font-size: 9px; text-transform: uppercase; }
+.cad-reference-card strong { color: #f0f2f4; font-size: 14px; }
+.cad-reference-card small,
+.cad-reference-card em { color: #8f9aa2; font-style: normal; }
+.cad-reference-card p { margin: 2px 0; color: #bec5ca; line-height: 1.4; }
+.legal-reference-detail { display: grid; gap: 12px; }
+.legal-reference-detail > span { color: #52789b; font-weight: 850; }
+.legal-reference-detail dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; background: #ccd5dc; }
+.legal-reference-detail dl div { padding: 10px; background: #f6f8fa; }
+.legal-reference-detail dt { color: #687987; font-size: 10px; text-transform: uppercase; }
+.legal-reference-detail dd { margin: 4px 0 0; color: #253b4b; font-weight: 750; }
+.legal-reference-detail aside { padding: 11px; color: #5b481d; background: #fff6dc; border-left: 3px solid #d09a30; }
+.workflow-launcher { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workflow-launcher header p { margin: 5px 0 8px; }
+.workflow-progress { height: 7px; overflow: hidden; background: #dce2e7; border-radius: 2px; }
+.workflow-progress i { display: block; height: 100%; background: #39739e; }
+.workflow-launcher button { grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 104px; }
+.workflow-launcher button i { grid-row: 1 / -1; display: grid; place-items: center; width: 24px; height: 24px; color: #fff; background: #7b8790; border-radius: 50%; font-style: normal; }
+.workflow-launcher button small { grid-column: 2; }
+.workflow-launcher button.complete { background: #f1f7f3; border-color: #9eb9a7; }
+.workflow-launcher button.complete i { background: #31734b; }
+body.operations-mode dialog,
+body.operations-mode dialog .dialog-card { color: #d5dade; background: #1b1e21; border-color: #464d52; box-shadow: none; }
+body.operations-mode dialog::backdrop { background: rgba(8, 10, 12, .78); backdrop-filter: none; }
+body.operations-mode dialog .section-head,
+body.operations-mode dialog .checkbox-group,
+body.operations-mode dialog .ops-incident-data-fields { border-color: #41484d; background: #202428; }
+body.operations-mode dialog input,
+body.operations-mode dialog select,
+body.operations-mode dialog textarea { color: #edf0f2; background: #252a2e; border-color: #4a5258; }
+body.operations-mode dialog button { color: #fff; background: #315f85; border-color: #46779d; }
+body.operations-mode dialog .section-head .ghost { color: #d1d6da; background: #292e32; border-color: #4b5359; }
+.task-scope-control { margin-bottom: 12px; }
+.task-scope-control button.active { color: #fff; background: #315f8b; border-color: #315f8b; }
+
+@media (max-width: 800px) {
+  .hub-launcher-copy { padding: 30px 18px 20px; }
+  .hub-launcher-grid { grid-template-columns: 1fr; padding-inline: 14px; }
+  .hub-card, .hub-card.operations { min-height: 150px; }
+  .workflow-launcher { grid-template-columns: 1fr; }
+  .cad-reference-search { grid-template-columns: 1fr; }
+  .legal-reference-detail dl { grid-template-columns: 1fr; }
+}
+
 .search-result-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

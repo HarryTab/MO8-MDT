@@ -1,0 +1,88 @@
+/* Final operational presentation layer. Loaded after the shared personnel theme. */
+body.is-authenticated.operations-mode { background: #101214; }
+body.is-authenticated.operations-mode .terminal-window { background: #15181b; border-color: #373c41; }
+body.is-authenticated.operations-mode .topbar { color: #e4e8eb; background: #1b1e21; border-color: #373c41; }
+body.is-authenticated.operations-mode .workspace { background: #15181b; background-image: none; }
+.operations-hub { color: #d5dade; background: #15181b; }
+.operations-hub button { color: #f4f7f9; background: #315f85; border-color: #46779d; border-radius: 2px; box-shadow: none; }
+.operations-hub button:hover { color: #fff; background: #3c6e95; }
+body.is-authenticated.operations-mode .operations-hub button.ghost { color: #cbd2d7; background: #25292d; border-color: #464c52; }
+body.is-authenticated.operations-mode .operations-hub button.ghost:hover { color: #fff; background: #30353a; border-color: #667078; }
+.cad-command-bar { background: #1b1e21; border-color: #3b4045; }
+.cad-pulse { width: 10px; height: 10px; background: #4c87b3; border: 0; border-radius: 1px; box-shadow: none; animation: none; }
+.cad-wordmark small, .cad-page-head small, .cad-panel-title small { color: #78838c; }
+.cad-wordmark strong, .cad-page-head h2, .cad-panel-title h3 { color: #eef1f3; }
+.ops-stat { background: #23272a; border-color: #3d4348; }
+.ops-stat span { color: #89949c; }
+.ops-stat strong { color: #edf1f3; }
+.cad-workspace-nav { background: #202326; border-color: #3b4045; }
+.cad-workspace-nav button { color: #aeb6bc; background: transparent; border-color: transparent; }
+.cad-workspace-nav button:hover { color: #fff; background: #2a2e32; }
+.cad-workspace-nav button.active { color: #fff; background: #293d50; border-color: #4c7699; }
+.cad-workspace, .cad-rail, .cad-incident-workspace, .cad-context-rail, .cad-page-panel, .cad-detail-section, .cad-compact-panel,
+.case-grid > section { color: #d4d9dd; background: #1b1e21; border-color: #383e43; box-shadow: none; }
+.cad-panel-title, .cad-page-head, .cad-filter-strip, .cad-record-tabs, .cad-detail-head { background: #202326; border-color: #3b4146; }
+.cad-call-queue, .ops-unit-board, .ops-incident-list { background: #17191c; }
+.cad-call { background: #1b1e21; border-color: #363c41; }
+.cad-call:hover, .cad-call.selected { background: #252a2e; border-color: #557998; }
+.cad-call strong, .ops-incident strong, .ops-unit strong { color: #e8ecef; }
+.cad-call p, .cad-call small, .cad-call time, .ops-incident p, .ops-incident small, .ops-unit small { color: #929ca4; }
+.cad-detail-actions .workflow-action { color: #fff; background: #a96621; border-color: #ca8438; font-weight: 850; }
+.cad-detail-actions .workflow-action:hover { background: #ba7227; }
+.cad-detail-head h2, .case-head h2 { color: #f0f2f4; }
+.cad-detail-head p, .case-head p { color: #9fa8af; }
+.cad-record-tabs button { color: #9ca6ad; background: transparent; }
+.cad-record-tabs button.active { color: #fff; background: #2d3236; border-color: #5881a2; }
+.cad-fact { background: #202428; border-color: #393f44; }
+.cad-fact span { color: #7f8991; }
+.cad-fact strong { color: #d9dee1; }
+.intel-search-command, .intel-record-page, .intel-record-toolbar { background: #1b1e21; border-color: #3a4045; }
+.intel-result-grid { background: #383e43; }
+.intel-result-card { background: #1b1e21 !important; border-top-color: #527fa3 !important; }
+.intel-result-card:hover { background: #252a2e !important; }
+.relationship-core, .relationship-columns section, .intel-stat-list article, .entity-outcome-panel, .offence-record-panel { background: #202428; border-color: #3c4348; }
+.relationship-core { border-left-color: #527fa3; }
+.ops-action-card, .deployment-card { color: #d8dde0; background: #1e2225; border-color: #3c4348; border-left-color: #587b98; }
+.ops-action-card p, .ops-action-card small, .deployment-card p { color: #9ba4ab; }
+.ops-action-card.my-task { background: #202a33; border-left-color: #6c9bc0; }
+.case-list-item { color: #cbd1d5; background: #1d2124; border-color: #3a4045; }
+.case-list-item:hover, .case-list-item.selected { color: #fff; background: #29323a; border-color: #5f83a0; }
+.case-list-item span, .case-head span, .case-command-strip span, .case-record span { color: #77a3c4; }
+.case-list-item.archived { opacity: .68; }
+.case-command-strip { background: #3b4146; }
+.case-command-strip div { background: #202428; }
+.case-grid > section > h3 { color: #dce3e8; }
+.case-record, .case-timeline article { border-color: #373d42; }
+.callsign-roster, .control-table { color: #cfd5d9; background: #191c1f; border-color: #3b4146; }
+.callsign-row, .control-row { border-color: #353b40; }
+.callsign-row > *, .control-row > * { border-color: #353b40; }
+.callsign-row.heading, .control-row.heading { color: #f1f3f4; background: #292e32; }
+.controller-status article, .control-officer-results button { color: #d8dde0 !important; background: #202428 !important; border-color: #41484e !important; }
+.cad-reference-search { display: grid; grid-template-columns: minmax(260px, 1fr) 220px; gap: 8px; padding: 12px; border-bottom: 1px solid #3b4146; background: #1b1e21; }
+.cad-reference-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 1px; padding: 1px; background: #3b4146; }
+.cad-reference-card { display: grid; gap: 5px; min-height: 150px; padding: 13px; color: #d7dde0 !important; text-align: left; background: #1d2023 !important; border: 0 !important; border-left: 3px solid #517da1 !important; }
+.cad-reference-card:hover { background: #272c30 !important; }
+.cad-reference-card span { color: #77a3c4; font-size: 9px; text-transform: uppercase; }
+.cad-reference-card strong { color: #f0f2f4; font-size: 14px; }
+.cad-reference-card small, .cad-reference-card em { color: #8f9aa2; font-style: normal; }
+.cad-reference-card p { margin: 2px 0; color: #bec5ca; line-height: 1.4; }
+.workflow-launcher { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workflow-launcher header p { margin: 5px 0 8px; }
+.workflow-progress { height: 7px; overflow: hidden; background: #dce2e7; border-radius: 2px; }
+.workflow-progress i { display: block; height: 100%; background: #39739e; }
+.workflow-launcher button { grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 104px; }
+.workflow-launcher button i { grid-row: 1 / -1; display: grid; place-items: center; width: 24px; height: 24px; color: #fff; background: #7b8790; border-radius: 50%; font-style: normal; }
+.workflow-launcher button small { grid-column: 2; }
+.workflow-launcher button.complete { background: #f1f7f3; border-color: #9eb9a7; }
+.workflow-launcher button.complete i { background: #31734b; }
+body.operations-mode dialog, body.operations-mode dialog .dialog-card { color: #d5dade; background: #1b1e21; border-color: #464d52; box-shadow: none; }
+body.operations-mode dialog::backdrop { background: rgba(8, 10, 12, .78); backdrop-filter: none; }
+body.operations-mode dialog .section-head, body.operations-mode dialog .checkbox-group, body.operations-mode dialog .ops-incident-data-fields { border-color: #41484d; background: #202428; }
+body.operations-mode dialog input, body.operations-mode dialog select, body.operations-mode dialog textarea { color: #edf0f2; background: #252a2e; border-color: #4a5258; }
+body.operations-mode dialog button { color: #fff; background: #315f85; border-color: #46779d; }
+body.operations-mode dialog .section-head .ghost { color: #d1d6da; background: #292e32; border-color: #4b5359; }
+
+@media (max-width: 800px) {
+  .workflow-launcher { grid-template-columns: 1fr; }
+  .cad-reference-search { grid-template-columns: 1fr; }
+}
