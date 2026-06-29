@@ -12,6 +12,9 @@
 .recruitment-vacancy-card header strong { color: var(--ink); font-size: 17px; }
 .publication-state { justify-self: start; padding: 4px 7px; color: #775719; background: #fff4d6; border: 1px solid #dbc487; border-radius: 3px; font-size: 10px; font-style: normal; font-weight: 850; }
 .publication-state.published { color: #1e683d; background: #e8f6ed; border-color: #9dc9ad; }
+.publication-state.internal { color: #244f78; background: #e8f2fb; border-color: #9ebbd5; }
+.publication-state.applied { color: #4f5260; background: #eef0f3; border-color: #c4c8ce; }
+.vacancy-visibility-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .recruitment-vacancy-card p { margin: 0; color: var(--muted); line-height: 1.45; }
 .recruitment-vacancy-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--line); border: 1px solid var(--line); }
 .recruitment-vacancy-card dl div { padding: 8px; background: #f7f9fb; }
@@ -20,6 +23,25 @@
 .application-field-manager { display: grid; gap: 8px; }
 .automatic-applicant-fields { display: grid; gap: 3px; padding: 10px 12px; color: #27425b; background: #edf5fb; border-left: 4px solid #3976a6; }
 .automatic-applicant-fields span { color: #536d83; font-size: 11px; }
+.internal-recruitment-note { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; padding: 11px 13px; color: #274762; background: #edf5fb; border-left: 4px solid #3976a6; }
+.internal-recruitment-note span { color: #536e84; font-size: 12px; }
+.recruitment-review-layout { display: grid; grid-template-columns: minmax(240px, 310px) minmax(0, 1fr); gap: 12px; }
+.recruitment-review-queues,
+.recruitment-review-workspace { min-width: 0; background: #fff; border: 1px solid var(--line); }
+.recruitment-review-queues > header,
+.recruitment-review-workspace > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: #f2f5f8; border-bottom: 1px solid var(--line); }
+.recruitment-review-queues > header { display: grid; gap: 3px; }
+.recruitment-review-queues header span,
+.recruitment-review-workspace header span { color: #63778a; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.recruitment-review-workspace h3 { margin: 3px 0 0; color: var(--ink); font-size: 16px; }
+#recruitmentApplicationVacancies { display: grid; gap: 1px; background: var(--line); }
+#recruitmentApplicationVacancies > button { display: grid; gap: 4px; width: 100%; padding: 11px; color: #31495d; text-align: left; background: #fff; border: 0; border-left: 4px solid transparent; border-radius: 0; }
+#recruitmentApplicationVacancies > button:hover { background: #f5f8fb; }
+#recruitmentApplicationVacancies > button.active { color: #173751; background: #edf5fb; border-left-color: #3976a6; }
+#recruitmentApplicationVacancies button span { color: #6d8091; font-size: 9px; text-transform: uppercase; }
+#recruitmentApplicationVacancies button small { color: #687b8b; }
+.recruitment-review-workspace .filter-row { margin: 12px; }
+.recruitment-review-workspace .table-wrap { margin: 0 12px 12px; }
 .application-field-manager > article { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px; background: #f6f8fa; border: 1px solid #ccd5dc; }
 .application-field-manager article > div:first-child { display: grid; gap: 3px; }
 .application-field-manager article span { color: #58728b; font-size: 9px; font-weight: 900; text-transform: uppercase; }
@@ -36,4 +58,7 @@
   .recruitment-vacancy-grid { grid-template-columns: 1fr; }
   .recruitment-vacancy-card dl { grid-template-columns: 1fr; }
   .application-field-manager > article { align-items: stretch; flex-direction: column; }
+  .internal-recruitment-note { align-items: flex-start; flex-direction: column; }
+  .recruitment-review-layout { grid-template-columns: 1fr; }
+  .recruitment-review-queues { max-height: 280px; overflow: auto; }
 }

@@ -9,7 +9,7 @@
     <title>MO8 MDT</title>
     <link rel="stylesheet" href="styles.css?v=2026-06-29-1">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-06-29-1">
-    <link rel="stylesheet" href="recruitment.css?v=2026-06-29-4">
+    <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
   </head>
   <body>
     <main class="terminal-shell">
@@ -469,8 +469,8 @@
             </div>
             <div id="recruitmentSummary" class="stat-row"></div>
             <div class="segmented-control recruitment-tabs" role="group" aria-label="Recruitment view"><button class="active" data-recruitment-tab="vacancies">Vacancies</button><button data-recruitment-tab="applications">Applications</button><button data-recruitment-tab="mine">My applications</button></div>
-            <section data-recruitment-panel="vacancies"><input id="recruitmentVacancySearch" class="search-input" type="search" placeholder="Search vacancy, team, status or type"><div id="recruitmentVacancies" class="recruitment-vacancy-grid"></div></section>
-            <section data-recruitment-panel="applications" hidden><div class="filter-row"><input id="recruitmentApplicationSearch" type="search" placeholder="Search applicant, vacancy, status or reference"><select id="recruitmentApplicationStatus"><option value="">All statuses</option><option>Submitted</option><option>Under Review</option><option>Shortlisted</option><option>Interview</option><option>Successful</option><option>Unsuccessful</option><option>Withdrawn</option></select></div><div class="table-wrap"><table id="recruitmentApplicationsTable"></table></div></section>
+            <section data-recruitment-panel="vacancies"><aside class="internal-recruitment-note"><strong>Internal vacancies</strong><span>Officers apply here using their existing MDT account. Roles marked “Internal applications open” are not shown publicly unless they also allow external applications.</span></aside><input id="recruitmentVacancySearch" class="search-input" type="search" placeholder="Search vacancy, team, status or type"><div id="recruitmentVacancies" class="recruitment-vacancy-grid"></div></section>
+            <section data-recruitment-panel="applications" hidden><div class="recruitment-review-layout"><aside class="recruitment-review-queues"><header><span>Authorised queues</span><strong>Select a vacancy</strong></header><div id="recruitmentApplicationVacancies"></div></aside><main class="recruitment-review-workspace"><header><div><span>Application review</span><h3 id="selectedRecruitmentVacancy">Select a vacancy</h3></div><strong id="selectedRecruitmentCount">0 applications</strong></header><div class="filter-row"><input id="recruitmentApplicationSearch" type="search" placeholder="Search applicant, status or reference"><select id="recruitmentApplicationStatus"><option value="">All statuses</option><option>Submitted</option><option>Under Review</option><option>Shortlisted</option><option>Interview</option><option>Successful</option><option>Unsuccessful</option><option>Withdrawn</option></select></div><div class="table-wrap"><table id="recruitmentApplicationsTable"></table></div></main></div></section>
             <section data-recruitment-panel="mine" hidden><div class="table-wrap"><table id="myRecruitmentApplicationsTable"></table></div></section>
           </section>
 
@@ -690,6 +690,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-06-29-5"></script>
+    <script src="app.js?v=2026-06-29-6"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-5';
+const APP_VERSION = '2026-06-29-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -125,6 +125,7 @@ const state = {
   announcements: [],
   recruitment: { vacancies: [], fields: [], applications: [], myApplications: [], officers: [] },
   recruitmentTab: 'vacancies',
+  selectedRecruitmentVacancyId: '',
   rankChanges: [],
   shifts: [],
   shiftStatus: null,
@@ -2742,6 +2743,10 @@ async function loadRecruitment() {
     return;
   }
   state.recruitment = response;
+  const reviewVacancies = (response.vacancies || []).filter((row) => row.CanReview);
+  if (!reviewVacancies.some((row) => row.VacancyID === state.selectedRecruitmentVacancyId)) {
+    state.selectedRecruitmentVacancyId = [...reviewVacancies].sort((a, b) => (response.applications || []).filter((row) => row.VacancyID === b.VacancyID && ['Submitted', 'Under Review'].includes(row.Status)).length - (response.applications || []).filter((row) => row.VacancyID === a.VacancyID && ['Submitted', 'Under Review'].includes(row.Status)).length)[0]?.VacancyID || '';
+  }
   const open = (response.vacancies || []).filter((row) => row.Status === 'Open').length;
   const pending = (response.applications || []).filter((row) => ['Submitted', 'Under Review'].includes(row.Status)).length;
   document.querySelector('#recruitmentSummary').innerHTML = [stat('Open Vacancies', open), stat('Awaiting Review', pending), stat('Applications', (response.applications || []).length), stat('My Applications', (response.myApplications || []).length)].join('');
@@ -2755,6 +2760,7 @@ function switchRecruitmentTab(tab) {
   state.recruitmentTab = tab;
   document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.classList.toggle('active', button.dataset.recruitmentTab === tab));
   document.querySelectorAll('[data-recruitment-panel]').forEach((panel) => panel.hidden = panel.dataset.recruitmentPanel !== tab);
+  if (tab === 'applications') renderRecruitmentApplications();
 }
 
 function renderRecruitmentVacancies() {
@@ -2762,14 +2768,28 @@ function renderRecruitmentVacancies() {
   if (!container) return;
   const query = String(document.querySelector('#recruitmentVacancySearch')?.value || '').toLowerCase();
   const rows = (state.recruitment.vacancies || []).filter((row) => !query || [row.Title, row.Team, row.Status, row.VacancyType, row.Summary].some((value) => String(value || '').toLowerCase().includes(query)));
-  container.innerHTML = rows.length ? rows.map((row) => `<article class="recruitment-vacancy-card status-${escapeHtml(row.Status.toLowerCase())}"><header><span>${escapeHtml(row.VacancyType)} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.Title)}</strong><em class="publication-state ${row.PublicListing === 'Published publicly' ? 'published' : ''}">${escapeHtml(row.PublicListing)}</em></header><p>${escapeHtml(row.Summary || 'No summary supplied.')}</p><dl><div><dt>Team</dt><dd>${escapeHtml(row.Team)}</dd></div><div><dt>Closes</dt><dd>${row.ClosesAt ? escapeHtml(formatDisplayDateTime(row.ClosesAt)) : 'Open until filled'}</dd></div><div><dt>Applications</dt><dd>${escapeHtml(String(row.ApplicationCount || 0))}</dd></div><div><dt>Review access</dt><dd>${escapeHtml(row.ReviewerSummary || 'Sergeant+')}</dd></div></dl><div class="row-actions">${row.CanApplyInternally ? `<button class="mini" data-apply-internal-vacancy="${escapeHtml(row.VacancyID)}">Apply</button>` : ''}${can('VIEW_TASKS') ? `<button class="mini ghost" data-edit-vacancy="${escapeHtml(row.VacancyID)}">Edit</button><button class="mini ghost" data-manage-vacancy-fields="${escapeHtml(row.VacancyID)}">Application form</button><button class="mini danger" data-delete-vacancy="${escapeHtml(row.VacancyID)}">Delete</button>` : ''}</div></article>`).join('') : emptyState('No vacancies match this search.');
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="recruitment-vacancy-card status-${escapeHtml(row.Status.toLowerCase())}"><header><span>${escapeHtml(row.VacancyType)} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.Title)}</strong><div class="vacancy-visibility-chips"><em class="publication-state ${row.PublicListing === 'Published publicly' ? 'published' : ''}">${escapeHtml(row.PublicListing)}</em>${row.CanApplyInternally ? '<em class="publication-state internal">Internal applications open</em>' : row.HasInternalApplication ? '<em class="publication-state applied">You have applied</em>' : ''}</div></header><p>${escapeHtml(row.Summary || 'No summary supplied.')}</p><dl><div><dt>Team</dt><dd>${escapeHtml(row.Team)}</dd></div><div><dt>Closes</dt><dd>${row.ClosesAt ? escapeHtml(formatDisplayDateTime(row.ClosesAt)) : 'Open until filled'}</dd></div><div><dt>Applications</dt><dd>${escapeHtml(String(row.ApplicationCount || 0))}</dd></div><div><dt>Review access</dt><dd>${escapeHtml(can('VIEW_TASKS') || row.CanReview ? row.ReviewerSummary || 'Sergeant+' : 'Recruitment team')}</dd></div></dl><div class="row-actions">${row.CanApplyInternally ? `<button class="mini" data-apply-internal-vacancy="${escapeHtml(row.VacancyID)}">Apply internally</button>` : ''}${can('VIEW_TASKS') ? `<button class="mini ghost" data-edit-vacancy="${escapeHtml(row.VacancyID)}">Edit</button><button class="mini ghost" data-manage-vacancy-fields="${escapeHtml(row.VacancyID)}">Application form</button><button class="mini danger" data-delete-vacancy="${escapeHtml(row.VacancyID)}">Delete</button>` : ''}</div></article>`).join('') : emptyState('No vacancies match this search.');
 }
 
 function renderRecruitmentApplications() {
   const query = String(document.querySelector('#recruitmentApplicationSearch')?.value || '').toLowerCase();
   const status = document.querySelector('#recruitmentApplicationStatus')?.value || '';
-  const rows = (state.recruitment.applications || []).filter((row) => (!status || row.Status === status) && (!query || [row.ApplicationID, row.RobloxUsername, row.Vacancy, row.Status].some((value) => String(value || '').toLowerCase().includes(query))));
-  renderTable('#recruitmentApplicationsTable', rows, ['RobloxUsername', 'DiscordID', 'Vacancy', 'Status', 'SubmittedAt', 'Reviewer', 'ApplicationID'], { actions: (row) => `<button class="mini" data-review-recruitment-application="${escapeHtml(row.ApplicationID)}">Review</button>` });
+  const vacancies = (state.recruitment.vacancies || []).filter((row) => row.CanReview);
+  const applications = state.recruitment.applications || [];
+  const queue = document.querySelector('#recruitmentApplicationVacancies');
+  if (queue) queue.innerHTML = vacancies.length ? vacancies.map((vacancy) => {
+    const rows = applications.filter((row) => row.VacancyID === vacancy.VacancyID);
+    const pending = rows.filter((row) => ['Submitted', 'Under Review'].includes(row.Status)).length;
+    return `<button class="${vacancy.VacancyID === state.selectedRecruitmentVacancyId ? 'active' : ''}" data-select-recruitment-vacancy="${escapeHtml(vacancy.VacancyID)}"><span>${escapeHtml(vacancy.Status)} / ${escapeHtml(vacancy.VacancyType)}</span><strong>${escapeHtml(vacancy.Title)}</strong><small>${pending} awaiting review / ${rows.length} total</small></button>`;
+  }).join('') : emptyState('You do not currently have access to any application queues.');
+  const selected = vacancies.find((row) => row.VacancyID === state.selectedRecruitmentVacancyId);
+  const selectedRows = applications.filter((row) => row.VacancyID === state.selectedRecruitmentVacancyId);
+  const rows = selectedRows.filter((row) => (!status || row.Status === status) && (!query || [row.ApplicationID, row.RobloxUsername, row.Status].some((value) => String(value || '').toLowerCase().includes(query))));
+  const title = document.querySelector('#selectedRecruitmentVacancy');
+  const count = document.querySelector('#selectedRecruitmentCount');
+  if (title) title.textContent = selected?.Title || 'Select a vacancy';
+  if (count) count.textContent = `${selectedRows.length} application${selectedRows.length === 1 ? '' : 's'}`;
+  renderTable('#recruitmentApplicationsTable', rows, ['RobloxUsername', 'DiscordID', 'Status', 'SubmittedAt', 'Reviewer', 'ApplicationID'], { emptyMessage: selected ? 'No applications match this vacancy and filter.' : 'Select an authorised vacancy to review its applications.', actions: (row) => `<button class="mini" data-review-recruitment-application="${escapeHtml(row.ApplicationID)}">Review</button>` });
 }
 
 function renderDocumentTable() {
@@ -4621,6 +4641,8 @@ async function handleDocumentClick(event) {
   if (applyInternalVacancy) { openInternalRecruitmentApplication(applyInternalVacancy.dataset.applyInternalVacancy); return; }
   const reviewRecruitmentApplication = event.target.closest('[data-review-recruitment-application]');
   if (reviewRecruitmentApplication) { openRecruitmentApplicationReview(reviewRecruitmentApplication.dataset.reviewRecruitmentApplication); return; }
+  const selectRecruitmentVacancy = event.target.closest('[data-select-recruitment-vacancy]');
+  if (selectRecruitmentVacancy) { state.selectedRecruitmentVacancyId = selectRecruitmentVacancy.dataset.selectRecruitmentVacancy; renderRecruitmentApplications(); return; }
 
   const taskCourseBookings = event.target.closest('[data-task-course-bookings]');
   if (taskCourseBookings) {
@@ -7669,7 +7691,7 @@ async function supabaseRecruitmentHub() {
     const ownApplication = applications.some((item) => item.VacancyID === row.vacancy_id && item.InternalMemberID === profile.member_id && item.Status !== 'Withdrawn');
     const reviewerRules = [row.reviewer_min_rank ? `${row.reviewer_min_rank}+` : '', ...(row.reviewer_required_tags || []), (row.reviewer_officer_ids || []).length ? `${row.reviewer_officer_ids.length} named` : ''].filter(Boolean);
     const publicListing = row.status !== 'Open' ? `Not public: ${row.status}` : row.vacancy_type === 'Internal' ? 'Internal only' : row.opens_at && new Date(row.opens_at) > new Date() ? `Scheduled for ${formatDisplayDateTime(row.opens_at)}` : row.closes_at && new Date(row.closes_at) < new Date() ? 'Closing date passed' : 'Published publicly';
-    return { VacancyID: row.vacancy_id, Title: row.title, Team: row.team, Location: row.location, Summary: row.summary || '', Description: row.description || '', VacancyType: row.vacancy_type, Status: row.status, PublicListing: publicListing, OpensAt: row.opens_at || '', ClosesAt: row.closes_at || '', Positions: row.positions || 1, ReviewerMinRank: row.reviewer_min_rank || '', ReviewerRequiredTags: (row.reviewer_required_tags || []).join(', '), ReviewerOfficerIDs: (row.reviewer_officer_ids || []).join(', '), ReviewerMatch: row.reviewer_match || 'Any', ReviewerSummary: reviewerRules.length ? `${reviewerRules.join(` ${row.reviewer_match === 'All' ? 'AND' : 'OR'} `)}` : 'Sergeant+', CanReview: canReview.get(row.vacancy_id), CanApplyInternally: row.status === 'Open' && ['Internal', 'Internal and External'].includes(row.vacancy_type) && !ownApplication, ApplicationCount: applications.filter((item) => item.VacancyID === row.vacancy_id).length, CreatedAt: row.created_at };
+    return { VacancyID: row.vacancy_id, Title: row.title, Team: row.team, Location: row.location, Summary: row.summary || '', Description: row.description || '', VacancyType: row.vacancy_type, Status: row.status, PublicListing: publicListing, OpensAt: row.opens_at || '', ClosesAt: row.closes_at || '', Positions: row.positions || 1, ReviewerMinRank: row.reviewer_min_rank || '', ReviewerRequiredTags: (row.reviewer_required_tags || []).join(', '), ReviewerOfficerIDs: (row.reviewer_officer_ids || []).join(', '), ReviewerMatch: row.reviewer_match || 'Any', ReviewerSummary: reviewerRules.length ? `${reviewerRules.join(` ${row.reviewer_match === 'All' ? 'AND' : 'OR'} `)}` : 'Sergeant+', CanReview: canReview.get(row.vacancy_id), CanApplyInternally: row.status === 'Open' && ['Internal', 'Internal and External'].includes(row.vacancy_type) && !ownApplication, HasInternalApplication: ownApplication, ApplicationCount: applications.filter((item) => item.VacancyID === row.vacancy_id).length, CreatedAt: row.created_at };
   });
   return { ok: true, vacancies, fields, applications: applications.filter((row) => canReview.get(row.VacancyID) && row.InternalMemberID !== profile.member_id), myApplications: applications.filter((row) => row.InternalMemberID === profile.member_id), officers: (officers || []).filter((row) => row.status !== 'Archived').map((row) => ({ OfficerID: row.officer_id, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, Tags: (row.tags || []).join(', ') })) };
 }
