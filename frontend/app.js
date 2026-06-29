@@ -5864,8 +5864,6 @@ async function supabaseMyProfile() {
   ]);
   return {
     ok: true,
-    myTasks: mine,
-    allTasks: can('VIEW_TASKS') ? all : mine,
     user: me.user,
     officer: officer ? decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }) : null,
     training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
@@ -5909,10 +5907,6 @@ async function supabaseDashboard() {
     ok: true,
     widgets: widgetPreferences.length ? widgetPreferences.filter((row) => row.enabled).map((row) => row.widget_key) : DASHBOARD_WIDGETS.map(([key]) => key),
     counts: {
-      mine: mine.length,
-      available: can('VIEW_TASKS') ? all.length : mine.length,
-      amendments: mine.filter((row) => String(row.TaskType).includes('Amendment')).length,
-      dueSoon: mine.filter((row) => { const due = row.EndDate || row.DueAt; return due && new Date(due) <= new Date(Date.now() + 7 * 86400000); }).length,
       activeOfficers: (officers.data || []).filter((row) => row.status === 'Active').length,
       currentlyOnLoa: activeLoa.length,
       loaPending: pendingLoa.length,
