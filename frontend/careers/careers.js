@@ -11,6 +11,9 @@ $('#applicantLoginForm').addEventListener('submit', loginApplicant);
 $('#applicantRegisterForm').addEventListener('submit', registerApplicant);
 $('#applicantLogout').addEventListener('click', logoutApplicant);
 $('#applicationForm').addEventListener('submit', submitApplication);
+$('#applicationCloseButton').addEventListener('click', closeApplication);
+$('#applicationFields').addEventListener('input', scheduleApplicationDraftSave);
+$('#applicationDialog').addEventListener('cancel', (event) => { event.preventDefault(); closeApplication(); });
 document.addEventListener('click', async (event) => {
   const vacancy = event.target.closest('[data-vacancy]');
   if (vacancy) await openVacancy(vacancy.dataset.vacancy);
@@ -100,7 +103,9 @@ async function openApplication(vacancyId) {
   const row = state.vacancy;
   $('#applicationTitle').textContent = row.title;
   $('#applicationFields').innerHTML = `<aside class="applicant-identity"><span>Applying as</span><strong>${escapeHtml(state.applicant.username)}</strong><small>Discord ID ${escapeHtml(state.applicant.discordId)} / supplied automatically from your recruitment account</small></aside>${(row.fields || []).map(renderField).join('') || '<p>No additional questions are required for this role.</p>'}`;
-  $('#applicationStatus').textContent = '';
+  const restored = restoreApplicationDraft();
+  $('#applicationStatus').classList.toggle('success', restored);
+  $('#applicationStatus').textContent = restored ? 'Your saved draft has been restored.' : '';
   $('#applicationDialog').showModal();
 }
 
@@ -115,14 +120,67 @@ function renderField(field) {
 
 async function submitApplication(event) {
   event.preventDefault();
-  const form = event.currentTarget; const answers = {};
-  new FormData(form).forEach((value, key) => { if (['cancel', 'submit'].includes(key)) return; answers[key] = answers[key] ? `${answers[key]}, ${value}` : value; });
+  if (event.submitter?.value !== 'submit') return;
+  const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const answers = collectApplicationAnswers();
   $('#applicationStatus').textContent = 'Submitting application...';
   const { data, error } = await client.rpc('submit_recruitment_application', { session_token_input: state.sessionToken, target_vacancy_id: state.vacancy.vacancy_id, application_answers: answers });
   if (error) return $('#applicationStatus').textContent = cleanError(error.message);
   await sendApplicantDiscord('recruitmentSubmitted', data.applicationId);
+  localStorage.removeItem(applicationDraftKey());
   $('#applicationStatus').classList.add('success'); $('#applicationStatus').textContent = `Application ${data.applicationId} submitted successfully.`;
   setTimeout(() => { $('#applicationDialog').close(); showPage('account'); loadApplicant(); }, 900);
+}
+
+let applicationDraftTimer = null;
+
+function collectApplicationAnswers() {
+  const answers = {};
+  new FormData($('#applicationForm')).forEach((value, key) => {
+    if (key === 'submit') return;
+    if (Object.prototype.hasOwnProperty.call(answers, key)) answers[key] = Array.isArray(answers[key]) ? [...answers[key], value] : [answers[key], value];
+    else answers[key] = value;
+  });
+  return answers;
+}
+
+function applicationDraftKey() {
+  const username = String(state.applicant?.username || 'anonymous').trim().toLowerCase();
+  return `mo8_recruitment_draft:${username}:${state.vacancy?.vacancy_id || 'unknown'}`;
+}
+
+function scheduleApplicationDraftSave() {
+  clearTimeout(applicationDraftTimer);
+  applicationDraftTimer = setTimeout(saveApplicationDraft, 250);
+}
+
+function saveApplicationDraft() {
+  if (!state.applicant || !state.vacancy) return;
+  localStorage.setItem(applicationDraftKey(), JSON.stringify({ answers: collectApplicationAnswers(), savedAt: new Date().toISOString() }));
+  const status = $('#applicationStatus');
+  if (status && !status.textContent.includes('Submitting')) { status.classList.add('success'); status.textContent = 'Draft saved on this device.'; }
+}
+
+function restoreApplicationDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(applicationDraftKey()) || 'null');
+    if (!draft?.answers) return false;
+    Object.entries(draft.answers).forEach(([name, saved]) => {
+      const values = Array.isArray(saved) ? saved.map(String) : [String(saved)];
+      [...$('#applicationForm').elements].filter((element) => element.name === name).forEach((element) => {
+        if (['checkbox', 'radio'].includes(element.type)) element.checked = values.includes(element.value);
+        else element.value = values[0] || '';
+      });
+    });
+    return true;
+  } catch (_) { return false; }
+}
+
+function closeApplication() {
+  clearTimeout(applicationDraftTimer);
+  saveApplicationDraft();
+  $('#applicationDialog').close();
 }
 
 async function sendApplicantDiscord(action, applicationId) { try { await client.functions.invoke('discord-alerts', { body: { action, applicationId, recruitmentToken: state.sessionToken } }); } catch (_) {} }
