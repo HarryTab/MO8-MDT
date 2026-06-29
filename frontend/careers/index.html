@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Metropolitan Operations 8 roleplay recruitment vacancies and applications.">
+    <title>MO8 Careers</title>
+    <link rel="stylesheet" href="careers.css?v=2026-06-29-1">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./"><span>MO8</span><div><strong>Careers</strong><small>Metropolitan Operations 8</small></div></a>
+      <nav><button class="nav-link active" data-page="jobs">Vacancies</button><button class="nav-link" data-page="account">My applications</button><a href="../">Staff MDT</a></nav>
+      <button class="menu-button" id="menuButton" aria-label="Open navigation">Menu</button>
+    </header>
+
+    <main>
+      <section id="jobsPage">
+        <header class="page-head"><span>Recruitment</span><h1>Apply now</h1><p>Search current internal and external opportunities within Metropolitan Operations 8.</p></header>
+        <section class="search-panel"><label for="vacancySearch">Filter on keywords</label><div><input id="vacancySearch" type="search" placeholder="Title, team or keyword"><button id="searchButton">Search</button></div></section>
+        <div id="vacancyStatus" class="status-line">Loading current vacancies...</div>
+        <section id="vacancyList" class="vacancy-list"></section>
+      </section>
+
+      <section id="vacancyPage" hidden>
+        <button class="back-link" data-page="jobs">Back to vacancies</button>
+        <article id="vacancyDetail" class="vacancy-detail"></article>
+      </section>
+
+      <section id="accountPage" hidden>
+        <header class="page-head"><span>Applicant portal</span><h1>My applications</h1><p>Sign in with your recruitment account to submit and track external applications.</p></header>
+        <div id="applicantSignedOut" class="account-grid">
+          <form id="applicantLoginForm" class="form-panel"><h2>Sign in</h2><label>Roblox username<input name="username" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button>Sign in</button><p class="form-status"></p></form>
+          <form id="applicantRegisterForm" class="form-panel"><h2>Create recruitment account</h2><label>Roblox username<input name="username" required autocomplete="username"></label><label>Discord user ID<input name="discordId" required inputmode="numeric" pattern="[0-9]{15,22}"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><button>Create account</button><p class="form-status"></p></form>
+        </div>
+        <section id="applicantSignedIn" hidden><div class="account-bar"><div><span>Signed in as</span><strong id="applicantName"></strong></div><button class="secondary" id="applicantLogout">Sign out</button></div><div id="applicationList" class="application-list"></div></section>
+      </section>
+    </main>
+
+    <dialog id="applicationDialog"><form method="dialog" id="applicationForm"><header><div><span>Application form</span><h2 id="applicationTitle">Apply</h2></div><button value="cancel" formnovalidate class="close-button">Close</button></header><div id="applicationFields" class="application-fields"></div><p id="applicationStatus" class="form-status"></p><button value="submit">Submit application</button></form></dialog>
+    <footer><span>MO8 Roleplay Community</span><span>Recruitment data is used only to assess roleplay applications.</span></footer>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../supabase-config.js?v=2026-05-07-6"></script>
+    <script src="careers.js?v=2026-06-29-1"></script>
+  </body>
+</html>

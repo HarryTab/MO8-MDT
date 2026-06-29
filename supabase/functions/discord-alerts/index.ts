@@ -7,8 +7,10 @@ const corsHeaders = {
 };
 
 type DiscordAlertPayload = {
-  action?: 'sendNotification' | 'testIdentity' | 'testDm';
+  action?: 'sendNotification' | 'testIdentity' | 'testDm' | 'recruitmentSubmitted' | 'recruitmentSubmittedInternal' | 'recruitmentStatus';
   notificationId?: string;
+  applicationId?: string;
+  recruitmentToken?: string;
   discordId?: string;
   title?: string;
   message?: string;
@@ -31,6 +33,11 @@ Deno.serve(async (request) => {
       global: { headers: { Authorization: authorization } },
     });
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    const payload = await request.json() as DiscordAlertPayload;
+
+    if (payload.action === 'recruitmentSubmitted') {
+      return await sendRecruitmentDm(adminClient, botToken, payload, null);
+    }
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return json({ ok: false, error: 'Not signed in.' }, 401);
@@ -43,9 +50,9 @@ Deno.serve(async (request) => {
       .maybeSingle();
     if (!actorProfile) return json({ ok: false, error: 'No MDT profile found for this login.' }, 403);
 
-    const payload = await request.json() as DiscordAlertPayload;
     if (payload.action === 'testIdentity') return await testIdentity(botToken);
     if (payload.action === 'testDm') return await testDm(botToken, payload, actorProfile.discord_id || '');
+    if (payload.action === 'recruitmentSubmittedInternal' || payload.action === 'recruitmentStatus') return await sendRecruitmentDm(adminClient, botToken, payload, actorProfile);
     return await sendNotificationDm(adminClient, botToken, payload, actorProfile);
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
@@ -82,6 +89,38 @@ async function sendNotificationDm(adminClient: ReturnType<typeof createClient>, 
   return json({ ok: result.ok, sent: result.ok, error: result.error || '', discordId });
 }
 
+async function sendRecruitmentDm(adminClient: ReturnType<typeof createClient>, botToken: string, payload: DiscordAlertPayload, actorProfile: Record<string, unknown> | null) {
+  if (!payload.applicationId) return json({ ok: false, error: 'applicationId is required.' }, 400);
+  const { data: application, error } = await adminClient.from('recruitment_applications').select('*').eq('application_id', payload.applicationId).limit(1).maybeSingle();
+  if (error || !application) return json({ ok: false, error: error?.message || 'Application not found.' }, 404);
+  const { data: vacancy } = await adminClient.from('recruitment_vacancies').select('*').eq('vacancy_id', application.vacancy_id).limit(1).maybeSingle();
+
+  if (!actorProfile) {
+    if (!payload.recruitmentToken || !application.applicant_account_id) return json({ ok: false, error: 'Recruitment session is required.' }, 401);
+    const { data: session } = await adminClient.from('recruitment_sessions').select('*').eq('session_token', payload.recruitmentToken).eq('account_id', application.applicant_account_id).gt('expires_at', new Date().toISOString()).limit(1).maybeSingle();
+    if (!session || payload.action !== 'recruitmentSubmitted') return json({ ok: false, error: 'Recruitment session is invalid.' }, 401);
+  } else if (payload.action === 'recruitmentSubmittedInternal') {
+    if (application.internal_member_id !== actorProfile.member_id) return json({ ok: false, error: 'This is not your application.' }, 403);
+  } else if (payload.action === 'recruitmentStatus' && application.reviewer_user_id !== actorProfile.user_id) {
+    return json({ ok: false, error: 'Only the recorded reviewer can send this update.' }, 403);
+  }
+
+  const discordId = digitsOnly(application.discord_id || '');
+  if (!discordId) return json({ ok: true, sent: false, skipped: 'No Discord ID is stored for this applicant.' });
+  const submitted = payload.action !== 'recruitmentStatus';
+  const title = submitted ? 'MO8 application received' : `MO8 application ${String(application.status || 'updated').toLowerCase()}`;
+  const message = [
+    submitted ? 'Your application has been received and added to the recruitment queue.' : (application.applicant_message || 'Your application status has been updated.'),
+    `Role: ${vacancy?.title || application.vacancy_id}`,
+    `Status: ${application.status}`,
+    `Application: ${application.application_id}`,
+    application.reviewed_at ? `Updated: ${new Date(application.reviewed_at).toLocaleString('en-GB', { timeZone: 'Europe/London' })}` : '',
+  ].filter(Boolean).join('\n');
+  const careersUrl = `${(Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/').replace(/\/$/, '')}/careers/`;
+  const result = await sendDiscordDm(botToken, discordId, title, message, careersUrl, 'Open applicant portal');
+  return json({ ok: result.ok, sent: result.ok, error: result.error || '', discordId }, result.ok ? 200 : 400);
+}
+
 async function testIdentity(botToken: string) {
   const response = await discordFetch(botToken, 'https://discord.com/api/v10/users/@me');
   const body = await response.json().catch(() => ({}));
@@ -102,7 +141,7 @@ async function testDm(botToken: string, payload: DiscordAlertPayload, actorDisco
   return json({ ok: result.ok, sent: result.ok, error: result.error || '', discordId }, result.ok ? 200 : 400);
 }
 
-async function sendDiscordDm(botToken: string, discordId: string, title: string, message: string) {
+async function sendDiscordDm(botToken: string, discordId: string, title: string, message: string, destinationUrl = '', destinationLabel = '') {
   const channelResponse = await discordFetch(botToken, 'https://discord.com/api/v10/users/@me/channels', {
     method: 'POST',
     body: JSON.stringify({ recipient_id: discordId }),
@@ -113,7 +152,7 @@ async function sendDiscordDm(botToken: string, discordId: string, title: string,
   const messageResponse = await discordFetch(botToken, `https://discord.com/api/v10/channels/${channelBody.id}/messages`, {
     method: 'POST',
     body: JSON.stringify({
-      embeds: [formatDiscordEmbed(title, message)],
+      embeds: [formatDiscordEmbed(title, message, destinationUrl, destinationLabel)],
     }),
   });
   const messageBody = await messageResponse.json().catch(() => ({}));
@@ -132,7 +171,7 @@ function discordFetch(botToken: string, url: string, init: RequestInit = {}) {
   });
 }
 
-function formatDiscordEmbed(title: string, message: string) {
+function formatDiscordEmbed(title: string, message: string, destinationUrl = '', destinationLabel = '') {
   const mdtUrl = Deno.env.get('MDT_URL') || 'https://harrytab.github.io/MO8-MDT/';
   const parsed = parseDiscordDetails(message);
   const description = parsed.description || 'You have a new MDT notification.';
@@ -144,8 +183,8 @@ function formatDiscordEmbed(title: string, message: string) {
     fields: [
       ...parsed.fields,
       {
-        name: 'Open MDT',
-        value: `[Launch MO8 MDT](${mdtUrl})`,
+        name: destinationLabel || 'Open MDT',
+        value: `[${destinationLabel || 'Launch MO8 MDT'}](${destinationUrl || mdtUrl})`,
         inline: false,
       },
     ],
@@ -190,10 +229,10 @@ function shouldInlineField(name: string) {
 
 function embedColour(title: string, message: string) {
   const text = `${title || ''} ${message || ''}`.toLowerCase();
-  if (['denied', 'cancelled', 'canceled', 'failed', 'discipline', 'disciplinary', 'removed', 'suspended'].some((word) => text.includes(word))) return 0xd93025;
+  if (['denied', 'cancelled', 'canceled', 'failed', 'unsuccessful', 'discipline', 'disciplinary', 'removed', 'suspended'].some((word) => text.includes(word))) return 0xd93025;
   if (['supervisor updated', 'new supervisee assigned', 'supervisee reassigned', 'assigned as your supervisor'].some((word) => text.includes(word))) return 0x1267d8;
-  if (['approved', 'passed', 'completed', 'added'].some((word) => text.includes(word))) return 0x188038;
-  if (['waitlist', 'waitlisted', 'deferred', 'on hold'].some((word) => text.includes(word))) return 0xf9ab00;
+  if (['approved', 'passed', 'completed', 'successful', 'added'].some((word) => text.includes(word))) return 0x188038;
+  if (['waitlist', 'waitlisted', 'deferred', 'on hold', 'shortlisted', 'interview', 'under review'].some((word) => text.includes(word))) return 0xf9ab00;
   return 0x1267d8;
 }
 

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-1';
+const APP_VERSION = '2026-06-29-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -123,6 +123,8 @@ const state = {
   documents: [],
   documentFolder: '',
   announcements: [],
+  recruitment: { vacancies: [], fields: [], applications: [], myApplications: [], officers: [] },
+  recruitmentTab: 'vacancies',
   rankChanges: [],
   shifts: [],
   shiftStatus: null,
@@ -304,6 +306,11 @@ document.querySelector('#newTrainingOptionButton').addEventListener('click', () 
 document.querySelector('#newCourseButton').addEventListener('click', () => openCourseEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
+document.querySelector('#newVacancyButton')?.addEventListener('click', () => openVacancyEditor());
+document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.addEventListener('click', () => switchRecruitmentTab(button.dataset.recruitmentTab)));
+document.querySelector('#recruitmentVacancySearch')?.addEventListener('input', renderRecruitmentVacancies);
+document.querySelector('#recruitmentApplicationSearch')?.addEventListener('input', renderRecruitmentApplications);
+document.querySelector('#recruitmentApplicationStatus')?.addEventListener('change', renderRecruitmentApplications);
 document.querySelector('#startShiftButton').addEventListener('click', startShift);
 document.querySelector('#endShiftButton').addEventListener('click', openEndShiftEditor);
 document.querySelector('#requestRetrospectiveShiftButton')?.addEventListener('click', openRetrospectiveShiftEditor);
@@ -661,6 +668,7 @@ async function showView(view) {
     loa: ['Leave of Absence', 'Requests and reviews'],
     documents: ['Documents', 'Training guides and policy links'],
     announcements: ['Notice Board', 'Operational updates and command notices'],
+    recruitment: ['Recruitment', 'Vacancies, application forms and candidate review'],
     users: ['Users', 'Sergeant+ login accounts'],
     permissions: ['Permissions', 'Role defaults and individual overrides'],
     reports: ['Reports', 'Command performance and compliance reporting'],
@@ -699,6 +707,7 @@ async function showView(view) {
     loa: loadLoa,
     documents: loadDocuments,
     announcements: loadAnnouncements,
+    recruitment: loadRecruitment,
     users: loadUsers,
     permissions: loadPermissions,
     reports: loadReports,
@@ -820,6 +829,7 @@ function loaderActionForView(view) {
     loa: 'listLoa',
     documents: 'listDocuments',
     announcements: 'listAnnouncements',
+    recruitment: 'recruitmentHub',
     users: 'listUsers',
     permissions: 'permissionsConfig',
     reports: 'commandReports',
@@ -1427,6 +1437,7 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
   if (row.TaskType === 'Assigned Task') return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
   if (row.TaskType === 'Casework Action') return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
+  if (row.TaskType === 'Recruitment Application') return 'data-view-link="recruitment"';
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
@@ -2722,6 +2733,45 @@ async function loadAnnouncements() {
   renderSearchableView('announcements');
 }
 
+async function loadRecruitment() {
+  await showViewOnly('recruitment');
+  const response = await apiCached('recruitmentHub', {});
+  if (!response.ok) {
+    state.recruitment = { vacancies: [], fields: [], applications: [], myApplications: [], officers: [] };
+    document.querySelector('#recruitmentVacancies').innerHTML = emptyState(response.error || 'Could not load recruitment.');
+    return;
+  }
+  state.recruitment = response;
+  const open = (response.vacancies || []).filter((row) => row.Status === 'Open').length;
+  const pending = (response.applications || []).filter((row) => ['Submitted', 'Under Review'].includes(row.Status)).length;
+  document.querySelector('#recruitmentSummary').innerHTML = [stat('Open Vacancies', open), stat('Awaiting Review', pending), stat('Applications', (response.applications || []).length), stat('My Applications', (response.myApplications || []).length)].join('');
+  renderRecruitmentVacancies();
+  renderRecruitmentApplications();
+  renderTable('#myRecruitmentApplicationsTable', response.myApplications || [], ['Vacancy', 'Status', 'ApplicantMessage', 'SubmittedAt', 'ApplicationID']);
+  switchRecruitmentTab(state.recruitmentTab);
+}
+
+function switchRecruitmentTab(tab) {
+  state.recruitmentTab = tab;
+  document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.classList.toggle('active', button.dataset.recruitmentTab === tab));
+  document.querySelectorAll('[data-recruitment-panel]').forEach((panel) => panel.hidden = panel.dataset.recruitmentPanel !== tab);
+}
+
+function renderRecruitmentVacancies() {
+  const container = document.querySelector('#recruitmentVacancies');
+  if (!container) return;
+  const query = String(document.querySelector('#recruitmentVacancySearch')?.value || '').toLowerCase();
+  const rows = (state.recruitment.vacancies || []).filter((row) => !query || [row.Title, row.Team, row.Status, row.VacancyType, row.Summary].some((value) => String(value || '').toLowerCase().includes(query)));
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="recruitment-vacancy-card status-${escapeHtml(row.Status.toLowerCase())}"><header><span>${escapeHtml(row.VacancyType)} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.Title)}</strong></header><p>${escapeHtml(row.Summary || 'No summary supplied.')}</p><dl><div><dt>Team</dt><dd>${escapeHtml(row.Team)}</dd></div><div><dt>Closes</dt><dd>${row.ClosesAt ? escapeHtml(formatDisplayDateTime(row.ClosesAt)) : 'Open until filled'}</dd></div><div><dt>Applications</dt><dd>${escapeHtml(String(row.ApplicationCount || 0))}</dd></div><div><dt>Review access</dt><dd>${escapeHtml(row.ReviewerSummary || 'Sergeant+')}</dd></div></dl><div class="row-actions">${row.CanApplyInternally ? `<button class="mini" data-apply-internal-vacancy="${escapeHtml(row.VacancyID)}">Apply</button>` : ''}${can('VIEW_TASKS') ? `<button class="mini ghost" data-edit-vacancy="${escapeHtml(row.VacancyID)}">Edit</button><button class="mini ghost" data-manage-vacancy-fields="${escapeHtml(row.VacancyID)}">Application form</button><button class="mini danger" data-delete-vacancy="${escapeHtml(row.VacancyID)}">Delete</button>` : ''}</div></article>`).join('') : emptyState('No vacancies match this search.');
+}
+
+function renderRecruitmentApplications() {
+  const query = String(document.querySelector('#recruitmentApplicationSearch')?.value || '').toLowerCase();
+  const status = document.querySelector('#recruitmentApplicationStatus')?.value || '';
+  const rows = (state.recruitment.applications || []).filter((row) => (!status || row.Status === status) && (!query || [row.ApplicationID, row.RobloxUsername, row.Vacancy, row.Status].some((value) => String(value || '').toLowerCase().includes(query))));
+  renderTable('#recruitmentApplicationsTable', rows, ['RobloxUsername', 'Vacancy', 'Status', 'SubmittedAt', 'Reviewer', 'ApplicationID'], { actions: (row) => `<button class="mini" data-review-recruitment-application="${escapeHtml(row.ApplicationID)}">Review</button>` });
+}
+
 function renderDocumentTable() {
   const query = document.querySelector('#documentSearch').value.toLowerCase();
   const currentPath = normalizeFolderPath(state.documentFolder || document.querySelector('#documentCategoryFilter').value);
@@ -3625,6 +3675,78 @@ function openAnnouncementEditor(announcement = {}) {
   ], async (values) => api('saveAnnouncement', values));
 }
 
+function openVacancyEditor(vacancy = {}) {
+  const officers = (state.recruitment.officers || []).map((row) => ({ UserID: row.OfficerID, RobloxUsername: row.RobloxUsername, Rank: row.Rank, Meta: [row.Callsign, row.Tags].filter(Boolean).join(' / ') }));
+  openEditor(vacancy.VacancyID ? 'Edit vacancy' : 'Create vacancy', [
+    hiddenField('VacancyID', vacancy.VacancyID || ''),
+    field('Title', 'Vacancy title', 'text', false, vacancy.Title || ''),
+    field('Team', 'Team / department', 'text', false, vacancy.Team || 'Metropolitan Operations 8'),
+    field('Location', 'Location', 'text', false, vacancy.Location || 'London (Roleplay)'),
+    selectField('VacancyType', 'Who can apply', ['Internal', 'External', 'Internal and External'], vacancy.VacancyType || 'External'),
+    selectField('Status', 'Publication status', ['Draft', 'Open', 'Closed', 'Archived'], vacancy.Status || 'Draft'),
+    field('Positions', 'Number of positions', 'number', false, vacancy.Positions || 1),
+    field('OpensAt', 'Opens at', 'datetime-local', false, localDateTimeValue(vacancy.OpensAt)),
+    field('ClosesAt', 'Closing date', 'datetime-local', false, localDateTimeValue(vacancy.ClosesAt)),
+    field('Summary', 'Short summary', 'textarea', false, vacancy.Summary || ''),
+    field('Description', 'Full role description', 'textarea', true, vacancy.Description || ''),
+    selectField('ReviewerMinRank', 'Reviewer minimum rank', ['', ...OFFICER_RANKS], vacancy.ReviewerMinRank || 'Sergeant'),
+    checkboxGroupField('ReviewerRequiredTags', 'Required reviewer tags', OFFICER_TAGS, vacancy.ReviewerRequiredTags || ''),
+    searchableReferenceCheckboxGroupField('ReviewerOfficerIDs', 'Named reviewers', officers, vacancy.ReviewerOfficerIDs || '', 'Search officer, rank, callsign or tag'),
+    selectField('ReviewerMatch', 'How reviewer rules combine', ['Any', 'All'], vacancy.ReviewerMatch || 'Any'),
+  ], async (values) => api('saveRecruitmentVacancy', values), { successMessage: 'Vacancy saved.', onSuccess: async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); } });
+  elements.editorFields.insertAdjacentHTML('beforeend', '<p class="form-guidance">Choose All when every configured condition must match, for example Inspector+ AND Roads Crime Team. Choose Any when satisfying one configured rule is enough.</p>');
+}
+
+function openRecruitmentFields(vacancyId) {
+  const vacancy = (state.recruitment.vacancies || []).find((row) => row.VacancyID === vacancyId);
+  const fields = (state.recruitment.fields || []).filter((row) => row.VacancyID === vacancyId).sort((a, b) => a.SortOrder - b.SortOrder);
+  showInfo(`Application form / ${vacancy?.Title || 'Vacancy'}`, `<div class="application-field-manager"><div class="section-head"><p>Choose preset questions or build custom fields. Required questions must be completed before submission.</p><button data-add-recruitment-field="${escapeHtml(vacancyId)}">Add question</button></div>${fields.length ? fields.map((row) => `<article><div><span>${escapeHtml(row.FieldType)} / ${row.Required ? 'Required' : 'Optional'}</span><strong>${escapeHtml(row.Label)}</strong><small>${escapeHtml(row.HelpText || row.FieldKey)}</small></div><div class="row-actions"><button class="mini ghost" data-edit-recruitment-field="${escapeHtml(row.FieldID)}">Edit</button><button class="mini danger" data-delete-recruitment-field="${escapeHtml(row.FieldID)}">Delete</button></div></article>`).join('') : '<p class="empty">No additional application questions yet.</p>'}</div>`);
+}
+
+function openRecruitmentFieldEditor(vacancyId, record = {}) {
+  const presets = ['', 'Why do you want this role?', 'What relevant experience do you have?', 'Describe your availability.', 'Give an example of effective teamwork.', 'Scenario response', 'Declaration of accuracy'];
+  openEditor(record.FieldID ? 'Edit application question' : 'Add application question', [
+    hiddenField('FieldID', record.FieldID || ''), hiddenField('VacancyID', vacancyId || record.VacancyID),
+    selectField('Preset', 'Preset question (optional)', presets, ''),
+    field('Label', 'Question / field label', 'text', false, record.Label || ''),
+    field('FieldKey', 'Internal field key', 'text', true, record.FieldKey || ''),
+    field('HelpText', 'Help text', 'text', true, record.HelpText || ''),
+    selectField('FieldType', 'Answer type', ['Short text', 'Long text', 'Yes / No', 'Single choice', 'Multiple choice', 'Date', 'Number'], record.FieldType || 'Long text'),
+    selectField('Required', 'Required', ['TRUE', 'FALSE'], record.Required ? 'TRUE' : 'FALSE'),
+    field('Options', 'Choices (comma separated)', 'textarea', true, record.Options || ''),
+    field('SortOrder', 'Display order', 'number', false, record.SortOrder ?? 0),
+  ], async (values) => api('saveRecruitmentField', values), { successMessage: 'Application question saved.', onSuccess: async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); openRecruitmentFields(vacancyId || record.VacancyID); } });
+  const preset = elements.editorFields.querySelector('[name="Preset"]');
+  preset?.addEventListener('change', () => { const label = elements.editorFields.querySelector('[name="Label"]'); if (preset.value && label && !label.value) label.value = preset.value; });
+}
+
+function recruitmentApplicationFields(vacancy) {
+  return (state.recruitment.fields || []).filter((row) => row.VacancyID === vacancy.VacancyID).sort((a, b) => a.SortOrder - b.SortOrder).map((row) => {
+    if (row.FieldType === 'Long text') return field(row.FieldKey, row.Label, 'textarea', !row.Required);
+    if (row.FieldType === 'Yes / No') return selectField(row.FieldKey, row.Label, ['', 'Yes', 'No']);
+    if (row.FieldType === 'Single choice') return selectField(row.FieldKey, row.Label, ['', ...splitTags(row.Options)]);
+    if (row.FieldType === 'Multiple choice') return checkboxGroupField(row.FieldKey, row.Label, splitTags(row.Options), '');
+    return field(row.FieldKey, row.Label, row.FieldType === 'Date' ? 'date' : row.FieldType === 'Number' ? 'number' : 'text', !row.Required);
+  });
+}
+
+function openInternalRecruitmentApplication(vacancyId) {
+  const vacancy = (state.recruitment.vacancies || []).find((row) => row.VacancyID === vacancyId);
+  if (!vacancy) return;
+  openEditor(`Apply / ${vacancy.Title}`, [hiddenField('VacancyID', vacancyId), ...recruitmentApplicationFields(vacancy)], async (values) => api('submitInternalRecruitmentApplication', values), { successMessage: 'Your application has been submitted.', onSuccess: async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); switchRecruitmentTab('mine'); } });
+}
+
+function openRecruitmentApplicationReview(applicationId) {
+  const row = (state.recruitment.applications || []).find((item) => item.ApplicationID === applicationId);
+  if (!row) return;
+  const vacancy = (state.recruitment.vacancies || []).find((item) => item.VacancyID === row.VacancyID) || {};
+  const fields = (state.recruitment.fields || []).filter((item) => item.VacancyID === row.VacancyID);
+  const label = (key) => fields.find((item) => item.FieldKey === key)?.Label || key;
+  const answers = Object.entries(row.Answers || {}).map(([key, value]) => `<article><span>${escapeHtml(label(key))}</span><p>${escapeHtml(String(value || 'No answer'))}</p></article>`).join('') || '<p class="empty">No additional answers recorded.</p>';
+  openEditor(`Review / ${row.RobloxUsername}`, [hiddenField('ApplicationID', row.ApplicationID), selectField('Status', 'Application status', ['Submitted', 'Under Review', 'Shortlisted', 'Interview', 'Successful', 'Unsuccessful', 'Withdrawn'], row.Status), field('ApplicantMessage', 'Message visible to applicant', 'textarea', true, row.ApplicantMessage), field('PrivateReviewNotes', 'Private reviewer notes', 'textarea', true, row.PrivateReviewNotes)], async (values) => api('reviewRecruitmentApplication', values), { successMessage: 'Application updated and the applicant has been notified.', onSuccess: async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); } });
+  elements.editorFields.insertAdjacentHTML('afterbegin', `<section class="recruitment-review-summary"><header><span>${escapeHtml(row.ApplicationID)}</span><h3>${escapeHtml(row.RobloxUsername)}</h3><p>${escapeHtml(vacancy.Title || row.Vacancy)} / submitted ${escapeHtml(formatDisplayDateTime(row.SubmittedAt))}</p></header>${answers}</section>`);
+}
+
 function openUserEditor(user = {}) {
   openEditor(user.UserID ? 'Edit user' : 'Add user', [
     hiddenField('UserID', user.UserID),
@@ -4482,6 +4604,23 @@ async function handleDocumentClick(event) {
     document.querySelector('#courseBookingsTable')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
+
+  const editVacancy = event.target.closest('[data-edit-vacancy]');
+  if (editVacancy) { const row = (state.recruitment.vacancies || []).find((item) => item.VacancyID === editVacancy.dataset.editVacancy); if (row) openVacancyEditor(row); return; }
+  const deleteVacancy = event.target.closest('[data-delete-vacancy]');
+  if (deleteVacancy) { await confirmDelete('Delete this vacancy and every application submitted to it?', 'deleteRecruitmentVacancy', { VacancyID: deleteVacancy.dataset.deleteVacancy }, loadRecruitment); return; }
+  const manageVacancyFields = event.target.closest('[data-manage-vacancy-fields]');
+  if (manageVacancyFields) { openRecruitmentFields(manageVacancyFields.dataset.manageVacancyFields); return; }
+  const addRecruitmentField = event.target.closest('[data-add-recruitment-field]');
+  if (addRecruitmentField) { elements.infoDialog.close(); openRecruitmentFieldEditor(addRecruitmentField.dataset.addRecruitmentField); return; }
+  const editRecruitmentField = event.target.closest('[data-edit-recruitment-field]');
+  if (editRecruitmentField) { const row = (state.recruitment.fields || []).find((item) => item.FieldID === editRecruitmentField.dataset.editRecruitmentField); if (row) { elements.infoDialog.close(); openRecruitmentFieldEditor(row.VacancyID, row); } return; }
+  const deleteRecruitmentField = event.target.closest('[data-delete-recruitment-field]');
+  if (deleteRecruitmentField) { const row = (state.recruitment.fields || []).find((item) => item.FieldID === deleteRecruitmentField.dataset.deleteRecruitmentField); await confirmDelete('Delete this application question?', 'deleteRecruitmentField', { FieldID: deleteRecruitmentField.dataset.deleteRecruitmentField }, async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); if (row) openRecruitmentFields(row.VacancyID); }); return; }
+  const applyInternalVacancy = event.target.closest('[data-apply-internal-vacancy]');
+  if (applyInternalVacancy) { openInternalRecruitmentApplication(applyInternalVacancy.dataset.applyInternalVacancy); return; }
+  const reviewRecruitmentApplication = event.target.closest('[data-review-recruitment-application]');
+  if (reviewRecruitmentApplication) { openRecruitmentApplicationReview(reviewRecruitmentApplication.dataset.reviewRecruitmentApplication); return; }
 
   const taskCourseBookings = event.target.closest('[data-task-course-bookings]');
   if (taskCourseBookings) {
@@ -5577,6 +5716,13 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       listAnnouncements: supabaseListAnnouncements,
       saveAnnouncement: supabaseSaveAnnouncement,
       deleteAnnouncement: supabaseDeleteAnnouncement,
+      recruitmentHub: supabaseRecruitmentHub,
+      saveRecruitmentVacancy: supabaseSaveRecruitmentVacancy,
+      deleteRecruitmentVacancy: supabaseDeleteRecruitmentVacancy,
+      saveRecruitmentField: supabaseSaveRecruitmentField,
+      deleteRecruitmentField: supabaseDeleteRecruitmentField,
+      submitInternalRecruitmentApplication: supabaseSubmitInternalRecruitmentApplication,
+      reviewRecruitmentApplication: supabaseReviewRecruitmentApplication,
       listUsers: supabaseListUsers,
       listAccountRequests: supabaseListAccountRequests,
       saveUser: supabaseSaveUser,
@@ -6982,7 +7128,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows, genericTaskRows, caseActionRows, operationRows, operationalOfficerActions, operationalUnitMembers] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows, genericTaskRows, caseActionRows, operationRows, operationalOfficerActions, operationalUnitMembers, recruitmentApplications, recruitmentVacancies] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -7007,6 +7153,8 @@ async function supabaseTasks() {
     supabaseOptionalAll('operational_operations'),
     supabaseOptionalAll('operational_officer_actions'),
     supabaseOptionalAll('operational_unit_members'),
+    supabaseOptionalAll('recruitment_applications'),
+    supabaseOptionalAll('recruitment_vacancies'),
   ]);
   const currentProfile = (profiles || []).find((profile) => profile.user_id === state.user?.UserID) || {};
   const currentOfficer = (officers || []).find((officer) => officer.member_id === currentProfile.member_id) || {};
@@ -7123,8 +7271,9 @@ async function supabaseTasks() {
   const actionAmendments = (actionReviewRows || []).filter((row) => row.status === 'Amendments Required' && row.officer_id === currentOfficer.officer_id).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'Operational Action Amendment', AmendmentType: 'Action', ReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: row.action_type, Reason: row.supervisor_feedback || 'Update the action record and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
   const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; return { TaskType: 'Assigned Task', TaskID: row.task_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' }; });
   const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
+  const recruitmentReviews = (recruitmentApplications || []).filter((row) => row.internal_member_id !== currentProfile.member_id && ['Submitted', 'Under Review'].includes(row.status)).map((row) => ({ TaskType: 'Recruitment Application', ApplicationID: row.application_id, Officer: row.roblox_username, Subject: (recruitmentVacancies || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, Reason: 'Application awaiting an authorised recruitment decision.', Status: row.status, EndDate: row.updated_at || row.submitted_at, Priority: 'Normal', IsMine: row.reviewer_user_id === state.user?.UserID, AssignedToMe: true }));
   const authorisedQueue = can('VIEW_TASKS') ? [...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews] : [];
-  const all = prioritizeTasks([...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...assignedTasks, ...caseworkTasks, ...incidentAmendments, ...actionAmendments]);
+  const all = prioritizeTasks([...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...assignedTasks, ...caseworkTasks, ...recruitmentReviews, ...incidentAmendments, ...actionAmendments]);
   const mine = all.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee || row.RelevantSupervisor);
   const available = can('VIEW_TASKS') ? all : mine;
   const dueSoon = mine.filter((row) => row.EndDate && new Date(row.EndDate) <= new Date(Date.now() + 7 * 86400000)).length;
@@ -7482,6 +7631,74 @@ async function supabaseSaveAnnouncement(data) {
 async function supabaseDeleteAnnouncement(data) {
   const { error } = await supabaseClient.from('announcements').delete().eq('announcement_id', data.AnnouncementID);
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseRecruitmentHub() {
+  const [vacancyRows, fieldRows, applicationRows, officers, profiles] = await Promise.all([
+    supabaseOptionalAll('recruitment_vacancies'), supabaseOptionalAll('recruitment_vacancy_fields'), supabaseOptionalAll('recruitment_applications'), supabaseAll('officers'), supabaseAll('profiles'),
+  ]);
+  const profile = (profiles || []).find((row) => row.user_id === state.user?.UserID) || {};
+  const reviewChecks = await Promise.all((vacancyRows || []).map(async (row) => {
+    const { data } = await supabaseClient.rpc('can_review_recruitment_vacancy', { target_vacancy_id: row.vacancy_id });
+    return [row.vacancy_id, Boolean(data)];
+  }));
+  const canReview = new Map(reviewChecks);
+  const fields = (fieldRows || []).map((row) => ({ FieldID: row.field_id, VacancyID: row.vacancy_id, FieldKey: row.field_key, Label: row.label, HelpText: row.help_text || '', FieldType: row.field_type, Required: Boolean(row.required), Options: (row.options || []).join(', '), SortOrder: row.sort_order || 0 }));
+  const applications = (applicationRows || []).map((row) => ({ ApplicationID: row.application_id, VacancyID: row.vacancy_id, Vacancy: (vacancyRows || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, RobloxUsername: row.roblox_username, DiscordID: row.discord_id || '', Answers: row.answers || {}, Status: row.status, ApplicantMessage: row.applicant_message || '', PrivateReviewNotes: row.private_review_notes || '', Reviewer: (profiles || []).find((item) => item.user_id === row.reviewer_user_id)?.roblox_username || '', ReviewerUserID: row.reviewer_user_id || '', SubmittedAt: row.submitted_at, ReviewedAt: row.reviewed_at || '', UpdatedAt: row.updated_at, InternalMemberID: row.internal_member_id || '' }));
+  const vacancies = (vacancyRows || []).map((row) => {
+    const ownApplication = applications.some((item) => item.VacancyID === row.vacancy_id && item.InternalMemberID === profile.member_id && item.Status !== 'Withdrawn');
+    const reviewerRules = [row.reviewer_min_rank ? `${row.reviewer_min_rank}+` : '', ...(row.reviewer_required_tags || []), (row.reviewer_officer_ids || []).length ? `${row.reviewer_officer_ids.length} named` : ''].filter(Boolean);
+    return { VacancyID: row.vacancy_id, Title: row.title, Team: row.team, Location: row.location, Summary: row.summary || '', Description: row.description || '', VacancyType: row.vacancy_type, Status: row.status, OpensAt: row.opens_at || '', ClosesAt: row.closes_at || '', Positions: row.positions || 1, ReviewerMinRank: row.reviewer_min_rank || '', ReviewerRequiredTags: (row.reviewer_required_tags || []).join(', '), ReviewerOfficerIDs: (row.reviewer_officer_ids || []).join(', '), ReviewerMatch: row.reviewer_match || 'Any', ReviewerSummary: reviewerRules.length ? `${reviewerRules.join(` ${row.reviewer_match === 'All' ? 'AND' : 'OR'} `)}` : 'Sergeant+', CanReview: canReview.get(row.vacancy_id), CanApplyInternally: row.status === 'Open' && ['Internal', 'Internal and External'].includes(row.vacancy_type) && !ownApplication, ApplicationCount: applications.filter((item) => item.VacancyID === row.vacancy_id).length, CreatedAt: row.created_at };
+  });
+  return { ok: true, vacancies, fields, applications: applications.filter((row) => canReview.get(row.VacancyID) && row.InternalMemberID !== profile.member_id), myApplications: applications.filter((row) => row.InternalMemberID === profile.member_id), officers: (officers || []).filter((row) => row.status !== 'Archived').map((row) => ({ OfficerID: row.officer_id, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, Tags: (row.tags || []).join(', ') })) };
+}
+
+async function supabaseSaveRecruitmentVacancy(data) {
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Sergeant+ access is required to manage vacancies.' };
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const record = { title: data.Title, team: data.Team || 'Metropolitan Operations 8', location: data.Location || 'London (Roleplay)', summary: data.Summary || '', description: data.Description || '', vacancy_type: data.VacancyType || 'External', status: data.Status || 'Draft', opens_at: data.OpensAt || null, closes_at: data.ClosesAt || null, positions: Math.max(1, Number(data.Positions) || 1), reviewer_min_rank: data.ReviewerMinRank || null, reviewer_required_tags: splitTags(data.ReviewerRequiredTags || ''), reviewer_officer_ids: splitTags(data.ReviewerOfficerIDs || ''), reviewer_match: data.ReviewerMatch || 'Any', updated_at: new Date().toISOString() };
+  if (!data.VacancyID) record.created_by = me.user.UserID;
+  const query = data.VacancyID ? supabaseClient.from('recruitment_vacancies').update(record).eq('vacancy_id', data.VacancyID) : supabaseClient.from('recruitment_vacancies').insert(record);
+  const { error } = await query; return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseDeleteRecruitmentVacancy(data) {
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Sergeant+ access is required.' };
+  const { error } = await supabaseClient.from('recruitment_vacancies').delete().eq('vacancy_id', data.VacancyID);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveRecruitmentField(data) {
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Sergeant+ access is required.' };
+  const key = String(data.FieldKey || data.Label || 'question').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+  const record = { vacancy_id: data.VacancyID, field_key: key, label: data.Label, help_text: data.HelpText || '', field_type: data.FieldType || 'Long text', required: truthy(data.Required), options: splitTags(data.Options || ''), sort_order: Number(data.SortOrder) || 0 };
+  const query = data.FieldID ? supabaseClient.from('recruitment_vacancy_fields').update(record).eq('field_id', data.FieldID) : supabaseClient.from('recruitment_vacancy_fields').insert(record);
+  const { error } = await query; return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseDeleteRecruitmentField(data) {
+  const { error } = await supabaseClient.from('recruitment_vacancy_fields').delete().eq('field_id', data.FieldID);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSubmitInternalRecruitmentApplication(data) {
+  const answers = Object.fromEntries(Object.entries(data).filter(([key]) => key !== 'VacancyID'));
+  const { data: response, error } = await supabaseClient.rpc('submit_internal_recruitment_application', { target_vacancy_id: data.VacancyID, application_answers: answers });
+  if (error) return { ok: false, error: error.message };
+  await sendRecruitmentDiscord('recruitmentSubmittedInternal', response.applicationId);
+  return { ok: true, applicationId: response.applicationId };
+}
+
+async function supabaseReviewRecruitmentApplication(data) {
+  const record = { status: data.Status, applicant_message: data.ApplicantMessage || '', private_review_notes: data.PrivateReviewNotes || '', reviewer_user_id: state.user.UserID, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const { error } = await supabaseClient.from('recruitment_applications').update(record).eq('application_id', data.ApplicationID);
+  if (error) return { ok: false, error: error.message };
+  await sendRecruitmentDiscord('recruitmentStatus', data.ApplicationID);
+  return { ok: true };
+}
+
+async function sendRecruitmentDiscord(action, applicationId) {
+  try { await supabaseClient.functions.invoke('discord-alerts', { body: { action, applicationId } }); } catch (_) {}
 }
 
 async function supabaseListUsers() {
