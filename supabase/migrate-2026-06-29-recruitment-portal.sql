@@ -91,20 +91,14 @@ declare
   vacancy public.recruitment_vacancies;
   officer public.officers;
   profile public.profiles;
-  checks boolean[] := '{}';
 begin
   select * into vacancy from public.recruitment_vacancies where vacancy_id = target_vacancy_id;
   select * into profile from public.profiles where auth_user_id = auth.uid() limit 1;
   if vacancy is null or profile is null then return false; end if;
-  if public.has_permission('FULL_ACCESS') then return true; end if;
+  if vacancy.created_by = profile.user_id then return true; end if;
   select * into officer from public.officers where member_id = profile.member_id limit 1;
   if officer is null then return false; end if;
-  if coalesce(array_length(vacancy.reviewer_officer_ids, 1), 0) > 0 then checks := array_append(checks, officer.officer_id = any(vacancy.reviewer_officer_ids)); end if;
-  if vacancy.reviewer_min_rank is not null and vacancy.reviewer_min_rank <> '' then checks := array_append(checks, public.recruitment_rank_index(officer.rank) >= public.recruitment_rank_index(vacancy.reviewer_min_rank)); end if;
-  if coalesce(array_length(vacancy.reviewer_required_tags, 1), 0) > 0 then checks := array_append(checks, vacancy.reviewer_required_tags <@ coalesce(officer.tags, '{}')); end if;
-  if coalesce(array_length(checks, 1), 0) = 0 then return public.has_permission('VIEW_TASKS'); end if;
-  if vacancy.reviewer_match = 'All' then return not (false = any(checks)); end if;
-  return true = any(checks);
+  return officer.officer_id = any(coalesce(vacancy.reviewer_officer_ids, '{}'));
 end;
 $$;
 

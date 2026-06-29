@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-6';
+const APP_VERSION = '2026-06-29-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3709,12 +3709,9 @@ function openVacancyEditor(vacancy = {}) {
     field('ClosesAt', 'Closing date (London time)', 'datetime-local', false, localDateTimeValue(vacancy.ClosesAt)),
     field('Summary', 'Short summary', 'textarea', false, vacancy.Summary || ''),
     field('Description', 'Full role description', 'textarea', true, vacancy.Description || ''),
-    selectField('ReviewerMinRank', 'Reviewer minimum rank', ['', ...OFFICER_RANKS], vacancy.ReviewerMinRank || 'Sergeant'),
-    checkboxGroupField('ReviewerRequiredTags', 'Required reviewer tags', OFFICER_TAGS, vacancy.ReviewerRequiredTags || ''),
-    searchableReferenceCheckboxGroupField('ReviewerOfficerIDs', 'Named reviewers', officers, vacancy.ReviewerOfficerIDs || '', 'Search officer, rank, callsign or tag'),
-    selectField('ReviewerMatch', 'How reviewer rules combine', ['Any', 'All'], vacancy.ReviewerMatch || 'Any'),
+    searchableReferenceCheckboxGroupField('ReviewerOfficerIDs', 'Additional officers who can review applications', officers, vacancy.ReviewerOfficerIDs || '', 'Search officer, rank, callsign or tag'),
   ], async (values) => api('saveRecruitmentVacancy', values), { successMessage: 'Vacancy saved.', onSuccess: async () => { invalidateCache('recruitmentHub'); await loadRecruitment(); } });
-  elements.editorFields.insertAdjacentHTML('beforeend', '<p class="form-guidance">Choose All when every configured condition must match, for example Inspector+ AND Roads Crime Team. Choose Any when satisfying one configured rule is enough.</p>');
+  elements.editorFields.insertAdjacentHTML('beforeend', '<p class="form-guidance">The officer creating this vacancy always has access to its applications. Select any additional officers who should be able to read and review them.</p>');
 }
 
 function openRecruitmentFields(vacancyId) {
@@ -7689,9 +7686,11 @@ async function supabaseRecruitmentHub() {
   const applications = (applicationRows || []).map((row) => ({ ApplicationID: row.application_id, VacancyID: row.vacancy_id, Vacancy: (vacancyRows || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, RobloxUsername: row.roblox_username, DiscordID: row.discord_id || '', Answers: row.answers || {}, Status: row.status, ApplicantMessage: row.applicant_message || '', PrivateReviewNotes: row.private_review_notes || '', Reviewer: (profiles || []).find((item) => item.user_id === row.reviewer_user_id)?.roblox_username || '', ReviewerUserID: row.reviewer_user_id || '', SubmittedAt: row.submitted_at, ReviewedAt: row.reviewed_at || '', UpdatedAt: row.updated_at, InternalMemberID: row.internal_member_id || '' }));
   const vacancies = (vacancyRows || []).map((row) => {
     const ownApplication = applications.some((item) => item.VacancyID === row.vacancy_id && item.InternalMemberID === profile.member_id && item.Status !== 'Withdrawn');
-    const reviewerRules = [row.reviewer_min_rank ? `${row.reviewer_min_rank}+` : '', ...(row.reviewer_required_tags || []), (row.reviewer_officer_ids || []).length ? `${row.reviewer_officer_ids.length} named` : ''].filter(Boolean);
+    const creator = (profiles || []).find((item) => item.user_id === row.created_by)?.roblox_username || 'Posting creator';
+    const namedReviewers = (row.reviewer_officer_ids || []).map((id) => (officers || []).find((item) => item.officer_id === id)?.roblox_username).filter(Boolean).filter((name) => name !== creator);
+    const reviewerSummary = [`${creator} (creator)`, ...namedReviewers].join(', ');
     const publicListing = row.status !== 'Open' ? `Not public: ${row.status}` : row.vacancy_type === 'Internal' ? 'Internal only' : row.opens_at && new Date(row.opens_at) > new Date() ? `Scheduled for ${formatDisplayDateTime(row.opens_at)}` : row.closes_at && new Date(row.closes_at) < new Date() ? 'Closing date passed' : 'Published publicly';
-    return { VacancyID: row.vacancy_id, Title: row.title, Team: row.team, Location: row.location, Summary: row.summary || '', Description: row.description || '', VacancyType: row.vacancy_type, Status: row.status, PublicListing: publicListing, OpensAt: row.opens_at || '', ClosesAt: row.closes_at || '', Positions: row.positions || 1, ReviewerMinRank: row.reviewer_min_rank || '', ReviewerRequiredTags: (row.reviewer_required_tags || []).join(', '), ReviewerOfficerIDs: (row.reviewer_officer_ids || []).join(', '), ReviewerMatch: row.reviewer_match || 'Any', ReviewerSummary: reviewerRules.length ? `${reviewerRules.join(` ${row.reviewer_match === 'All' ? 'AND' : 'OR'} `)}` : 'Sergeant+', CanReview: canReview.get(row.vacancy_id), CanApplyInternally: row.status === 'Open' && ['Internal', 'Internal and External'].includes(row.vacancy_type) && !ownApplication, HasInternalApplication: ownApplication, ApplicationCount: applications.filter((item) => item.VacancyID === row.vacancy_id).length, CreatedAt: row.created_at };
+    return { VacancyID: row.vacancy_id, Title: row.title, Team: row.team, Location: row.location, Summary: row.summary || '', Description: row.description || '', VacancyType: row.vacancy_type, Status: row.status, PublicListing: publicListing, OpensAt: row.opens_at || '', ClosesAt: row.closes_at || '', Positions: row.positions || 1, ReviewerOfficerIDs: (row.reviewer_officer_ids || []).join(', '), ReviewerSummary: reviewerSummary, CanReview: canReview.get(row.vacancy_id), CanApplyInternally: row.status === 'Open' && ['Internal', 'Internal and External'].includes(row.vacancy_type) && !ownApplication, HasInternalApplication: ownApplication, ApplicationCount: applications.filter((item) => item.VacancyID === row.vacancy_id).length, CreatedAt: row.created_at };
   });
   return { ok: true, vacancies, fields, applications: applications.filter((row) => canReview.get(row.VacancyID) && row.InternalMemberID !== profile.member_id), myApplications: applications.filter((row) => row.InternalMemberID === profile.member_id), officers: (officers || []).filter((row) => row.status !== 'Archived').map((row) => ({ OfficerID: row.officer_id, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, Tags: (row.tags || []).join(', ') })) };
 }
@@ -7699,7 +7698,7 @@ async function supabaseRecruitmentHub() {
 async function supabaseSaveRecruitmentVacancy(data) {
   if (!can('VIEW_TASKS')) return { ok: false, error: 'Sergeant+ access is required to manage vacancies.' };
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
-  const record = { title: data.Title, team: data.Team || 'Metropolitan Operations 8', location: data.Location || 'London (Roleplay)', summary: data.Summary || '', description: data.Description || '', vacancy_type: data.VacancyType || 'External', status: data.Status || 'Draft', opens_at: data.OpensAt || null, closes_at: data.ClosesAt || null, positions: Math.max(1, Number(data.Positions) || 1), reviewer_min_rank: data.ReviewerMinRank || null, reviewer_required_tags: splitTags(data.ReviewerRequiredTags || ''), reviewer_officer_ids: splitTags(data.ReviewerOfficerIDs || ''), reviewer_match: data.ReviewerMatch || 'Any', updated_at: new Date().toISOString() };
+  const record = { title: data.Title, team: data.Team || 'Metropolitan Operations 8', location: data.Location || 'London (Roleplay)', summary: data.Summary || '', description: data.Description || '', vacancy_type: data.VacancyType || 'External', status: data.Status || 'Draft', opens_at: data.OpensAt || null, closes_at: data.ClosesAt || null, positions: Math.max(1, Number(data.Positions) || 1), reviewer_min_rank: null, reviewer_required_tags: [], reviewer_officer_ids: splitTags(data.ReviewerOfficerIDs || ''), reviewer_match: 'Any', updated_at: new Date().toISOString() };
   if (!data.VacancyID) record.created_by = me.user.UserID;
   const query = data.VacancyID ? supabaseClient.from('recruitment_vacancies').update(record).eq('vacancy_id', data.VacancyID) : supabaseClient.from('recruitment_vacancies').insert(record);
   const { error } = await query; return error ? { ok: false, error: error.message } : { ok: true };
