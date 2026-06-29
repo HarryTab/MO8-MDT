@@ -99,7 +99,7 @@ async function openApplication(vacancyId) {
   if (!state.vacancy || state.vacancy.vacancy_id !== vacancyId) await openVacancy(vacancyId);
   const row = state.vacancy;
   $('#applicationTitle').textContent = row.title;
-  $('#applicationFields').innerHTML = (row.fields || []).map(renderField).join('') || '<p>No additional questions are required for this role.</p>';
+  $('#applicationFields').innerHTML = `<aside class="applicant-identity"><span>Applying as</span><strong>${escapeHtml(state.applicant.username)}</strong><small>Discord ID ${escapeHtml(state.applicant.discordId)} / supplied automatically from your recruitment account</small></aside>${(row.fields || []).map(renderField).join('') || '<p>No additional questions are required for this role.</p>'}`;
   $('#applicationStatus').textContent = '';
   $('#applicationDialog').showModal();
 }

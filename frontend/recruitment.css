@@ -10,12 +10,16 @@
 .recruitment-vacancy-card header { display: grid; gap: 4px; }
 .recruitment-vacancy-card header span { color: #60748a; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .recruitment-vacancy-card header strong { color: var(--ink); font-size: 17px; }
+.publication-state { justify-self: start; padding: 4px 7px; color: #775719; background: #fff4d6; border: 1px solid #dbc487; border-radius: 3px; font-size: 10px; font-style: normal; font-weight: 850; }
+.publication-state.published { color: #1e683d; background: #e8f6ed; border-color: #9dc9ad; }
 .recruitment-vacancy-card p { margin: 0; color: var(--muted); line-height: 1.45; }
 .recruitment-vacancy-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--line); border: 1px solid var(--line); }
 .recruitment-vacancy-card dl div { padding: 8px; background: #f7f9fb; }
 .recruitment-vacancy-card dt { color: #6b7b8b; font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .recruitment-vacancy-card dd { margin: 3px 0 0; color: #293d50; font-size: 11px; font-weight: 750; }
 .application-field-manager { display: grid; gap: 8px; }
+.automatic-applicant-fields { display: grid; gap: 3px; padding: 10px 12px; color: #27425b; background: #edf5fb; border-left: 4px solid #3976a6; }
+.automatic-applicant-fields span { color: #536d83; font-size: 11px; }
 .application-field-manager > article { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px; background: #f6f8fa; border: 1px solid #ccd5dc; }
 .application-field-manager article > div:first-child { display: grid; gap: 3px; }
 .application-field-manager article span { color: #58728b; font-size: 9px; font-weight: 900; text-transform: uppercase; }

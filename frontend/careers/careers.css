@@ -70,6 +70,9 @@ dialog header { display: flex; align-items: flex-start; justify-content: space-b
 dialog header span { color: var(--blue); font-size: 11px; font-weight: 700; text-transform: uppercase; }
 dialog h2 { margin: 4px 0 0; }
 .application-fields { display: grid; gap: 16px; margin: 20px 0; }
+.applicant-identity { display: grid; gap: 3px; padding: 12px; color: #213b55; background: #edf4fa; border-left: 4px solid var(--blue); }
+.applicant-identity span { color: #567086; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.applicant-identity small { color: #607387; }
 .application-fields fieldset { margin: 0; padding: 12px; border: 1px solid var(--line); }
 .application-fields fieldset label { display: flex; grid-template-columns: auto 1fr; align-items: center; }
 .application-fields input[type="checkbox"], .application-fields input[type="radio"] { width: 16px; min-height: 16px; }

@@ -139,7 +139,7 @@ returns jsonb language sql security definer set search_path = public as $$
 $$;
 
 create or replace function public.recruitment_register(applicant_username text, applicant_discord_id text, applicant_password text)
-returns jsonb language plpgsql security definer set search_path = public as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare account public.recruitment_accounts; token uuid;
 begin
   if length(trim(applicant_username)) < 3 or length(trim(applicant_username)) > 40 then raise exception 'Enter a valid Roblox username.'; end if;
@@ -155,7 +155,7 @@ end;
 $$;
 
 create or replace function public.recruitment_login(applicant_username text, applicant_password text)
-returns jsonb language plpgsql security definer set search_path = public as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare account public.recruitment_accounts; token uuid;
 begin
   select * into account from public.recruitment_accounts where username_normalised = lower(trim(applicant_username)) and status = 'Active';
