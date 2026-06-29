@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-4';
+const APP_VERSION = '2026-06-29-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -3685,8 +3685,8 @@ function openVacancyEditor(vacancy = {}) {
     selectField('VacancyType', 'Who can apply', ['Internal', 'External', 'Internal and External'], vacancy.VacancyType || 'External'),
     selectField('Status', 'Publication status', ['Open', 'Draft', 'Closed', 'Archived'], vacancy.Status || 'Open'),
     field('Positions', 'Number of positions', 'number', false, vacancy.Positions || 1),
-    field('OpensAt', 'Opens at', 'datetime-local', false, localDateTimeValue(vacancy.OpensAt)),
-    field('ClosesAt', 'Closing date', 'datetime-local', false, localDateTimeValue(vacancy.ClosesAt)),
+    field('OpensAt', 'Opens at (London time)', 'datetime-local', false, localDateTimeValue(vacancy.OpensAt)),
+    field('ClosesAt', 'Closing date (London time)', 'datetime-local', false, localDateTimeValue(vacancy.ClosesAt)),
     field('Summary', 'Short summary', 'textarea', false, vacancy.Summary || ''),
     field('Description', 'Full role description', 'textarea', true, vacancy.Description || ''),
     selectField('ReviewerMinRank', 'Reviewer minimum rank', ['', ...OFFICER_RANKS], vacancy.ReviewerMinRank || 'Sergeant'),
@@ -5357,9 +5357,12 @@ function formatDisplayDate(value) {
 
 function formatDisplayDateTime(value) {
   const input = String(value || '').trim();
+  const localMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::\d{2})?$/);
+  if (localMatch) return `${localMatch[3]}/${localMatch[2]}/${localMatch[1]} ${localMatch[4]}:${localMatch[5]}`;
   const date = new Date(input);
   if (!Number.isNaN(date.getTime())) {
-    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const parts = londonDateTimeParts(date);
+    return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
   }
   const isoMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
   if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]} ${isoMatch[4]}:${isoMatch[5]}`;
@@ -5382,9 +5385,28 @@ function dateInputValue(value) {
 }
 
 function localDateTimeValue(value) {
+  const input = String(value || '').trim();
+  const localMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (localMatch && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(input)) return `${localMatch[1]}-${localMatch[2]}-${localMatch[3]}T${localMatch[4]}:${localMatch[5]}`;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const parts = londonDateTimeParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function londonDateTimeParts(date) {
+  const formatter = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return Object.fromEntries(formatter.formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+}
+
+function londonLocalDateTimeToIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return value || '';
+  const utcWallTime = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0));
+  const zoneName = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', timeZoneName: 'longOffset' }).formatToParts(new Date(utcWallTime)).find((part) => part.type === 'timeZoneName')?.value || 'GMT';
+  const offset = zoneName.match(/GMT([+-])(\d{2}):?(\d{2})?/);
+  const offsetMinutes = offset ? (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3] || 0)) : 0;
+  return new Date(utcWallTime - offsetMinutes * 60000).toISOString();
 }
 
 function openEditor(title, fields, onSubmit, options = {}) {
@@ -5392,7 +5414,8 @@ function openEditor(title, fields, onSubmit, options = {}) {
   elements.editorStatus.textContent = '';
   elements.editorFields.innerHTML = fields.map((item) => item.html).join('');
   const draftEnabled = options.persistDraft !== false && !elements.editorFields.querySelector('input[type="password"], input[type="file"]');
-  const draftKey = `mo8_editor_draft:${state.user?.UserID || 'anonymous'}:${title}`;
+  const recordIdentity = [...elements.editorFields.querySelectorAll('input[type="hidden"][name]')].map((input) => `${input.name}=${input.value}`).filter((value) => !value.endsWith('=')).join('&');
+  const draftKey = options.draftKey || `mo8_editor_draft:${state.user?.UserID || 'anonymous'}:${title}:${recordIdentity || 'new'}`;
   if (draftEnabled) {
     try {
       const draft = JSON.parse(sessionStorage.getItem(draftKey) || 'null');
@@ -5465,6 +5488,9 @@ function formValues(form) {
     } else {
       values[key] = value;
     }
+  });
+  form.querySelectorAll('input[type="datetime-local"][name]').forEach((input) => {
+    if (input.value) values[input.name] = londonLocalDateTimeToIso(input.value);
   });
   return values;
 }
