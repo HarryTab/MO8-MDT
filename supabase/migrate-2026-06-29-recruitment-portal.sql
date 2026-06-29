@@ -56,7 +56,7 @@ create table if not exists public.recruitment_applications (
   application_id text primary key default ('APP_' || replace(gen_random_uuid()::text, '-', '')),
   vacancy_id text not null references public.recruitment_vacancies(vacancy_id) on delete cascade,
   applicant_account_id uuid references public.recruitment_accounts(account_id) on delete set null,
-  internal_member_id text references public.members(member_id) on delete set null,
+  internal_member_id text,
   roblox_username text not null,
   username_normalised text generated always as (lower(trim(roblox_username))) stored,
   discord_id text not null default '',
