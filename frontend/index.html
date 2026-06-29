@@ -514,6 +514,7 @@
                 <div><small>Met Operations 8</small><strong>CONTROL / CAD</strong></div>
               </div>
               <div id="opsSummary" class="ops-summary"></div>
+              <div id="opsPresence" class="ops-presence" aria-live="polite"></div>
               <div class="ops-actions">
                 <input id="opsCommandSearch" type="search" placeholder="Search MDT" aria-label="Search the MDT">
                 <button class="ghost" id="opsControllerButton">Book on control</button>
@@ -527,6 +528,7 @@
               <button class="active" data-ops-workspace="live">Live CAD <span id="opsLiveCount">0</span></button>
               <button data-ops-workspace="units">Units</button>
               <button data-ops-workspace="control">Control Room</button>
+              <button data-ops-workspace="comms">Comms <span id="opsCommsCount">0</span></button>
               <button data-ops-workspace="actions">Work Queue <span id="opsActionCount">0</span></button>
               <button data-ops-workspace="casework">Casework</button>
               <button data-ops-workspace="deployments">Deployments</button>
@@ -583,6 +585,31 @@
                 <article class="cad-page-panel"><div class="cad-panel-title"><h3>Incident queue</h3></div><div id="opsControlIncidents" class="control-table"></div></article>
               </div>
               <article class="cad-page-panel control-event-panel"><div class="cad-panel-title"><div><small>Auditable control record</small><h3>Controller event log</h3></div></div><div id="opsControlEvents" class="control-event-log"></div></article>
+            </section>
+
+            <section class="cad-workspace" data-ops-panel="comms" hidden>
+              <div class="cad-page-head"><div><small>Live operational traffic</small><h2>Radio and dispatch feed</h2><p>Structured messages are retained against channels, units and CAD records.</p></div><span id="opsCommsLiveState" class="cad-live-state">Connecting</span></div>
+              <div class="comms-console">
+                <aside class="cad-page-panel comms-channels">
+                  <h3>Channels</h3>
+                  <button class="active" data-comms-channel="">All traffic</button>
+                  <button data-comms-channel="Main">Main</button>
+                  <button data-comms-channel="Control">Control</button>
+                  <button data-comms-channel="Tactical">Tactical</button>
+                  <button data-comms-channel="Supervisors">Supervisors</button>
+                </aside>
+                <main class="cad-page-panel comms-feed-panel">
+                  <div class="comms-toolbar"><input id="opsCommsSearch" type="search" placeholder="Search messages, callsigns or CAD references"><select id="opsCommsPriority"><option value="">All priorities</option><option>Urgent</option><option>High</option><option>Normal</option><option>Low</option></select></div>
+                  <div id="opsCommsFeed" class="comms-feed"></div>
+                  <form id="opsCommsForm" class="comms-composer">
+                    <select name="Channel" aria-label="Radio channel"><option>Main</option><option>Control</option><option>Tactical</option><option>Supervisors</option></select>
+                    <select name="Priority" aria-label="Message priority"><option>Normal</option><option>High</option><option>Urgent</option><option>Low</option></select>
+                    <input name="Message" required maxlength="1000" placeholder="Transmit message">
+                    <button type="submit">Transmit</button>
+                  </form>
+                </main>
+                <aside class="cad-page-panel comms-context"><h3>Current context</h3><div id="opsCommsContext"></div></aside>
+              </div>
             </section>
 
             <section class="cad-workspace" data-ops-panel="actions" hidden>

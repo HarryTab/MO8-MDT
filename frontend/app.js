@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-7';
+const APP_VERSION = '2026-06-29-8';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -101,6 +101,10 @@ const state = {
   selectedIntelEntity: null,
   cadDetailTab: 'overview',
   opsContextTab: 'units',
+  opsCommsChannel: '',
+  opsRealtimeChannel: null,
+  opsPresenceUsers: [],
+  opsRealtimeRefreshTimer: null,
   officers: [],
   training: [],
   trainingSummary: [],
@@ -313,7 +317,7 @@ document.querySelector('#recruitmentVacancySearch')?.addEventListener('input', r
 document.querySelector('#recruitmentApplicationSearch')?.addEventListener('input', renderRecruitmentApplications);
 document.querySelector('#recruitmentApplicationStatus')?.addEventListener('change', renderRecruitmentApplications);
 document.querySelector('#startShiftButton').addEventListener('click', startShift);
-document.querySelector('#endShiftButton').addEventListener('click', openEndShiftEditor);
+document.querySelector('#endShiftButton').addEventListener('click', () => openEndShiftEditor());
 document.querySelector('#requestRetrospectiveShiftButton')?.addEventListener('click', openRetrospectiveShiftEditor);
 document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
@@ -363,6 +367,14 @@ document.querySelector('#opsReferenceSearch')?.addEventListener('input', debounc
 document.querySelector('#opsReferenceType')?.addEventListener('change', renderOpsReference);
 document.querySelector('#opsIntelType')?.addEventListener('change', renderOpsIntelSearch);
 document.querySelector('#opsIntelBackButton')?.addEventListener('click', showOpsIntelOverview);
+document.querySelector('#opsCommsSearch')?.addEventListener('input', debounce(renderOpsComms, 100));
+document.querySelector('#opsCommsPriority')?.addEventListener('change', renderOpsComms);
+document.querySelectorAll('[data-comms-channel]').forEach((button) => button.addEventListener('click', () => {
+  state.opsCommsChannel = button.dataset.commsChannel || '';
+  document.querySelectorAll('[data-comms-channel]').forEach((item) => item.classList.toggle('active', item === button));
+  renderOpsComms();
+}));
+document.querySelector('#opsCommsForm')?.addEventListener('submit', submitOpsCommsMessage);
 document.querySelector('#opsLiveSearch')?.addEventListener('input', renderOpsCallQueue);
 document.querySelector('#opsLivePriority')?.addEventListener('change', renderOpsCallQueue);
 document.querySelector('#opsLiveStatus')?.addEventListener('change', renderOpsCallQueue);
@@ -538,6 +550,7 @@ function wait(ms) {
 }
 
 function showLogin() {
+  stopOperationsRealtime();
   document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
   document.body.classList.remove('is-officer-portal');
@@ -556,6 +569,7 @@ function showLogin() {
 }
 
 function showHubSelector() {
+  stopOperationsRealtime();
   document.body.classList.remove('is-booting');
   document.body.classList.add('is-authenticated');
   document.body.classList.remove('operations-mode');
@@ -582,6 +596,7 @@ function showHubSelector() {
 }
 
 async function enterPersonnelHub() {
+  stopOperationsRealtime();
   state.activeHub = 'personnel';
   document.body.classList.remove('operations-mode');
   document.body.classList.remove('hub-select-mode');
@@ -604,6 +619,7 @@ async function enterOperationsHub() {
   elements.pageSubtitle.textContent = 'Live units, dispatch incidents and operational alerts';
   if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = 'Operations';
   await loadOperationsHub();
+  startOperationsRealtime();
   applyPermissions();
 }
 
@@ -1546,6 +1562,7 @@ async function loadOperationsHub(force = false) {
   document.querySelector('#opsLiveCount').textContent = String(response.incidents?.length || 0);
   document.querySelector('#opsReviewCount').textContent = String((response.reviews || []).filter((row) => ['Pending', 'Amendments Required'].includes(row.ReviewStatus)).length + (response.actionReviews || []).length);
   document.querySelector('#opsActionCount').textContent = String((response.actionQueue || []).filter((row) => !['Completed', 'Cancelled'].includes(row.Status)).length);
+  document.querySelector('#opsCommsCount').textContent = String((response.messages || []).filter((row) => ['Urgent', 'High'].includes(row.Priority)).length);
   document.querySelector('#opsUnits').innerHTML = (response.units || []).length ? response.units.map(opsUnitCard).join('') : emptyState('No officers are currently on duty.');
   document.querySelector('#opsUnitsFull').innerHTML = (response.units || []).length ? response.units.map(opsUnitCard).join('') : emptyState('No officers are currently on duty.');
   document.querySelector('#opsBolos').innerHTML = (response.bolos || []).length ? response.bolos.map(opsBoloCard).join('') : emptyState('No active BOLOs.');
@@ -1566,6 +1583,7 @@ async function loadOperationsHub(force = false) {
   renderOpsDataQuality();
   renderOpsCallsignBoard();
   renderOpsControlRoom();
+  renderOpsComms();
   renderOpsActionQueue();
   renderOpsCasework();
   renderOpsDeployments();
@@ -1603,6 +1621,8 @@ function renderOpsCallQueue() {
 
 function renderOpsIncidentWorkspace(row) {
   state.selectedOperationalIncidentId = row.IncidentID;
+  updateOperationsPresence();
+  renderOperationsPresence();
   const isClosed = ['Resolved', 'Cancelled'].includes(row.Status);
   const logs = [...(row.Logs || [])].sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt));
   const command = row.CommandRoles || {};
@@ -1805,6 +1825,15 @@ function renderOpsRelationshipView(entityType, entityId) {
     const source = link.SubjectType === 'Person' ? (state.operationsHub.people || []).find((row) => row.PersonID === link.SubjectID) : (state.operationsHub.vehicles || []).find((row) => row.VehicleID === link.SubjectID);
     return { EntityType: link.SubjectType, EntityID: link.SubjectID, Label: link.SubjectType === 'Person' ? source?.DisplayName : source?.Registration, InvolvementRole: link.Relationship };
   }).filter((row) => row.Label));
+  const explicitRelationships = (state.operationsHub.relationships || []).filter((row) =>
+    (row.SourceType === entityType && row.SourceID === entityId) || (row.TargetType === entityType && row.TargetID === entityId)
+  ).map((row) => {
+    const fromSource = row.SourceType === entityType && row.SourceID === entityId;
+    const otherType = fromSource ? row.TargetType : row.SourceType;
+    const otherId = fromSource ? row.TargetID : row.SourceID;
+    return { ...row, OtherType: otherType, OtherID: otherId, OtherLabel: operationalRelationshipLabel(otherType, otherId) };
+  });
+  connectedEntities = connectedEntities.concat(explicitRelationships.map((row) => ({ EntityType: row.OtherType, EntityID: row.OtherID, Label: row.OtherLabel, InvolvementRole: `${row.RelationshipType} / ${row.Confidence}` })));
   connectedEntities = [...new Map(connectedEntities.map((row) => [`${row.EntityType}:${row.EntityID}`, row])).values()];
   const operations = selectedOperation ? [selectedOperation] : (state.operationsHub.operations || []).filter((operation) => (operation.Links || []).some((link) => (link.SubjectType === entityType && link.SubjectID === entityId) || (link.SubjectType === 'Incident' && incidents.some((incident) => incident.IncidentID === link.SubjectID))));
   const disposals = incidents.flatMap((incident) => (incident.Disposals || []).map((row) => ({ ...row, IncidentNumber: incident.IncidentNumber })));
@@ -1813,7 +1842,7 @@ function renderOpsRelationshipView(entityType, entityId) {
   const offenceCounts = disposals.filter((row) => row.Offence).reduce((counts, row) => ({ ...counts, [row.Offence]: (counts[row.Offence] || 0) + 1 }), {});
   const commonOffence = Object.entries(offenceCounts).sort((a, b) => b[1] - a[1])[0];
   detail.Subtitle = [detail.Subtitle, `${incidents.length} CAD contact${incidents.length === 1 ? '' : 's'}`, `${fpnCount} FPN`, `${arrestCount} arrest${arrestCount === 1 ? '' : 's'}`, commonOffence ? `Most recorded: ${commonOffence[0]} (${commonOffence[1]})` : ''].filter(Boolean).join(' / ');
-  container.innerHTML = `<div class="relationship-core"><span>${escapeHtml(entityType)}</span><strong>${escapeHtml(detail.Title)}</strong><small>${escapeHtml(detail.Subtitle || '')}</small></div><div class="relationship-columns"><section><h4>Connected CADs</h4>${incidents.map((row) => `<button data-open-cad="${escapeHtml(row.IncidentID)}">${escapeHtml(row.IncidentNumber)}<small>${escapeHtml(row.Title)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>People and vehicles</h4>${connectedEntities.map((row) => `<button data-open-intel-entity="${escapeHtml(row.EntityType)}:${escapeHtml(row.EntityID)}">${escapeHtml(row.Label)}<small>${escapeHtml(row.InvolvementRole)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>Operations</h4>${operations.map((row) => `<button data-open-intel-entity="Operation:${escapeHtml(row.OperationID)}">${escapeHtml(row.Reference)}<small>${escapeHtml(row.Name)}</small></button>`).join('') || '<p>None</p>'}</section></div><div class="relationship-timeline"><h4>Entity timeline</h4>${incidents.sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt)).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><strong>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Location || '')} / ${escapeHtml(row.Status)}</small></article>`).join('')}${disposals.map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.IssuedAt))}</time><strong>${escapeHtml(row.OutcomeType)} / ${escapeHtml(row.Offence || 'No offence')}</strong><small>${escapeHtml(row.IncidentNumber)}</small></article>`).join('')}</div><div class="row-actions">${['Person', 'Vehicle'].includes(entityType) ? `<button class="ghost" data-edit-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Edit record</button>` : ''}${['Person', 'Vehicle'].includes(entityType) && can('VIEW_TASKS') ? `<button data-add-intel-marker="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Add marker</button><button class="ghost" data-merge-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Merge duplicate</button>` : ''}${entityType === 'Offence' && can('VIEW_TASKS') ? `<button data-edit-intel-entity="Offence:${escapeHtml(entityId)}">Edit offence</button>` : ''}${entityType === 'Operation' && can('VIEW_TASKS') ? `<button data-link-operation="${escapeHtml(entityId)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(entityId)}">Edit operation</button>` : ''}</div>`;
+  container.innerHTML = `${opsRelationshipGraph(entityType, entityId, detail.Title, connectedEntities, incidents, operations)}<div class="relationship-core"><span>${escapeHtml(entityType)}</span><strong>${escapeHtml(detail.Title)}</strong><small>${escapeHtml(detail.Subtitle || '')}</small></div><div class="relationship-columns"><section><h4>Connected CADs</h4>${incidents.map((row) => `<button data-open-cad="${escapeHtml(row.IncidentID)}">${escapeHtml(row.IncidentNumber)}<small>${escapeHtml(row.Title)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>People and vehicles</h4>${connectedEntities.map((row) => `<button data-open-intel-entity="${escapeHtml(row.EntityType)}:${escapeHtml(row.EntityID)}">${escapeHtml(row.Label)}<small>${escapeHtml(row.InvolvementRole)}</small></button>`).join('') || '<p>None</p>'}</section><section><h4>Operations</h4>${operations.map((row) => `<button data-open-intel-entity="Operation:${escapeHtml(row.OperationID)}">${escapeHtml(row.Reference)}<small>${escapeHtml(row.Name)}</small></button>`).join('') || '<p>None</p>'}</section></div><section class="explicit-relationships"><div class="cad-panel-title"><div><small>Analyst-maintained links</small><h4>Recorded relationships</h4></div><button data-add-operational-relationship="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Add relationship</button></div>${explicitRelationships.map((row) => `<article><button data-open-intel-entity="${escapeHtml(row.OtherType)}:${escapeHtml(row.OtherID)}"><strong>${escapeHtml(row.OtherLabel)}</strong><span>${escapeHtml(row.RelationshipType)} / ${escapeHtml(row.Confidence)}</span><small>${escapeHtml(row.Notes || '')}</small></button><div><button class="mini ghost" data-edit-operational-relationship="${escapeHtml(row.RelationshipID)}">Edit</button><button class="mini danger" data-delete-operational-relationship="${escapeHtml(row.RelationshipID)}">Delete</button></div></article>`).join('') || '<p class="empty">No explicit relationships have been recorded.</p>'}</section><div class="relationship-timeline"><h4>Entity timeline</h4>${incidents.sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt)).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><strong>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Location || '')} / ${escapeHtml(row.Status)}</small></article>`).join('')}${disposals.map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.IssuedAt))}</time><strong>${escapeHtml(row.OutcomeType)} / ${escapeHtml(row.Offence || 'No offence')}</strong><small>${escapeHtml(row.IncidentNumber)}</small></article>`).join('')}</div><div class="row-actions">${['Person', 'Vehicle'].includes(entityType) ? `<button class="ghost" data-edit-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Edit record</button>` : ''}${['Person', 'Vehicle'].includes(entityType) && can('VIEW_TASKS') ? `<button data-add-intel-marker="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Add marker</button><button class="ghost" data-merge-intel-entity="${escapeHtml(entityType)}:${escapeHtml(entityId)}">Merge duplicate</button>` : ''}${entityType === 'Offence' && can('VIEW_TASKS') ? `<button data-edit-intel-entity="Offence:${escapeHtml(entityId)}">Edit offence</button>` : ''}${entityType === 'Operation' && can('VIEW_TASKS') ? `<button data-link-operation="${escapeHtml(entityId)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(entityId)}">Edit operation</button>` : ''}</div>`;
   if (entityType === 'Offence') {
     const offence = (state.operationsHub.offences || []).find((row) => row.OffenceID === entityId);
     if (offence) container.insertAdjacentHTML('afterbegin', opsOffenceGuidancePanel(offence));
@@ -1821,6 +1850,60 @@ function renderOpsRelationshipView(entityType, entityId) {
   if (['Person', 'Vehicle'].includes(entityType)) container.insertAdjacentHTML('afterbegin', opsEntityOutcomePanel(entityType, entityId));
   const markerHtml = opsIntelMarkerPanel(entityType, entityId);
   if (markerHtml) container.insertAdjacentHTML('afterbegin', markerHtml);
+}
+
+function operationalRelationshipLabel(type, id) {
+  if (type === 'Person') return (state.operationsHub.people || []).find((row) => row.PersonID === id)?.DisplayName || id;
+  if (type === 'Vehicle') return (state.operationsHub.vehicles || []).find((row) => row.VehicleID === id)?.Registration || id;
+  if (type === 'Incident') return operationalIncidentById(id)?.IncidentNumber || id;
+  if (type === 'Operation') {
+    const row = (state.operationsHub.operations || []).find((item) => item.OperationID === id);
+    return row ? `${row.Reference} / ${row.Name}` : id;
+  }
+  return id;
+}
+
+function opsRelationshipGraph(entityType, entityId, title, connectedEntities, incidents, operations) {
+  const rawNodes = [
+    ...(connectedEntities || []).map((row) => ({ Type: row.EntityType, ID: row.EntityID, Label: row.Label, Meta: row.InvolvementRole })),
+    ...(incidents || []).map((row) => ({ Type: 'Incident', ID: row.IncidentID, Label: row.IncidentNumber, Meta: row.Title })),
+    ...(operations || []).map((row) => ({ Type: 'Operation', ID: row.OperationID, Label: row.Reference, Meta: row.Name })),
+  ].filter((row) => !(row.Type === entityType && row.ID === entityId));
+  const nodes = [...new Map(rawNodes.map((row) => [`${row.Type}:${row.ID}`, row])).values()].slice(0, 12);
+  if (!nodes.length) return '<section class="relationship-graph empty-graph"><p>No connected records to map yet.</p></section>';
+  const positioned = nodes.map((row, index) => {
+    const angle = ((Math.PI * 2) / nodes.length) * index - (Math.PI / 2);
+    return { ...row, x: 500 + Math.cos(angle) * 390, y: 180 + Math.sin(angle) * 125 };
+  });
+  return `<section class="relationship-graph"><div class="relationship-graph-heading"><div><small>Relationship network</small><h3>${escapeHtml(title)}</h3></div><span>${escapeHtml(String(nodes.length))} visible links</span></div><div class="relationship-graph-stage"><svg viewBox="0 0 1000 360" preserveAspectRatio="none" aria-hidden="true">${positioned.map((node) => `<line x1="500" y1="180" x2="${node.x}" y2="${node.y}"></line>`).join('')}</svg><div class="relationship-node relationship-node-core" style="left:50%;top:50%"><span>${escapeHtml(entityType)}</span><strong>${escapeHtml(title)}</strong></div>${positioned.map((node) => `<button class="relationship-node type-${escapeHtml(node.Type.toLowerCase())}" style="left:${node.x / 10}%;top:${node.y / 3.6}%" data-open-intel-entity="${escapeHtml(node.Type)}:${escapeHtml(node.ID)}"><span>${escapeHtml(node.Type)}</span><strong>${escapeHtml(node.Label || node.ID)}</strong><small>${escapeHtml(node.Meta || '')}</small></button>`).join('')}</div></section>`;
+}
+
+function openOpsRelationshipEditor(sourceType, sourceId, record = {}) {
+  const targets = [
+    ...(state.operationsHub.people || []).map((row) => ({ value: `Person:${row.PersonID} | ${row.DisplayName}`, label: row.RobloxUsername || '' })),
+    ...(state.operationsHub.vehicles || []).map((row) => ({ value: `Vehicle:${row.VehicleID} | ${row.Registration}`, label: [row.Colour, row.Make, row.Model].filter(Boolean).join(' ') })),
+    ...[...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])].map((row) => ({ value: `Incident:${row.IncidentID} | ${row.IncidentNumber}`, label: row.Title })),
+    ...(state.operationsHub.operations || []).map((row) => ({ value: `Operation:${row.OperationID} | ${row.Reference}`, label: row.Name })),
+  ].filter((row) => !row.value.startsWith(`${sourceType}:${sourceId} |`));
+  const targetValue = record.TargetType ? `${record.TargetType}:${record.TargetID} | ${operationalRelationshipLabel(record.TargetType, record.TargetID)}` : '';
+  openEditor(record.RelationshipID ? 'Edit intelligence relationship' : 'Add intelligence relationship', [
+    hiddenField('RelationshipID', record.RelationshipID || ''),
+    hiddenField('SourceType', sourceType),
+    hiddenField('SourceID', sourceId),
+    datalistField('TargetReference', 'Related record', targets, targetValue),
+    selectField('RelationshipType', 'Relationship', ['Associated with', 'Registered owner', 'Known associate', 'Occupant', 'Used by', 'Seen with', 'Linked through incident', 'Subject of case', 'Other'], record.RelationshipType || 'Associated with'),
+    selectField('Confidence', 'Confidence', ['Confirmed', 'Probable', 'Possible'], record.Confidence || 'Confirmed'),
+    field('Notes', 'Relationship notes', 'textarea', true, record.Notes || ''),
+    field('ValidFrom', 'Known from', 'datetime-local', false, localDateTimeValue(record.ValidFrom)),
+    field('ValidTo', 'Known until', 'datetime-local', false, localDateTimeValue(record.ValidTo)),
+  ], async (values) => {
+    const target = String(values.TargetReference || '').split(' | ')[0];
+    const separator = target.indexOf(':');
+    values.TargetType = separator > 0 ? target.slice(0, separator) : '';
+    values.TargetID = separator > 0 ? target.slice(separator + 1) : '';
+    delete values.TargetReference;
+    return api('saveOperationalRelationship', values);
+  }, { successMessage: 'Intelligence relationship saved.', onSuccess: refreshOperationsHub });
 }
 
 function opsEntityOutcomePanel(entityType, entityId) {
@@ -2055,6 +2138,100 @@ function renderOpsControlRoom() {
   document.querySelector('#opsControlIncidents').innerHTML = `<div class="control-row incident heading"><span>CAD</span><span>Incident</span><span>Priority</span><span>Assign</span></div>${incidents.map((row) => `<article class="control-row incident"><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}<small>${escapeHtml(row.Location || '')}${row.RequiredCapabilities ? ` / requires ${escapeHtml(row.RequiredCapabilities)}` : ''}</small></span><span>${escapeHtml(row.Priority)}</span><div><select data-control-assignment-select="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}><option value="">Select callsign</option>${controlUnitOptions(row)}</select><button class="mini" data-control-assign="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}>Assign</button></div></article>`).join('') || emptyState('No active incidents.')}`;
   document.querySelector('#opsControlEvents').innerHTML = (state.operationsHub.controlEvents || []).length ? state.operationsHub.controlEvents.slice(0, 80).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><div><strong>${escapeHtml(row.EventType)}</strong><p>${escapeHtml(row.Summary)}</p><small>${escapeHtml([row.IncidentNumber, row.Callsign, row.Actor].filter(Boolean).join(' / '))}</small></div></article>`).join('') : emptyState('Control actions will be recorded here automatically.');
   renderOpsControlOfficerSearch();
+}
+
+function renderOpsComms() {
+  const feed = document.querySelector('#opsCommsFeed');
+  if (!feed) return;
+  const query = String(document.querySelector('#opsCommsSearch')?.value || '').trim().toLowerCase();
+  const priority = document.querySelector('#opsCommsPriority')?.value || '';
+  const rows = (state.operationsHub.messages || []).filter((row) =>
+    (!state.opsCommsChannel || row.Channel === state.opsCommsChannel)
+    && (!priority || row.Priority === priority)
+    && (!query || [row.Message, row.Sender, row.SenderCallsign, row.TargetUnit, row.IncidentNumber, row.Channel].some((value) => String(value || '').toLowerCase().includes(query)))
+  );
+  feed.innerHTML = rows.length ? rows.map((row) => `<article class="comms-message priority-${escapeHtml(row.Priority.toLowerCase())}">
+    <time>${escapeHtml(opsClock(row.CreatedAt))}</time>
+    <div><span>${escapeHtml(row.Channel)} / ${escapeHtml(row.Priority)}</span><strong>${escapeHtml([row.SenderCallsign, row.Sender].filter(Boolean).join(' / '))}</strong><p>${escapeHtml(row.Message)}</p><small>${escapeHtml([row.IncidentNumber, row.TargetUnit, row.MessageType].filter(Boolean).join(' / '))}</small></div>
+    ${row.IncidentID ? `<button class="ghost" data-open-cad="${escapeHtml(row.IncidentID)}">Open CAD</button>` : ''}
+  </article>`).join('') : emptyState('No radio or dispatch traffic matches this view.');
+  const incident = operationalIncidentById(state.selectedOperationalIncidentId);
+  const unit = state.operationsHub.myUnit;
+  document.querySelector('#opsCommsContext').innerHTML = `${incident ? `<article><small>Selected CAD</small><strong>${escapeHtml(incident.IncidentNumber)}</strong><span>${escapeHtml(incident.Title)}</span></article>` : '<p>No CAD selected.</p>'}${unit ? `<article><small>Your unit</small><strong>${escapeHtml(unit.Callsign)}</strong><span>${escapeHtml(unit.OperationalStatus)}</span></article>` : '<p>No active unit.</p>'}`;
+}
+
+async function submitOpsCommsMessage(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  values.IncidentID = state.selectedOperationalIncidentId || '';
+  values.TargetUnitID = state.operationsHub.myUnit?.UnitID || '';
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  const response = await api('sendOperationalMessage', values);
+  button.disabled = false;
+  if (!response.ok) {
+    showInfo('Transmission failed', `<p>${escapeHtml(response.error || 'The message could not be sent.')}</p>`);
+    return;
+  }
+  form.elements.Message.value = '';
+  scheduleOperationsRealtimeRefresh();
+}
+
+function startOperationsRealtime() {
+  if (!USE_SUPABASE || !state.user || state.opsRealtimeChannel) return;
+  const channel = supabaseClient.channel('mo8-live-operations', { config: { presence: { key: state.user.UserID } } });
+  ['operational_messages', 'operational_incidents', 'operational_incident_logs', 'operational_units', 'operational_unit_members', 'operational_entity_relationships'].forEach((table) => {
+    channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleOperationsRealtimeRefresh);
+  });
+  channel.on('presence', { event: 'sync' }, () => {
+    const presence = channel.presenceState();
+    state.opsPresenceUsers = Object.values(presence).flat().filter(Boolean);
+    renderOperationsPresence();
+  });
+  channel.subscribe(async (status) => {
+    const liveState = document.querySelector('#opsCommsLiveState');
+    if (liveState) liveState.textContent = status === 'SUBSCRIBED' ? 'Live' : status === 'CHANNEL_ERROR' ? 'Connection issue' : 'Connecting';
+    if (status === 'SUBSCRIBED') await updateOperationsPresence();
+  });
+  state.opsRealtimeChannel = channel;
+}
+
+async function updateOperationsPresence() {
+  if (!state.opsRealtimeChannel || !state.user) return;
+  await state.opsRealtimeChannel.track({
+    userId: state.user.UserID,
+    username: state.user.RobloxUsername,
+    rank: state.user.Rank || state.user.Role,
+    workspace: state.operationsWorkspace,
+    incidentId: state.selectedOperationalIncidentId || '',
+    onlineAt: new Date().toISOString(),
+  });
+}
+
+function renderOperationsPresence() {
+  const container = document.querySelector('#opsPresence');
+  if (!container) return;
+  const unique = [...new Map(state.opsPresenceUsers.map((row) => [row.userId, row])).values()];
+  const sameIncident = state.selectedOperationalIncidentId ? unique.filter((row) => row.incidentId === state.selectedOperationalIncidentId) : [];
+  container.innerHTML = `<span class="presence-dot"></span><strong>${unique.length}</strong><span>online${sameIncident.length ? ` / ${sameIncident.length} viewing CAD` : ''}</span><div class="presence-list">${unique.slice(0, 8).map((row) => `<i title="${escapeHtml(`${row.username} / ${row.rank} / ${row.workspace}`)}">${escapeHtml(String(row.username || '?').slice(0, 1).toUpperCase())}</i>`).join('')}</div>`;
+}
+
+function scheduleOperationsRealtimeRefresh() {
+  window.clearTimeout(state.opsRealtimeRefreshTimer);
+  state.opsRealtimeRefreshTimer = window.setTimeout(async () => {
+    if (state.activeHub !== 'operations') return;
+    invalidateCache('operationsHub');
+    await loadOperationsHub(true);
+  }, 260);
+}
+
+function stopOperationsRealtime() {
+  window.clearTimeout(state.opsRealtimeRefreshTimer);
+  state.opsRealtimeRefreshTimer = null;
+  if (state.opsRealtimeChannel && supabaseClient) supabaseClient.removeChannel(state.opsRealtimeChannel);
+  state.opsRealtimeChannel = null;
+  state.opsPresenceUsers = [];
 }
 
 function renderOpsActionQueue() {
@@ -3576,11 +3753,23 @@ async function startShift(returnHub = 'personnel') {
   else await showView('shift');
 }
 
-function openEndShiftEditor(returnHub = 'personnel') {
+async function openEndShiftEditor(returnHub = 'personnel') {
   const active = state.shiftStatus?.activeShift || {};
+  const preview = await api('shiftWrapupPreview', {});
+  const generatedSummary = preview.ok ? `${preview.Incidents?.length || 0} CADs attended; ${preview.ActionCount || 0} recorded actions; ${preview.ArrestCount || 0} arrests; ${preview.FpnCount || 0} FPNs; ${preview.WarningCount || 0} warnings; ${preview.PowerUseCount || 0} powers recorded.` : '';
+  const reviewPanel = preview.ok ? `<section class="shift-wrapup-preview">
+    <div><small>CADs attended</small><strong>${escapeHtml(String(preview.Incidents?.length || 0))}</strong></div>
+    <div><small>Recorded actions</small><strong>${escapeHtml(String(preview.ActionCount || 0))}</strong></div>
+    <div><small>Incomplete work</small><strong>${escapeHtml(String(preview.IncompleteReportCount || 0))}</strong></div>
+    <div><small>Enforcement</small><strong>${escapeHtml(String((preview.ArrestCount || 0) + (preview.FpnCount || 0) + (preview.WarningCount || 0)))}</strong></div>
+    <section><h3>Shift activity</h3>${(preview.Incidents || []).map((row) => `<article><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}</span><small>${escapeHtml(row.Status)}</small></article>`).join('') || '<p>No linked CAD activity was recorded.</p>'}</section>
+    <section class="${preview.IncompleteReportCount ? 'has-incomplete' : ''}"><h3>Incomplete or carried-forward work</h3>${(preview.IncompleteItems || []).map((row) => `<article><strong>${escapeHtml(row.Reference)}</strong><span>${escapeHtml(row.Type)}</span><small>${escapeHtml(row.Detail)}</small></article>`).join('') || '<p>No outstanding work detected.</p>'}</section>
+  </section>` : `<p class="form-notice">Activity could not be calculated. You can still end the shift and add your own summary.</p>`;
   openEditor('End shift', [
+    reviewPanel,
     field('EndedAt', 'End time', 'datetime-local', false, localDateTimeValue(active.EndedAt || new Date().toISOString())),
-    field('Summary', 'Shift summary', 'textarea', true),
+    field('Summary', 'Shift summary', 'textarea', true, generatedSummary),
+    field('CarriedForwardNotes', 'Notes for incomplete or carried-forward work', 'textarea', true),
   ], async (values) => api('endShift', values), {
     successMessage: 'Shift ended.',
     onSuccess: async () => { invalidateCache(); returnHub === 'operations' ? await loadOperationsHub(true) : await loadShift(); },
@@ -3933,6 +4122,23 @@ async function handleDocumentClick(event) {
   const opsWorkspace = event.target.closest('[data-ops-workspace]');
   if (opsWorkspace) {
     switchOpsWorkspace(opsWorkspace.dataset.opsWorkspace);
+    return;
+  }
+  const addRelationship = event.target.closest('[data-add-operational-relationship]');
+  if (addRelationship) {
+    const [type, id] = addRelationship.dataset.addOperationalRelationship.split(':');
+    openOpsRelationshipEditor(type, id);
+    return;
+  }
+  const editRelationship = event.target.closest('[data-edit-operational-relationship]');
+  if (editRelationship) {
+    const record = (state.operationsHub.relationships || []).find((row) => row.RelationshipID === editRelationship.dataset.editOperationalRelationship);
+    if (record) openOpsRelationshipEditor(record.SourceType, record.SourceID, record);
+    return;
+  }
+  const deleteRelationship = event.target.closest('[data-delete-operational-relationship]');
+  if (deleteRelationship) {
+    await confirmDelete('Delete this intelligence relationship?', 'deleteOperationalRelationship', { RelationshipID: deleteRelationship.dataset.deleteOperationalRelationship }, refreshOperationsHub);
     return;
   }
   const openCase = event.target.closest('[data-open-case]');
@@ -4728,6 +4934,7 @@ function switchOpsWorkspace(name) {
     panel.classList.toggle('active', !panel.hidden);
   });
   if (state.operationsWorkspace === 'intel') showOpsIntelOverview();
+  updateOperationsPresence();
 }
 
 function renderOpsContextTab() {
@@ -5782,9 +5989,13 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       rankChangeLog: supabaseRankChangeLog,
       shiftStatus: supabaseShiftStatus,
       startShift: supabaseStartShift,
+      shiftWrapupPreview: supabaseShiftWrapupPreview,
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
       operationsHub: supabaseOperationsHub,
+      sendOperationalMessage: supabaseSendOperationalMessage,
+      saveOperationalRelationship: supabaseSaveOperationalRelationship,
+      deleteOperationalRelationship: supabaseDeleteOperationalRelationship,
       saveOperationalUnit: supabaseSaveOperationalUnit,
       requestJoinOperationalUnit: supabaseRequestJoinOperationalUnit,
       reviewOperationalUnitJoinRequest: supabaseReviewOperationalUnitJoinRequest,
@@ -7929,17 +8140,88 @@ async function supabaseStartShift() {
   return result.error ? { ok: false, error: result.error.message } : { ok: true, ShiftID: result.data.shift_id };
 }
 
+async function supabaseShiftWrapupPreview() {
+  const status = await supabaseShiftStatus();
+  const active = status.activeShift;
+  if (!active) return { ok: false, error: 'No active shift found.' };
+  const startedAt = new Date(active.StartedAt).getTime();
+  const [incidents, actions, powers, disposals, reviews, tasks] = await Promise.all([
+    supabaseOptionalAll('operational_incidents'),
+    supabaseOptionalAll('operational_officer_actions'),
+    supabaseOptionalAll('operational_power_uses'),
+    supabaseOptionalAll('operational_disposals'),
+    supabaseOptionalAll('operational_action_reviews'),
+    supabaseOptionalAll('mdt_tasks'),
+  ]);
+  const duringShift = (value) => value && new Date(value).getTime() >= startedAt;
+  const officerActions = (actions || []).filter((row) => row.officer_id === active.OfficerID && duringShift(row.occurred_at));
+  const powerUses = (powers || []).filter((row) => row.officer_id === active.OfficerID && duringShift(row.occurred_at || row.created_at));
+  const officerDisposals = (disposals || []).filter((row) => row.issuing_officer_id === active.OfficerID && duringShift(row.issued_at));
+  const incidentIds = [...new Set([
+    ...officerActions.map((row) => row.incident_id),
+    ...powerUses.map((row) => row.incident_id),
+    ...officerDisposals.map((row) => row.incident_id),
+    ...(incidents || []).filter((row) => (row.assigned_officer_ids || []).includes(active.OfficerID) && (duringShift(row.created_at) || duringShift(row.updated_at))).map((row) => row.incident_id),
+  ].filter(Boolean))];
+  const openReviews = (reviews || []).filter((row) => row.officer_id === active.OfficerID && ['Pending', 'Amendments Required'].includes(row.status));
+  const openTasks = (tasks || []).filter((row) => row.assigned_officer_id === active.OfficerID && !['Completed', 'Cancelled'].includes(row.status));
+  const completedReviews = (reviews || []).filter((row) => row.officer_id === active.OfficerID && ['Approved', 'Completed'].includes(row.status) && duringShift(row.reviewed_at));
+  const incidentRows = incidentIds.map((id) => incidents.find((row) => row.incident_id === id)).filter(Boolean);
+  const incompleteItems = [
+    ...openReviews.map((row) => ({ Type: 'Returned/review report', Reference: incidents.find((incident) => incident.incident_id === row.incident_id)?.incident_number || row.incident_id, Detail: row.status })),
+    ...openTasks.map((row) => ({ Type: row.category || 'Task', Reference: row.title, Detail: row.status })),
+    ...incidentRows.filter((row) => !['Resolved', 'Cancelled'].includes(row.status)).map((row) => ({ Type: 'Open CAD', Reference: row.incident_number, Detail: row.title })),
+  ];
+  return {
+    ok: true,
+    ShiftID: active.ShiftID,
+    OfficerID: active.OfficerID,
+    StartedAt: active.StartedAt,
+    IncidentIDs: incidentIds,
+    Incidents: incidentRows.map((row) => ({ IncidentID: row.incident_id, IncidentNumber: row.incident_number, Title: row.title, Status: row.status })),
+    CompletedReportCount: completedReviews.length,
+    IncompleteReportCount: incompleteItems.length,
+    ArrestCount: officerActions.filter((row) => /arrest/i.test(row.action_type)).length + officerDisposals.filter((row) => /arrest/i.test(row.outcome_type)).length,
+    FpnCount: officerActions.filter((row) => /fpn/i.test(row.action_type)).length + officerDisposals.filter((row) => row.outcome_type === 'FPN').length,
+    WarningCount: officerActions.filter((row) => /warning/i.test(row.action_type)).length + officerDisposals.filter((row) => /warning/i.test(row.outcome_type)).length,
+    PowerUseCount: powerUses.length,
+    ActionCount: officerActions.length,
+    IncompleteItems: incompleteItems,
+  };
+}
+
 async function supabaseEndShift(data) {
   const status = await supabaseShiftStatus();
   const active = status.activeShift;
   if (!active) return { ok: false, error: 'No active shift found.' };
+  const preview = await supabaseShiftWrapupPreview();
   const { error } = await supabaseClient.from('shift_logs').update({
     ended_at: data.EndedAt || new Date().toISOString(),
     summary: data.Summary || '',
     status: 'Completed',
     updated_at: new Date().toISOString(),
   }).eq('shift_id', active.ShiftID);
-  if (!error) await leaveUnitsForOfficer(active.OfficerID);
+  if (!error) {
+    if (preview.ok) {
+      await supabaseClient.from('shift_wrapups').upsert({
+        shift_id: active.ShiftID,
+        officer_id: active.OfficerID,
+        summary: data.Summary || '',
+        carried_forward_notes: data.CarriedForwardNotes || '',
+        incident_ids: preview.IncidentIDs || [],
+        completed_report_count: preview.CompletedReportCount || 0,
+        incomplete_report_count: preview.IncompleteReportCount || 0,
+        arrest_count: preview.ArrestCount || 0,
+        fpn_count: preview.FpnCount || 0,
+        warning_count: preview.WarningCount || 0,
+        power_use_count: preview.PowerUseCount || 0,
+        snapshot: preview,
+        submitted_by: state.user.UserID,
+        submitted_at: new Date().toISOString(),
+      }, { onConflict: 'shift_id' });
+    }
+    await leaveUnitsForOfficer(active.OfficerID);
+  }
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
@@ -7988,7 +8270,7 @@ async function supabaseTeamShifts(data = {}) {
 }
 
 async function supabaseOperationsHub() {
-  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses] = await Promise.all([
+  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses, messages, relationships] = await Promise.all([
     supabaseShiftStatus(),
     supabaseAll('shift_logs'),
     supabaseOptionalAll('operational_incidents'),
@@ -8030,6 +8312,8 @@ async function supabaseOperationsHub() {
     supabaseOptionalAll('operational_deployments'),
     supabaseOptionalAll('operational_control_events'),
     supabaseOptionalAll('operational_deployment_responses'),
+    supabaseOptionalAll('operational_messages'),
+    supabaseOptionalAll('operational_entity_relationships'),
   ]);
   const attachmentRows = await Promise.all((attachments || []).map(async (row) => {
     const { data: signed } = await supabaseClient.storage.from('mo8-cad-evidence').createSignedUrl(row.storage_path, 60 * 60);
@@ -8107,6 +8391,12 @@ async function supabaseOperationsHub() {
     caseActions: (caseActions || []).map((row) => supabaseOperationalCaseAction(row, officers || [])),
     deployments: (deployments || []).sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at))).map((row) => supabaseOperationalDeployment(row, officers || [], trainingMatrix || [], profiles || [], deploymentResponses || [], officer)),
     controlEvents: (controlEvents || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((row) => ({ EventID: row.event_id, EventType: row.event_type, Summary: row.summary, IncidentID: row.incident_id || '', IncidentNumber: (incidents || []).find((item) => item.incident_id === row.incident_id)?.incident_number || '', UnitID: row.unit_id || '', Callsign: (units || []).find((item) => item.unit_id === row.unit_id)?.callsign || '', Actor: (profiles || []).find((item) => item.user_id === row.actor_user_id)?.roblox_username || 'System', CreatedAt: row.created_at })),
+    messages: (messages || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 300).map((row) => {
+      const sender = (profiles || []).find((profileRow) => profileRow.user_id === row.sender_user_id);
+      const senderOfficer = (officers || []).find((officerRow) => officerRow.member_id === sender?.member_id);
+      return { MessageID: row.message_id, Channel: row.channel || 'Main', Priority: row.priority || 'Normal', MessageType: row.message_type || 'Transmission', Message: row.message || '', Status: row.status || 'Sent', Sender: sender?.roblox_username || 'System', SenderCallsign: senderOfficer?.callsign || '', TargetUnitID: row.target_unit_id || '', TargetUnit: (units || []).find((unitRow) => unitRow.unit_id === row.target_unit_id)?.callsign || '', IncidentID: row.incident_id || '', IncidentNumber: (incidents || []).find((incidentRow) => incidentRow.incident_id === row.incident_id)?.incident_number || '', CreatedAt: row.created_at };
+    }),
+    relationships: (relationships || []).map((row) => ({ RelationshipID: row.relationship_id, SourceType: row.source_type, SourceID: row.source_id, TargetType: row.target_type, TargetID: row.target_id, RelationshipType: row.relationship_type, Confidence: row.confidence, Notes: row.notes || '', ValidFrom: row.valid_from || '', ValidTo: row.valid_to || '', CreatedAt: row.created_at })),
     controllerEligible,
     controllerSession: controllerSession ? supabaseControllerSession(controllerSession) : null,
     callsignPresets: (callsignPresets || []).filter((row) => row.active !== false).sort((a, b) => a.sort_order - b.sort_order).map((preset) => {
@@ -8127,6 +8417,52 @@ async function supabaseOperationsHub() {
       UnassignedIncidents: activeIncidents.filter((row) => !(row.AssignedUnitIDs || []).length).length,
     },
   };
+}
+
+async function supabaseSendOperationalMessage(data) {
+  const message = String(data.Message || '').trim();
+  if (!message) return { ok: false, error: 'Enter a message before transmitting.' };
+  const record = {
+    target_unit_id: data.TargetUnitID || null,
+    sender_user_id: state.user.UserID,
+    incident_id: data.IncidentID || null,
+    channel: data.Channel || 'Main',
+    priority: data.Priority || 'Normal',
+    message_type: data.MessageType || 'Transmission',
+    message,
+  };
+  const { data: saved, error } = await supabaseClient.from('operational_messages').insert(record).select('*').maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (record.incident_id) await supabaseAddOperationalIncidentLog({ IncidentID: record.incident_id, UnitID: record.target_unit_id || '', EntryType: 'Radio', Body: `[${record.channel}] ${message}` });
+  return { ok: true, MessageID: saved?.message_id || '' };
+}
+
+async function supabaseSaveOperationalRelationship(data) {
+  if (!data.SourceType || !data.SourceID || !data.TargetType || !data.TargetID) return { ok: false, error: 'Select both records for the relationship.' };
+  if (data.SourceType === data.TargetType && data.SourceID === data.TargetID) return { ok: false, error: 'A record cannot be related to itself.' };
+  const record = {
+    source_type: data.SourceType,
+    source_id: data.SourceID,
+    target_type: data.TargetType,
+    target_id: data.TargetID,
+    relationship_type: data.RelationshipType || 'Associated with',
+    confidence: data.Confidence || 'Confirmed',
+    notes: data.Notes || '',
+    valid_from: data.ValidFrom || null,
+    valid_to: data.ValidTo || null,
+    created_by: state.user.UserID,
+    updated_at: new Date().toISOString(),
+  };
+  const query = data.RelationshipID
+    ? supabaseClient.from('operational_entity_relationships').update(record).eq('relationship_id', data.RelationshipID)
+    : supabaseClient.from('operational_entity_relationships').insert(record);
+  const { error } = await query;
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseDeleteOperationalRelationship(data) {
+  const { error } = await supabaseClient.from('operational_entity_relationships').delete().eq('relationship_id', data.RelationshipID);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 async function supabaseUpdateOperationalStatus(data) {
