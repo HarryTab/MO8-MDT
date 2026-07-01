@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-01-1';
+const APP_VERSION = '2026-07-01-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -105,6 +105,8 @@ const state = {
   opsRealtimeChannel: null,
   opsPresenceUsers: [],
   opsRealtimeRefreshTimer: null,
+  cidExportRedactions: {},
+  cidRedactionSession: null,
   officers: [],
   training: [],
   trainingSummary: [],
@@ -1705,7 +1707,7 @@ function opsAttachmentRow(row) {
 
 function cidReferralHistoryHtml(sourceType, sourceId) {
   const rows = (state.operationsHub.cidReferrals || []).filter((row) => row.SourceType === sourceType && row.SourceID === sourceId);
-  return `<section class="cid-export-history"><div class="cad-panel-title"><div><small>Prepared for external submission</small><h3>CID referral packs</h3></div></div>${rows.length ? rows.map((row) => `<article><div><span>${escapeHtml(row.ReferralReference)} / version ${escapeHtml(String(row.Version))}</span><strong>${escapeHtml(row.Classification)}</strong><small>Exported ${escapeHtml(formatDisplayDateTime(row.ExportedAt))} / SHA-256 ${escapeHtml(String(row.PdfHash || '').slice(0, 16))}...</small>${row.SentTo ? `<small>Recorded as sent to ${escapeHtml(row.SentTo)}${row.SentAt ? ` on ${escapeHtml(formatDisplayDateTime(row.SentAt))}` : ''}</small>` : ''}</div><button class="mini ghost" data-download-cid-referral="${escapeHtml(row.ReferralID)}">Download PDF</button></article>`).join('') : '<p class="empty">No referral packs have been exported from this record.</p>'}</section>`;
+  return `<section class="cid-export-history"><div class="cad-panel-title"><div><small>Prepared for external submission</small><h3>CID referral packs</h3></div></div>${rows.length ? rows.map((row) => `<article><div><span>${escapeHtml(row.ReferralReference)} / version ${escapeHtml(String(row.Version))} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.Classification)}</strong><small>Readiness ${escapeHtml(String(row.ReadinessScore || 0))}% / exported ${escapeHtml(formatDisplayDateTime(row.ExportedAt))} / SHA-256 ${escapeHtml(String(row.PdfHash || '').slice(0, 16))}...</small>${row.SentTo ? `<small>Recorded as sent to ${escapeHtml(row.SentTo)}${row.SentAt ? ` on ${escapeHtml(formatDisplayDateTime(row.SentAt))}` : ''}</small>` : ''}</div><button class="mini ghost" data-download-cid-referral="${escapeHtml(row.ReferralID)}">Download PDF</button></article>`).join('') : '<p class="empty">No referral packs have been exported from this record.</p>'}</section>`;
 }
 
 function openCidReferralExporter(sourceType, sourceId) {
@@ -1722,20 +1724,28 @@ function openCidReferralExporter(sourceType, sourceId) {
   const attachments = incidentRows.flatMap((incident) => (incident.Attachments || []).map((row) => ({ ...row, IncidentID: incident.IncidentID, IncidentNumber: incident.IncidentNumber })));
   const offenceText = [...new Set(incidentRows.flatMap((row) => (row.Disposals || []).map((item) => item.Offence).filter(Boolean)))].join('\n');
   const existing = (state.operationsHub.cidReferrals || []).filter((row) => row.SourceType === sourceType && row.SourceID === sourceId);
+  const previousExport = existing[0] || null;
   const version = Math.max(0, ...existing.map((row) => Number(row.Version) || 0)) + 1;
   const referralReference = createCidReferralReference();
   const sourceReference = sourceType === 'Case' ? source.Reference : source.IncidentNumber;
   const incidentChoices = incidentRows.map((row) => `<label><input type="checkbox" data-cid-incident value="${escapeHtml(row.IncidentID)}" checked${sourceType === 'CAD' && row.IncidentID === sourceId ? ' disabled' : ''}><span><strong>${escapeHtml(row.IncidentNumber)}</strong><small>${escapeHtml(row.Title)} / ${escapeHtml(row.Status)}</small></span></label>`).join('');
-  const evidenceChoices = attachments.map((row) => `<label><input type="checkbox" data-cid-evidence value="${escapeHtml(row.AttachmentID)}" checked><span><strong>${escapeHtml(row.Title || row.FileName)}</strong><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.FileType || 'File')} / ${escapeHtml(formatFileSize(row.FileSize))}</small></span></label>`).join('');
+  state.cidExportRedactions = {};
+  const evidenceChoices = attachments.map((row) => `<div class="cid-evidence-option" data-cid-evidence-row="${escapeHtml(row.AttachmentID)}"><label><input type="checkbox" data-cid-evidence value="${escapeHtml(row.AttachmentID)}" checked><span><strong>${escapeHtml(row.Title || row.FileName)}</strong><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.FileType || 'File')} / ${escapeHtml(formatFileSize(row.FileSize))}</small><em data-cid-redaction-state="${escapeHtml(row.AttachmentID)}"></em></span></label>${String(row.FileType || '').startsWith('image/') ? `<button type="button" class="mini ghost" data-redact-cid-evidence="${escapeHtml(row.AttachmentID)}">Redact image</button>` : ''}</div>`).join('');
+  const executive = deriveCidExecutiveSummary(incidentRows, source);
   const declaration = 'I confirm that this referral pack is an accurate export of the records available to me at the time shown and that the information has not knowingly been altered or omitted.';
   openEditor('Create CID referral pack', [
     { html: `<section class="cid-export-intro"><span>${escapeHtml(referralReference)} / version ${escapeHtml(String(version))}</span><h3>${escapeHtml(sourceReference)} / ${escapeHtml(sourceType === 'Case' ? source.Name : source.Title)}</h3><p>The generated PDF and frozen record snapshot will be retained in the MDT. It will not be sent automatically.</p></section>` },
+    { html: '<section class="cid-readiness-panel wide" id="cidReadinessPanel"></section>' },
+    ...(previousExport ? [{ html: `<section class="cid-version-notice wide"><strong>Version ${escapeHtml(String(previousExport.Version))} exists</strong><span>This export will become version ${escapeHtml(String(version))} and will include an automatic change schedule.</span></section>` }] : []),
     hiddenField('ReferralReference', referralReference),
     hiddenField('Version', version),
     selectField('Classification', 'Document classification', ['Official - Internal', 'Official - Sensitive', 'Restricted'], source.Sensitivity || 'Official - Internal'),
     { html: `<label class="wide">Referral summary<textarea name="ReferralSummary" required>${escapeHtml(source.Summary || source.Outcome || source.Description || '')}</textarea></label>` },
     { html: '<label class="wide">Requested CID consideration<textarea name="RequestedAction" required placeholder="Explain what CID is being asked to consider, review or progress."></textarea></label>' },
     field('SuspectedOffences', 'Suspected offences and charging considerations', 'textarea', true, offenceText),
+    field('KeyEvidence', 'Executive summary: key evidence', 'textarea', true, executive.KeyEvidence),
+    field('EvidentialWeaknesses', 'Executive summary: weaknesses and gaps', 'textarea', true, executive.EvidentialWeaknesses),
+    field('RecommendedNextSteps', 'Executive summary: recommended next steps', 'textarea', true, executive.RecommendedNextSteps),
     field('SentTo', 'Intended CID recipient (optional)', 'text', false),
     field('SentAt', 'Date sent (optional)', 'datetime-local', false),
     { html: `<section class="cid-export-selector wide"><div><h3>Included CAD records</h3><small>Untick linked records that are not relevant to this referral.</small></div>${incidentChoices || '<p>No linked CAD records.</p>'}</section>` },
@@ -1749,13 +1759,19 @@ function openCidReferralExporter(sourceType, sourceId) {
     if (!selectedIncidentIds.length) return { ok: false, error: 'Include at least one CAD record.' };
     elements.editorStatus.textContent = 'Preparing records and secure evidence links...';
     const signatureDataUrl = canvas.toDataURL('image/png');
-    const snapshot = await buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration });
+    const snapshot = await buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration, previousExport });
     elements.editorStatus.textContent = 'Hashing evidence and building PDF...';
-    const evidenceAssets = await prepareCidEvidenceAssets(snapshot.Evidence);
+    const evidenceAssets = await prepareCidEvidenceAssets(snapshot.Evidence, state.cidExportRedactions);
     evidenceAssets.forEach((asset, id) => {
       const evidence = snapshot.Evidence.find((row) => row.AttachmentID === id);
-      if (evidence) evidence.FileHash = asset.hash || '';
+      if (evidence) {
+        evidence.FileHash = asset.hash || '';
+        evidence.ExportedFileHash = asset.redactedHash || asset.hash || '';
+        evidence.Redacted = Boolean(asset.redactedHash);
+        evidence.RedactionReason = state.cidExportRedactions[id]?.reason || '';
+      }
     });
+    snapshot.RedactionManifest = snapshot.Evidence.filter((row) => row.Redacted).map((row) => ({ AttachmentID: row.AttachmentID, Title: row.Title || row.FileName, IncidentNumber: row.IncidentNumber, Reason: row.RedactionReason, OriginalHash: row.FileHash, ExportedHash: row.ExportedFileHash, RedactedBy: snapshot.SubmittingOfficer.RobloxUsername, RedactedAt: snapshot.ExportedAt }));
     const pdfBytes = await createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets);
     const pdfHash = await sha256Hex(pdfBytes);
     const pdfFile = new File([pdfBytes], `${values.ReferralReference}-V${values.Version}.pdf`, { type: 'application/pdf' });
@@ -1778,6 +1794,12 @@ function openCidReferralExporter(sourceType, sourceId) {
       IncidentIDs: selectedIncidentIds,
       EvidenceIDs: selectedEvidenceIds,
       EvidenceLinkExpiresAt: snapshot.EvidenceLinkExpiresAt,
+      ReadinessScore: snapshot.QualityAssessment.Score,
+      QualityAssessment: snapshot.QualityAssessment,
+      ExecutiveSummary: snapshot.ExecutiveSummary,
+      RedactionManifest: snapshot.RedactionManifest,
+      VersionComparison: snapshot.VersionComparison,
+      SupersedesReferralID: previousExport?.ReferralID || '',
       Snapshot: snapshot,
       PdfHash: pdfHash,
       PdfFile: pdfFile,
@@ -1787,6 +1809,69 @@ function openCidReferralExporter(sourceType, sourceId) {
     return response;
   }, { persistDraft: false, successMessage: 'CID referral pack generated, retained and downloaded.', onSuccess: refreshOperationsHub });
   initializeCidSignaturePad(document.querySelector('#cidSignatureCanvas'));
+  const updateQuality = () => renderCidReadinessPanel(incidentRows, attachments);
+  elements.editorFields.addEventListener('input', updateQuality);
+  updateQuality();
+}
+
+function deriveCidExecutiveSummary(incidents, source) {
+  const entities = [...new Map((incidents || []).flatMap((row) => row.Entities || []).map((row) => [`${row.EntityType}:${row.EntityID}`, row])).values()];
+  const outcomes = (incidents || []).flatMap((row) => row.Disposals || []);
+  const evidence = (incidents || []).flatMap((row) => row.Attachments || []);
+  const powers = (incidents || []).flatMap((row) => row.PowerUses || []);
+  const keyEvidence = [
+    ...evidence.slice(0, 6).map((row) => `${row.Title || row.FileName} (${row.AttachmentID})`),
+    ...outcomes.slice(0, 6).map((row) => `${row.OutcomeType}: ${row.Offence || 'unclassified outcome'} involving ${row.Subject || 'recorded subject'}`),
+    ...powers.slice(0, 4).map((row) => `${row.Power}: ${row.Outcome || 'power exercised'}`),
+  ];
+  const weaknesses = [];
+  if (!evidence.length) weaknesses.push('No uploaded exhibits are presently linked.');
+  if (!entities.length) weaknesses.push('No people or vehicles are linked to the selected CAD records.');
+  if (!outcomes.length) weaknesses.push('No enforcement outcomes or linked offences are recorded.');
+  if ((incidents || []).some((row) => !row.Description)) weaknesses.push('One or more CAD records has no full incident narrative.');
+  if ((incidents || []).some((row) => !['Approved', 'Not Required'].includes(row.ReviewStatus))) weaknesses.push('One or more supervisor reviews is incomplete or requires amendments.');
+  const openActions = source?.Actions?.filter((row) => !['Completed', 'Cancelled'].includes(row.Status)) || [];
+  return {
+    KeyEvidence: keyEvidence.join('\n') || 'No key evidence identified automatically. Review the selected records and add the strongest available evidence.',
+    EvidentialWeaknesses: weaknesses.join('\n') || 'No obvious data-quality gaps were detected automatically. Officer review remains required.',
+    RecommendedNextSteps: openActions.length ? openActions.map((row) => `${row.Title}: ${row.Details || row.Status}`).join('\n') : 'CID to review the referral, linked offences and evidential material and determine whether further investigation or charging consideration is appropriate.',
+  };
+}
+
+function assessCidReferralQuality(incidents, evidence, values = {}) {
+  const checks = [];
+  const add = (label, condition, detail, weight = 1, warning = false) => checks.push({ Label: label, Status: condition ? 'Complete' : warning ? 'Warning' : 'Missing', Detail: condition ? 'Requirement satisfied.' : detail, Weight: weight });
+  add('Referral summary', String(values.ReferralSummary || '').trim().length >= 20, 'Add a meaningful referral summary.', 2);
+  add('Requested CID consideration', String(values.RequestedAction || '').trim().length >= 15, 'Explain what CID is being asked to consider.', 2);
+  add('Suspected offences', String(values.SuspectedOffences || '').trim().length > 0, 'Record suspected offences or explain why none is proposed.', 1, true);
+  add('CAD records selected', incidents.length > 0, 'Include at least one CAD record.', 2);
+  add('Incident narratives', incidents.length > 0 && incidents.every((row) => String(row.Description || '').trim().length >= 10), 'One or more CADs has no meaningful incident narrative.', 2);
+  add('People or vehicles identified', incidents.some((row) => (row.Entities || []).length), 'No people or vehicles are linked to the selected records.', 1, true);
+  add('Incident logs', incidents.every((row) => (row.Logs || []).length), 'One or more CADs has no incident-log entries.', 1, true);
+  add('Outcomes and offences', incidents.some((row) => (row.Disposals || []).length || row.Outcome), 'No outcome or offence information is recorded.', 2, true);
+  add('Evidence selected', evidence.length > 0, 'No uploaded exhibits are selected.', 2, true);
+  add('Evidence descriptions', evidence.every((row) => String(row.Title || row.FileName || '').trim().length > 0), 'One or more exhibits has no useful description.', 1, true);
+  const powerUses = incidents.flatMap((row) => row.PowerUses || []);
+  add('Power-use grounds', powerUses.every((row) => String(row.Grounds || '').trim().length > 0), 'A recorded use of power is missing its grounds.', 2);
+  const officerActions = incidents.flatMap((row) => row.OfficerActions || []);
+  add('Officer action notes', officerActions.every((row) => String(row.notes || row.Notes || '').trim().length > 0), 'An officer action has no explanatory notes.', 1, true);
+  add('Supervisor review position', incidents.every((row) => ['Approved', 'Completed', 'Not Required'].includes(row.ReviewStatus)), 'A selected CAD is awaiting review or requires amendments.', 2, true);
+  add('Executive evidence summary', String(values.KeyEvidence || '').trim().length >= 15, 'Identify the key evidence for the receiving investigator.', 2);
+  add('Weaknesses and gaps', String(values.EvidentialWeaknesses || '').trim().length >= 10, 'Record weaknesses, gaps or confirm that none were identified.', 1);
+  const total = checks.reduce((sum, row) => sum + row.Weight, 0);
+  const earned = checks.reduce((sum, row) => sum + (row.Status === 'Complete' ? row.Weight : row.Status === 'Warning' ? row.Weight * 0.5 : 0), 0);
+  return { Score: Math.round((earned / total) * 100), Checks: checks, Missing: checks.filter((row) => row.Status === 'Missing').length, Warnings: checks.filter((row) => row.Status === 'Warning').length, AssessedAt: new Date().toISOString() };
+}
+
+function renderCidReadinessPanel(allIncidents, allEvidence) {
+  const container = document.querySelector('#cidReadinessPanel');
+  if (!container) return;
+  const incidentIds = [...elements.editorFields.querySelectorAll('[data-cid-incident]')].filter((input) => input.checked || input.disabled).map((input) => input.value);
+  const evidenceIds = [...elements.editorFields.querySelectorAll('[data-cid-evidence]:checked')].map((input) => input.value);
+  const value = (name) => elements.editorFields.querySelector(`[name="${name}"]`)?.value || '';
+  const assessment = assessCidReferralQuality(allIncidents.filter((row) => incidentIds.includes(row.IncidentID)), allEvidence.filter((row) => evidenceIds.includes(row.AttachmentID)), { ReferralSummary: value('ReferralSummary'), RequestedAction: value('RequestedAction'), SuspectedOffences: value('SuspectedOffences'), KeyEvidence: value('KeyEvidence'), EvidentialWeaknesses: value('EvidentialWeaknesses') });
+  const scoreClass = assessment.Score >= 85 ? 'ready' : assessment.Score >= 65 ? 'caution' : 'not-ready';
+  container.innerHTML = `<div class="cid-readiness-score ${scoreClass}"><strong>${escapeHtml(String(assessment.Score))}%</strong><span>Referral readiness</span><small>${escapeHtml(String(assessment.Missing))} missing / ${escapeHtml(String(assessment.Warnings))} warning</small></div><div class="cid-readiness-checks">${assessment.Checks.map((row) => `<article class="status-${escapeHtml(row.Status.toLowerCase())}"><i>${row.Status === 'Complete' ? '&#10003;' : row.Status === 'Warning' ? '!' : '&#215;'}</i><div><strong>${escapeHtml(row.Label)}</strong>${row.Status === 'Complete' ? '' : `<small>${escapeHtml(row.Detail)}</small>`}</div></article>`).join('')}</div>`;
 }
 
 function createCidReferralReference() {
@@ -1835,7 +1920,105 @@ function initializeCidSignaturePad(canvas) {
   });
 }
 
-async function buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration }) {
+async function openCidEvidenceRedactor(attachmentId) {
+  const incidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
+  const attachment = incidents.flatMap((row) => row.Attachments || []).find((row) => row.AttachmentID === attachmentId);
+  if (!attachment?.Url || !String(attachment.FileType || '').startsWith('image/')) return showInfo('Redaction unavailable', '<p>Only accessible image evidence can be redacted.</p>');
+  const dialog = document.querySelector('#cidRedactionDialog');
+  const canvas = document.querySelector('#cidRedactionCanvas');
+  const status = document.querySelector('#cidRedactionStatus');
+  const reason = document.querySelector('#cidRedactionReason');
+  document.querySelector('#cidRedactionTitle').textContent = attachment.Title || attachment.FileName || 'Redact evidence';
+  status.textContent = 'Loading original evidence...';
+  reason.value = state.cidExportRedactions[attachmentId]?.reason || '';
+  dialog.showModal();
+  try {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('The evidence image could not be loaded.')); image.src = attachment.Url; });
+    const scale = Math.min(1, 1200 / image.naturalWidth, 760 / image.naturalHeight);
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    state.cidRedactionSession = { attachment, image, rectangles: [...(state.cidExportRedactions[attachmentId]?.rectangles || [])], start: null, current: null };
+    configureCidRedactionCanvas(canvas);
+    renderCidRedactionCanvas();
+    status.textContent = 'Drag across the image to place solid redaction boxes.';
+  } catch (error) {
+    state.cidRedactionSession = null;
+    status.textContent = error.message;
+  }
+}
+
+function configureCidRedactionCanvas(canvas) {
+  const pointer = (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)), y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) };
+  };
+  canvas.onpointerdown = (event) => {
+    if (!state.cidRedactionSession) return;
+    canvas.setPointerCapture(event.pointerId);
+    state.cidRedactionSession.start = pointer(event);
+    state.cidRedactionSession.current = state.cidRedactionSession.start;
+  };
+  canvas.onpointermove = (event) => {
+    if (!state.cidRedactionSession?.start) return;
+    state.cidRedactionSession.current = pointer(event);
+    renderCidRedactionCanvas(true);
+  };
+  canvas.onpointerup = (event) => {
+    const session = state.cidRedactionSession;
+    if (!session?.start) return;
+    const end = pointer(event);
+    const rectangle = { x: Math.min(session.start.x, end.x), y: Math.min(session.start.y, end.y), width: Math.abs(end.x - session.start.x), height: Math.abs(end.y - session.start.y) };
+    if (rectangle.width > 0.005 && rectangle.height > 0.005) session.rectangles.push(rectangle);
+    session.start = null;
+    session.current = null;
+    renderCidRedactionCanvas();
+  };
+  canvas.onpointercancel = () => { if (state.cidRedactionSession) { state.cidRedactionSession.start = null; state.cidRedactionSession.current = null; renderCidRedactionCanvas(); } };
+}
+
+function renderCidRedactionCanvas(preview = false) {
+  const session = state.cidRedactionSession;
+  const canvas = document.querySelector('#cidRedactionCanvas');
+  if (!session || !canvas) return;
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(session.image, 0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#000000';
+  session.rectangles.forEach((row) => context.fillRect(row.x * canvas.width, row.y * canvas.height, row.width * canvas.width, row.height * canvas.height));
+  if (preview && session.start && session.current) {
+    context.fillStyle = 'rgba(0,0,0,.72)';
+    context.fillRect(Math.min(session.start.x, session.current.x) * canvas.width, Math.min(session.start.y, session.current.y) * canvas.height, Math.abs(session.current.x - session.start.x) * canvas.width, Math.abs(session.current.y - session.start.y) * canvas.height);
+  }
+}
+
+document.querySelector('#cidRedactionUndo')?.addEventListener('click', () => {
+  state.cidRedactionSession?.rectangles.pop();
+  renderCidRedactionCanvas();
+});
+document.querySelector('#cidRedactionReset')?.addEventListener('click', () => {
+  if (state.cidRedactionSession) state.cidRedactionSession.rectangles = [];
+  renderCidRedactionCanvas();
+});
+document.querySelector('#cidRedactionForm')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const dialog = document.querySelector('#cidRedactionDialog');
+  if (event.submitter?.value === 'cancel') { dialog.close(); return; }
+  const session = state.cidRedactionSession;
+  const reason = document.querySelector('#cidRedactionReason').value.trim();
+  const status = document.querySelector('#cidRedactionStatus');
+  if (!session?.rectangles.length) { status.textContent = 'Add at least one redaction box or close without saving.'; return; }
+  if (!reason) { status.textContent = 'Record a reason for the redaction.'; return; }
+  renderCidRedactionCanvas();
+  const canvas = document.querySelector('#cidRedactionCanvas');
+  state.cidExportRedactions[session.attachment.AttachmentID] = { rectangles: [...session.rectangles], reason, dataUrl: canvas.toDataURL('image/jpeg', 0.92) };
+  const label = elements.editorFields.querySelector(`[data-cid-redaction-state="${session.attachment.AttachmentID}"]`);
+  if (label) { label.textContent = `${session.rectangles.length} redaction${session.rectangles.length === 1 ? '' : 's'} / ${reason}`; label.classList.add('active'); }
+  dialog.close();
+});
+
+async function buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration, previousExport = null }) {
   const allIncidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
   const incidents = allIncidents.filter((row) => selectedIncidentIds.includes(row.IncidentID)).map((row) => JSON.parse(JSON.stringify(row)));
   const evidenceLinkExpiresAt = new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)).toISOString();
@@ -1854,7 +2037,7 @@ async function buildCidReferralSnapshot({ sourceType, sourceId, source, values, 
   const relationships = (state.operationsHub.relationships || []).filter((row) => relevantEntityKeys.has(`${row.SourceType}:${row.SourceID}`) || relevantEntityKeys.has(`${row.TargetType}:${row.TargetID}`));
   const offenceIds = new Set(incidents.flatMap((row) => (row.Disposals || []).map((item) => item.OffenceID).filter(Boolean)));
   const offenceCatalogue = (state.operationsHub.offences || []).filter((row) => offenceIds.has(row.OffenceID)).map((row) => JSON.parse(JSON.stringify(row)));
-  return {
+  const snapshot = {
     FormatVersion: 1,
     ReferralReference: values.ReferralReference,
     Version: Number(values.Version) || 1,
@@ -1877,10 +2060,60 @@ async function buildCidReferralSnapshot({ sourceType, sourceId, source, values, 
     Evidence: evidence,
     Relationships: relationships,
     OffenceCatalogue: offenceCatalogue,
+    ExecutiveSummary: { KeyEvidence: values.KeyEvidence || '', EvidentialWeaknesses: values.EvidentialWeaknesses || '', RecommendedNextSteps: values.RecommendedNextSteps || '' },
+    QualityAssessment: assessCidReferralQuality(incidents, evidence, values),
+    RedactionManifest: [],
   };
+  snapshot.Chronology = buildCidReferralChronology(snapshot);
+  snapshot.VersionComparison = compareCidReferralVersions(snapshot, previousExport?.Snapshot || null, previousExport);
+  return snapshot;
 }
 
-async function prepareCidEvidenceAssets(evidence) {
+function buildCidReferralChronology(snapshot) {
+  const events = [];
+  const add = (at, type, reference, title, detail = '', id = '') => { if (at) events.push({ At: at, Type: type, Reference: reference || '', Title: title || type, Detail: detail || '', ID: id || '' }); };
+  (snapshot.Case?.Updates || []).forEach((row) => add(row.CreatedAt, `Case ${row.UpdateType}`, snapshot.Case.Reference, row.Body, `Recorded by ${row.Author || 'System'}`, row.UpdateID));
+  (snapshot.Incidents || []).forEach((incident) => {
+    add(incident.CreatedAt, 'CAD Created', incident.IncidentNumber, incident.Title, `${incident.Location || 'No location'} / ${incident.Priority}`, incident.IncidentID);
+    (incident.Logs || []).forEach((row) => add(row.CreatedAt, row.EntryType || 'CAD Log', incident.IncidentNumber, row.Body, `Recorded by ${row.Author || 'System'}`, row.LogID));
+    (incident.Disposals || []).forEach((row) => add(row.IssuedAt, 'Enforcement Outcome', incident.IncidentNumber, `${row.OutcomeType} / ${row.Offence || 'No offence'}`, `${row.Subject || 'No subject'} / ${row.IssuingOfficer || 'Unknown officer'}`, row.DisposalID));
+    (incident.PowerUses || []).forEach((row) => add(row.OccurredAt, 'Power Exercised', incident.IncidentNumber, `${row.PowerCode || ''} ${row.Power || row.PowerID}`.trim(), `${row.Officer || row.OfficerID} / ${row.Outcome || 'No outcome'}`, row.PowerUseID));
+    (incident.OfficerActions || []).forEach((row) => add(row.occurred_at || row.OccurredAt, 'Officer Action', incident.IncidentNumber, row.action_type || row.ActionType || 'Officer action', row.notes || row.Notes || '', row.action_id || row.ActionID));
+    (incident.Attachments || []).forEach((row) => add(row.CreatedAt, 'Evidence Added', incident.IncidentNumber, row.Title || row.FileName, `${row.FileType || 'File'} / ${row.AttachmentID}`, row.AttachmentID));
+    (incident.Reviews || []).forEach((row) => add(row.CompletedAt || row.CreatedAt, 'Supervisor Review', incident.IncidentNumber, row.Status, `${row.Reviewer || 'Unknown reviewer'} / ${row.Feedback || 'No feedback'}`, row.ReviewID));
+    if (incident.ClosedAt) add(incident.ClosedAt, 'CAD Closed', incident.IncidentNumber, incident.ClosureCode || 'Closed', incident.Outcome || '', incident.IncidentID);
+  });
+  return events.sort((left, right) => String(left.At).localeCompare(String(right.At)));
+}
+
+function compareCidReferralVersions(snapshot, previousSnapshot, previousExport = null) {
+  if (!previousSnapshot || !Object.keys(previousSnapshot).length) return { IsFirstVersion: true, PreviousReferralID: '', PreviousReference: '', PreviousVersion: 0, Changes: ['Initial referral export.'], AddedIncidents: [], RemovedIncidents: [], AddedEvidence: [], RemovedEvidence: [], ComparedAt: snapshot.ExportedAt };
+  const previousIncidentIds = new Set((previousSnapshot.Incidents || []).map((row) => row.IncidentID));
+  const currentIncidentIds = new Set((snapshot.Incidents || []).map((row) => row.IncidentID));
+  const previousEvidenceIds = new Set((previousSnapshot.Evidence || []).map((row) => row.AttachmentID));
+  const currentEvidenceIds = new Set((snapshot.Evidence || []).map((row) => row.AttachmentID));
+  const changes = [];
+  [['Referral summary', 'ReferralSummary'], ['Requested action', 'RequestedAction'], ['Suspected offences', 'SuspectedOffences'], ['Classification', 'Classification']].forEach(([label, key]) => {
+    if (String(previousSnapshot[key] || '') !== String(snapshot[key] || '')) changes.push(`${label} changed.`);
+  });
+  const addedIncidents = [...currentIncidentIds].filter((id) => !previousIncidentIds.has(id));
+  const removedIncidents = [...previousIncidentIds].filter((id) => !currentIncidentIds.has(id));
+  const addedEvidence = [...currentEvidenceIds].filter((id) => !previousEvidenceIds.has(id));
+  const removedEvidence = [...previousEvidenceIds].filter((id) => !currentEvidenceIds.has(id));
+  if (addedIncidents.length) changes.push(`${addedIncidents.length} CAD record(s) added.`);
+  if (removedIncidents.length) changes.push(`${removedIncidents.length} CAD record(s) removed.`);
+  if (addedEvidence.length) changes.push(`${addedEvidence.length} exhibit(s) added.`);
+  if (removedEvidence.length) changes.push(`${removedEvidence.length} exhibit(s) removed.`);
+  (snapshot.Incidents || []).filter((row) => previousIncidentIds.has(row.IncidentID)).forEach((row) => {
+    const previous = (previousSnapshot.Incidents || []).find((item) => item.IncidentID === row.IncidentID) || {};
+    if ((row.Logs || []).length !== (previous.Logs || []).length) changes.push(`${row.IncidentNumber}: incident-log count changed from ${(previous.Logs || []).length} to ${(row.Logs || []).length}.`);
+    if ((row.Disposals || []).length !== (previous.Disposals || []).length) changes.push(`${row.IncidentNumber}: outcome count changed from ${(previous.Disposals || []).length} to ${(row.Disposals || []).length}.`);
+    if (row.ReviewStatus !== previous.ReviewStatus) changes.push(`${row.IncidentNumber}: review status changed from ${previous.ReviewStatus || 'not recorded'} to ${row.ReviewStatus || 'not recorded'}.`);
+  });
+  return { IsFirstVersion: false, PreviousReferralID: previousExport?.ReferralID || '', PreviousReference: previousExport?.ReferralReference || previousSnapshot.ReferralReference || '', PreviousVersion: previousExport?.Version || previousSnapshot.Version || 0, Changes: [...new Set(changes)].length ? [...new Set(changes)] : ['No material record changes detected; a new signed export was produced.'], AddedIncidents: addedIncidents, RemovedIncidents: removedIncidents, AddedEvidence: addedEvidence, RemovedEvidence: removedEvidence, ComparedAt: snapshot.ExportedAt };
+}
+
+async function prepareCidEvidenceAssets(evidence, redactions = {}) {
   const assets = new Map();
   await Promise.all((evidence || []).map(async (row) => {
     if (!row.EvidenceAccessUrl) return;
@@ -1890,7 +2123,15 @@ async function prepareCidEvidenceAssets(evidence) {
       const blob = await response.blob();
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const asset = { bytes, hash: await sha256Hex(bytes), mimeType: row.FileType || blob.type || '' };
-      if (asset.mimeType.startsWith('image/')) asset.imageBytes = await compressCidEvidenceImage(blob);
+      if (asset.mimeType.startsWith('image/')) {
+        const redaction = redactions[row.AttachmentID];
+        if (redaction?.dataUrl) {
+          const redactedBlob = dataUrlToBlob(redaction.dataUrl);
+          const redactedBytes = new Uint8Array(await redactedBlob.arrayBuffer());
+          asset.redactedHash = await sha256Hex(redactedBytes);
+          asset.imageBytes = await compressCidEvidenceImage(redactedBlob);
+        } else asset.imageBytes = await compressCidEvidenceImage(blob);
+      }
       assets.set(row.AttachmentID, asset);
     } catch (error) {
       assets.set(row.AttachmentID, { error: error.message, hash: '' });
@@ -1966,6 +2207,8 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   const white = rgb(1, 1, 1);
   let page;
   let y;
+  const majorSections = [];
+  const contentsPages = [];
 
   const safeText = (value) => String(value ?? '').replace(/[^\x09\x0A\x0D\x20-\xFF]/g, '?');
   const wrap = (value, font, size, width) => {
@@ -2070,6 +2313,11 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
     y -= 12;
     drawParagraph(url, { size: 6.5, color: grey, after: 5 });
   };
+  const startMajorSection = (title) => {
+    addPage();
+    majorSections.push({ Title: title, Page: page });
+    drawSection(title);
+  };
 
   documentPdf.setTitle(`${snapshot.ReferralReference} CID Referral Pack`);
   documentPdf.setSubject(snapshot.SourceReference);
@@ -2078,6 +2326,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   documentPdf.setCreationDate(new Date(snapshot.ExportedAt));
 
   addPage();
+  majorSections.push({ Title: 'Cover and officer declaration', Page: page });
   y = pageHeight - 112;
   page.drawText('CID REFERRAL PACK', { x: margin, y, size: 25, font: bold, color: navy });
   y -= 27;
@@ -2106,14 +2355,25 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   declarationLines.forEach((line, index) => page.drawText(line, { x: margin + 260, y: y - 29 - (index * 10), size: 7.8, font: italic, color: navy }));
   y -= 102;
 
-  addPage();
-  drawSection('Pack contents and identifiers');
+  const expectedContentsEntries = 11 + snapshot.Incidents.length + snapshot.Evidence.filter((row) => String(row.FileType || '').startsWith('image/') || String(row.FileType || '').includes('pdf')).length + (snapshot.Case ? 1 : 0);
+  for (let index = 0; index < Math.max(1, Math.ceil(expectedContentsEntries / 34)); index += 1) contentsPages.push(addPage());
+
+  startMajorSection('Executive evidence summary');
+  drawField('Allegation and referral', snapshot.ReferralSummary);
+  drawField('CID consideration requested', snapshot.RequestedAction);
+  drawField('Key evidence', snapshot.ExecutiveSummary?.KeyEvidence || 'Not recorded');
+  drawField('Evidential weaknesses and gaps', snapshot.ExecutiveSummary?.EvidentialWeaknesses || 'Not recorded');
+  drawField('Recommended next steps', snapshot.ExecutiveSummary?.RecommendedNextSteps || 'Not recorded');
+  drawSubsection(`Readiness assessment / ${snapshot.QualityAssessment?.Score || 0}%`);
+  (snapshot.QualityAssessment?.Checks || []).forEach((row) => drawBullet(`${row.Status} / ${row.Label}${row.Status === 'Complete' ? '' : ` / ${row.Detail}`}`));
+
+  startMajorSection('Pack contents and identifiers');
   drawField('Source record', `${snapshot.SourceType} / ${snapshot.SourceReference} / internal ID ${snapshot.SourceID}`);
   drawField('Included CAD references', snapshot.Incidents.map((row) => `${row.IncidentNumber} (${row.IncidentID})`).join('\n'));
   drawField('Included exhibits', snapshot.Evidence.length ? snapshot.Evidence.map((row, index) => `EX${String(index + 1).padStart(2, '0')} / ${row.Title || row.FileName} / ${row.AttachmentID}`).join('\n') : 'No uploaded exhibits included');
   if (snapshot.SentTo) drawField('Intended recipient', `${snapshot.SentTo}${snapshot.SentAt ? ` / ${formatDisplayDateTime(snapshot.SentAt)}` : ''}`);
   if (snapshot.Case) {
-    drawSection('Case record');
+    startMajorSection('Case record');
     drawField('Case', `${snapshot.Case.Reference} / ${snapshot.Case.Name} / ${snapshot.Case.OperationID}`);
     drawField('Status / classification', `${snapshot.Case.Status} / ${snapshot.Case.Classification} / ${snapshot.Case.Sensitivity}`);
     drawField('Lead and command', `Lead: ${snapshot.Case.Lead || 'Not assigned'}\nGold: ${snapshot.Case.CommandStructure?.Gold || 'Not assigned'}\nSilver: ${snapshot.Case.CommandStructure?.Silver || 'Not assigned'}\nBronze: ${snapshot.Case.CommandStructure?.Bronze || 'Not assigned'}`);
@@ -2127,8 +2387,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   }
 
   snapshot.Incidents.forEach((incident) => {
-    addPage();
-    drawSection(`CAD ${incident.IncidentNumber} / ${incident.Title}`);
+    startMajorSection(`CAD ${incident.IncidentNumber} / ${incident.Title}`);
     drawField('Identifiers', `CAD number: ${incident.IncidentNumber}\nIncident ID: ${incident.IncidentID}\nType: ${incident.IncidentType}\nPriority: ${incident.Priority}\nStatus: ${incident.Status}`);
     drawField('Location and timing', `Location: ${incident.Location || 'Not recorded'}\nCreated: ${formatDisplayDateTime(incident.CreatedAt)} by ${incident.CreatedBy || 'Unknown'}\nClosed: ${incident.ClosedAt ? `${formatDisplayDateTime(incident.ClosedAt)} by ${incident.ClosedBy || 'Unknown'}` : 'Open'}`);
     drawField('Incident narrative', incident.Description || 'No incident narrative recorded');
@@ -2166,8 +2425,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
     (incident.CorrelationAlerts || []).forEach((row) => drawBullet(`${row.Title} / ${row.Detail}${row.Recommendation ? ` / ${row.Recommendation}` : ''}${row.IncidentNumber ? ` / linked CAD ${row.IncidentNumber}` : ''}`));
   });
 
-  addPage();
-  drawSection('Offence and charging schedule');
+  startMajorSection('Offence and charging schedule');
   if ((snapshot.OffenceCatalogue || []).length) (snapshot.OffenceCatalogue || []).forEach((row) => {
     drawSubsection(`${row.Title} / ${row.Code}`);
     drawField('Offence identifiers', `Offence ID: ${row.OffenceID}\nCategory: ${row.Category || 'Not recorded'}\nLegislation: ${row.LegislationSource || 'Not recorded'}\nSection: ${row.SectionReference || 'Not recorded'}`);
@@ -2177,17 +2435,35 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   });
   else drawParagraph('No catalogue offences are linked to the recorded outcomes.', { font: italic, color: grey });
 
-  addPage();
-  drawSection('Intelligence relationship schedule');
+  startMajorSection('Intelligence relationship schedule');
   if ((snapshot.Relationships || []).length) snapshot.Relationships.forEach((row) => drawBullet(`${row.SourceType} ${operationalRelationshipLabel(row.SourceType, row.SourceID)} (${row.SourceID}) / ${row.RelationshipType} / ${row.TargetType} ${operationalRelationshipLabel(row.TargetType, row.TargetID)} (${row.TargetID}) / confidence ${row.Confidence}${row.Notes ? ` / ${row.Notes}` : ''}`));
   else drawParagraph('No analyst-maintained relationships linked to the included subjects.', { font: italic, color: grey });
 
-  addPage();
-  drawSection('Evidence schedule');
+  startMajorSection('Version comparison');
+  if (snapshot.VersionComparison?.IsFirstVersion) drawParagraph('This is the initial referral export. There is no earlier version to compare.', { font: italic, color: grey });
+  else {
+    drawField('Previous export', `${snapshot.VersionComparison.PreviousReference} / version ${snapshot.VersionComparison.PreviousVersion} / referral ID ${snapshot.VersionComparison.PreviousReferralID}`);
+    drawSubsection('Material changes');
+    (snapshot.VersionComparison.Changes || []).forEach(drawBullet);
+  }
+
+  startMajorSection('Combined case chronology');
+  drawParagraph('Events from every included CAD and the linked case record are ordered below by recorded date and time.', { font: italic, color: grey });
+  (snapshot.Chronology || []).forEach((row) => drawBullet(`${formatDisplayDateTime(row.At)} / ${row.Type} / ${row.Reference} / ${row.Title}${row.Detail ? ` / ${row.Detail}` : ''}${row.ID ? ` / record ID ${row.ID}` : ''}`));
+  if (!(snapshot.Chronology || []).length) drawParagraph('No dated events were available for the combined chronology.', { font: italic, color: grey });
+
+  startMajorSection('Redaction register');
+  if ((snapshot.RedactionManifest || []).length) (snapshot.RedactionManifest || []).forEach((row, index) => {
+    drawSubsection(`R${String(index + 1).padStart(2, '0')} / ${row.Title}`);
+    drawField('Redaction record', `Attachment ID: ${row.AttachmentID}\nCAD: ${row.IncidentNumber}\nReason: ${row.Reason}\nRedacted by: ${row.RedactedBy}\nRedacted at: ${formatDisplayDateTime(row.RedactedAt)}\nOriginal SHA-256: ${row.OriginalHash}\nExported derivative SHA-256: ${row.ExportedHash}`);
+  });
+  else drawParagraph('No evidence was redacted for this export.', { font: italic, color: grey });
+
+  startMajorSection('Evidence schedule');
   drawParagraph(`Secure evidence links in this pack expire on ${formatDisplayDateTime(snapshot.EvidenceLinkExpiresAt)}. Original files remain available internally by attachment ID.`, { font: italic, color: grey });
   (snapshot.Evidence || []).forEach((row, index) => {
     drawSubsection(`EX${String(index + 1).padStart(2, '0')} / ${row.Title || row.FileName}`);
-    drawField('Evidence details', `Attachment ID: ${row.AttachmentID}\nCAD: ${row.IncidentNumber} / ${row.IncidentID}\nFile: ${row.FileName}\nType: ${row.FileType || 'Unknown'}\nSize: ${formatFileSize(row.FileSize)}\nUploaded: ${formatDisplayDateTime(row.CreatedAt)}\nSHA-256: ${row.FileHash || 'Could not be calculated'}`);
+    drawField('Evidence details', `Attachment ID: ${row.AttachmentID}\nCAD: ${row.IncidentNumber} / ${row.IncidentID}\nFile: ${row.FileName}\nType: ${row.FileType || 'Unknown'}\nSize: ${formatFileSize(row.FileSize)}\nUploaded: ${formatDisplayDateTime(row.CreatedAt)}\nOriginal SHA-256: ${row.FileHash || 'Could not be calculated'}${row.Redacted ? `\nExported derivative SHA-256: ${row.ExportedFileHash}\nRedaction reason: ${row.RedactionReason}` : ''}`);
     drawExternalLink('Open secure evidence file', row.EvidenceAccessUrl);
   });
   if (!snapshot.Evidence.length) drawParagraph('No uploaded exhibits were selected for this referral.', { font: italic, color: grey });
@@ -2197,8 +2473,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
     const asset = evidenceAssets.get(evidence.AttachmentID);
     if (!asset || asset.error) continue;
     if (asset.imageBytes) {
-      addPage();
-      drawSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / image`);
+      startMajorSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / image`);
       drawParagraph(`${evidence.Title || evidence.FileName} / ${evidence.IncidentNumber} / ${evidence.AttachmentID}`, { font: bold });
       try {
         const image = await documentPdf.embedJpg(asset.imageBytes);
@@ -2209,8 +2484,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
         drawParagraph('The image could not be embedded. Use the secure evidence link in the schedule.', { font: italic, color: grey });
       }
     } else if ((asset.mimeType || '').includes('pdf')) {
-      addPage();
-      drawSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / appended PDF`);
+      startMajorSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / appended PDF`);
       drawParagraph(`${evidence.Title || evidence.FileName} / ${evidence.IncidentNumber} / ${evidence.AttachmentID}`, { font: bold });
       try {
         const sourcePdf = await PDFDocument.load(asset.bytes, { ignoreEncryption: true });
@@ -2222,8 +2496,7 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
     }
   }
 
-  addPage();
-  drawSection('Export assurance');
+  startMajorSection('Export assurance');
   drawField('Declaration', snapshot.Declaration);
   drawField('Export identity', `${snapshot.SubmittingOfficer.Rank} ${snapshot.SubmittingOfficer.RobloxUsername}\nOfficer ID: ${snapshot.SubmittingOfficer.OfficerID}\nMDT user ID: ${snapshot.SubmittingOfficer.UserID}`);
   drawField('Export timestamp', formatDisplayDateTime(snapshot.ExportedAt));
@@ -2231,6 +2504,50 @@ async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) 
   drawParagraph('The SHA-256 hash for the completed PDF is stored in the MDT export record and is intentionally not printed inside the file it hashes.', { font: italic, color: grey });
 
   const pages = documentPdf.getPages();
+  const contentsEntriesPerPage = 34;
+  contentsPages.forEach((contentsPage, contentsIndex) => {
+    const entries = majorSections.slice(contentsIndex * contentsEntriesPerPage, (contentsIndex + 1) * contentsEntriesPerPage);
+    contentsPage.drawText(contentsIndex ? `CONTENTS / CONTINUED ${contentsIndex + 1}` : 'CONTENTS', { x: margin, y: pageHeight - 82, size: 19, font: bold, color: navy });
+    contentsPage.drawText('Select an entry to move directly to that section.', { x: margin, y: pageHeight - 102, size: 8.5, font: italic, color: grey });
+    let contentsY = pageHeight - 132;
+    entries.forEach((entry) => {
+      const pageNumber = pages.indexOf(entry.Page) + 1;
+      const title = safeText(entry.Title);
+      const number = String(pageNumber);
+      const numberWidth = bold.widthOfTextAtSize(number, 8.5);
+      contentsPage.drawText(title, { x: margin + 8, y: contentsY, size: 8.5, font: regular, color: navy, maxWidth: contentWidth - 50 });
+      contentsPage.drawText(number, { x: pageWidth - margin - numberWidth - 8, y: contentsY, size: 8.5, font: bold, color: blue });
+      contentsPage.drawLine({ start: { x: margin + 8, y: contentsY - 6 }, end: { x: pageWidth - margin - 8, y: contentsY - 6 }, thickness: 0.35, color: lightGrey });
+      try {
+        const annotation = documentPdf.context.obj({
+          Type: PDFName.of('Annot'), Subtype: PDFName.of('Link'), Rect: [margin, contentsY - 8, pageWidth - margin, contentsY + 12], Border: [0, 0, 0],
+          A: { Type: PDFName.of('Action'), S: PDFName.of('GoTo'), D: [entry.Page.ref, PDFName.of('Fit')] },
+        });
+        contentsPage.node.addAnnot(documentPdf.context.register(annotation));
+      } catch (error) {
+        // Printed page numbers remain usable in viewers that reject internal annotations.
+      }
+      contentsY -= 20;
+    });
+  });
+
+  try {
+    const context = documentPdf.context;
+    const outlinesRef = context.nextRef();
+    const itemRefs = majorSections.map(() => context.nextRef());
+    majorSections.forEach((entry, index) => {
+      const outlineItem = { Title: PDFString.of(safeText(entry.Title)), Parent: outlinesRef, Dest: [entry.Page.ref, PDFName.of('Fit')] };
+      if (index > 0) outlineItem.Prev = itemRefs[index - 1];
+      if (index < itemRefs.length - 1) outlineItem.Next = itemRefs[index + 1];
+      context.assign(itemRefs[index], context.obj(outlineItem));
+    });
+    context.assign(outlinesRef, context.obj({ Type: PDFName.of('Outlines'), First: itemRefs[0], Last: itemRefs[itemRefs.length - 1], Count: itemRefs.length }));
+    documentPdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    documentPdf.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  } catch (error) {
+    // The clickable contents page remains available if a PDF viewer rejects outlines.
+  }
+
   pages.forEach((documentPage, index) => {
     const footer = `${snapshot.ReferralReference}  |  VERSION ${snapshot.Version}  |  PAGE ${index + 1} OF ${pages.length}`;
     documentPage.drawLine({ start: { x: margin, y: 34 }, end: { x: pageWidth - margin, y: 34 }, thickness: 0.5, color: lightGrey });
@@ -4668,6 +4985,11 @@ async function handleDocumentClick(event) {
     const type = exportCidReferral.dataset.exportCidReferral.slice(0, separator);
     const id = exportCidReferral.dataset.exportCidReferral.slice(separator + 1);
     openCidReferralExporter(type, id);
+    return;
+  }
+  const redactCidEvidence = event.target.closest('[data-redact-cid-evidence]');
+  if (redactCidEvidence) {
+    await openCidEvidenceRedactor(redactCidEvidence.dataset.redactCidEvidence);
     return;
   }
   const downloadCidReferral = event.target.closest('[data-download-cid-referral]');
@@ -8955,7 +9277,7 @@ async function supabaseOperationsHub() {
       return { MessageID: row.message_id, Channel: row.channel || 'Main', Priority: row.priority || 'Normal', MessageType: row.message_type || 'Transmission', Message: row.message || '', Status: row.status || 'Sent', Sender: sender?.roblox_username || 'System', SenderCallsign: senderOfficer?.callsign || '', TargetUnitID: row.target_unit_id || '', TargetUnit: (units || []).find((unitRow) => unitRow.unit_id === row.target_unit_id)?.callsign || '', IncidentID: row.incident_id || '', IncidentNumber: (incidents || []).find((incidentRow) => incidentRow.incident_id === row.incident_id)?.incident_number || '', CreatedAt: row.created_at };
     }),
     relationships: (relationships || []).map((row) => ({ RelationshipID: row.relationship_id, SourceType: row.source_type, SourceID: row.source_id, TargetType: row.target_type, TargetID: row.target_id, RelationshipType: row.relationship_type, Confidence: row.confidence, Notes: row.notes || '', ValidFrom: row.valid_from || '', ValidTo: row.valid_to || '', CreatedAt: row.created_at })),
-    cidReferrals: (cidReferrals || []).sort((a, b) => String(b.exported_at).localeCompare(String(a.exported_at))).map((row) => ({ ReferralID: row.referral_id, ReferralReference: row.referral_reference, Version: row.version, SourceType: row.source_type, SourceID: row.source_id, SourceReference: row.source_reference, IncidentIDs: row.incident_ids || [], EvidenceIDs: row.evidence_ids || [], SubmittingOfficerID: row.submitting_officer_id || '', Classification: row.classification, Summary: row.referral_summary, RequestedAction: row.requested_action, SuspectedOffences: row.suspected_offences, SentTo: row.sent_to, SentAt: row.sent_at || '', PdfHash: row.pdf_hash, PdfSize: row.pdf_size, Status: row.status, ExportedAt: row.exported_at })),
+    cidReferrals: (cidReferrals || []).sort((a, b) => String(b.exported_at).localeCompare(String(a.exported_at))).map((row) => ({ ReferralID: row.referral_id, ReferralReference: row.referral_reference, Version: row.version, SourceType: row.source_type, SourceID: row.source_id, SourceReference: row.source_reference, IncidentIDs: row.incident_ids || [], EvidenceIDs: row.evidence_ids || [], SubmittingOfficerID: row.submitting_officer_id || '', Classification: row.classification, Summary: row.referral_summary, RequestedAction: row.requested_action, SuspectedOffences: row.suspected_offences, SentTo: row.sent_to, SentAt: row.sent_at || '', PdfHash: row.pdf_hash, PdfSize: row.pdf_size, Status: row.status, ReadinessScore: row.readiness_score || 0, QualityAssessment: row.quality_assessment || {}, ExecutiveSummary: row.executive_summary || {}, RedactionManifest: row.redaction_manifest || [], VersionComparison: row.version_comparison || {}, SupersedesReferralID: row.supersedes_referral_id || '', Snapshot: row.snapshot || {}, ExportedAt: row.exported_at })),
     controllerEligible,
     controllerSession: controllerSession ? supabaseControllerSession(controllerSession) : null,
     callsignPresets: (callsignPresets || []).filter((row) => row.active !== false).sort((a, b) => a.sort_order - b.sort_order).map((preset) => {
@@ -9065,6 +9387,12 @@ async function supabaseSaveCidReferralExport(data) {
     pdf_hash: data.PdfHash || '',
     pdf_size: data.PdfFile.size,
     evidence_link_expires_at: data.EvidenceLinkExpiresAt || null,
+    readiness_score: Number(data.ReadinessScore) || 0,
+    quality_assessment: data.QualityAssessment || {},
+    executive_summary: data.ExecutiveSummary || {},
+    redaction_manifest: data.RedactionManifest || [],
+    version_comparison: data.VersionComparison || {},
+    supersedes_referral_id: data.SupersedesReferralID || null,
     snapshot: data.Snapshot || {},
     status: data.SentTo && data.SentAt ? 'Sent' : 'Exported',
   };
@@ -9073,6 +9401,7 @@ async function supabaseSaveCidReferralExport(data) {
     await supabaseClient.storage.from('mo8-cid-referrals').remove([pdfPath, signaturePath]);
     return { ok: false, error: error.message };
   }
+  if (data.SupersedesReferralID) await supabaseClient.from('cid_referral_exports').update({ status: 'Superseded' }).eq('referral_id', data.SupersedesReferralID);
   await supabaseAudit(state.user.UserID, 'Export CID Referral', data.SourceType, data.SourceID, { ReferralReference: reference, Version: version, PdfHash: data.PdfHash, IncidentIDs: data.IncidentIDs || [] });
   return { ok: true, ReferralID: saved?.referral_id || '', ReferralReference: reference };
 }

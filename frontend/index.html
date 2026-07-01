@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
     <link rel="stylesheet" href="styles.css?v=2026-06-29-1">
-    <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-1">
+    <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
   </head>
   <body>
@@ -714,10 +714,21 @@
       </form>
     </dialog>
 
+    <dialog id="cidRedactionDialog" class="cid-redaction-dialog">
+      <form method="dialog" class="dialog-card" id="cidRedactionForm">
+        <div class="section-head"><div><small>Export derivative only</small><h2 id="cidRedactionTitle">Redact evidence</h2></div><button class="ghost" value="cancel" formnovalidate>Close</button></div>
+        <p class="dialog-intro">Drag over information that should be obscured in the exported referral. The original evidence file will remain unchanged.</p>
+        <div class="cid-redaction-canvas-wrap"><canvas id="cidRedactionCanvas" aria-label="Evidence redaction canvas"></canvas></div>
+        <label>Reason for redaction<textarea id="cidRedactionReason" required placeholder="Explain why this information is not required in the exported pack."></textarea></label>
+        <p class="form-status" id="cidRedactionStatus"></p>
+        <div class="cid-redaction-actions"><button type="button" class="ghost" id="cidRedactionUndo">Undo</button><button type="button" class="ghost" id="cidRedactionReset">Reset</button><button value="save">Save redacted copy</button></div>
+      </form>
+    </dialog>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-01-1"></script>
+    <script src="app.js?v=2026-07-01-2"></script>
   </body>
 </html>

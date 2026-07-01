@@ -146,6 +146,30 @@ dialog:has(.cid-signature-field) .dialog-card { max-height: 90vh; overflow: auto
 .cid-export-selector small { color: #687985; }
 .cid-export-selector label { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 7px; align-items: start; padding: 8px; background: #fff; border: 1px solid #d6dfe5; }
 .cid-export-selector label span { display: grid; gap: 2px; }
+.cid-evidence-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.cid-evidence-option > label { margin: 0; }
+.cid-evidence-option > button { align-self: stretch; min-width: 78px; }
+.cid-evidence-option em { color: #687985; font-size: 10px; font-style: normal; }
+.cid-evidence-option em.active { color: #a33d43; font-weight: 800; }
+.cid-version-notice { grid-column: 1 / -1; padding: 10px 12px; color: #5c4a22; background: #fff7df; border: 1px solid #dcc889; border-left: 4px solid #b58a25; }
+.cid-readiness-panel { grid-column: 1 / -1; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; padding: 12px; background: #f4f7f9; border: 1px solid #cfd9e0; }
+.cid-readiness-score { display: grid; place-items: center; align-content: center; min-height: 94px; color: #fff; background: #315f85; }
+.cid-readiness-score strong { font-size: 25px; }
+.cid-readiness-score span { font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.cid-readiness-score.warning { background: #9a6a24; }
+.cid-readiness-score.blocked { background: #963e43; }
+.cid-readiness-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.cid-readiness-score small { margin-top: 4px; color: #e2edf4; font-size: 9px; }
+.cid-readiness-checks article { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 7px; align-items: start; padding: 7px; background: #fff; border: 1px solid #d6dfe5; }
+.cid-readiness-checks i { color: #31734b; font-style: normal; font-weight: 900; }
+.cid-readiness-checks .status-missing i { color: #a33d43; }
+.cid-readiness-checks .status-warning i { color: #9a6a24; }
+.cid-readiness-checks small { color: #687985; }
+.cid-redaction-dialog { width: min(1080px, calc(100vw - 28px)); }
+.cid-redaction-dialog .dialog-card { max-height: 92vh; overflow: auto; }
+.cid-redaction-canvas-wrap { display: grid; place-items: center; min-height: 280px; max-height: 62vh; padding: 12px; overflow: auto; background: #171a1d; border: 1px solid #454d53; }
+.cid-redaction-canvas-wrap canvas { display: block; max-width: 100%; height: auto; background: #fff; cursor: crosshair; touch-action: none; }
+.cid-redaction-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .cid-signature-field { display: grid; gap: 10px; padding: 12px; background: #f4f7f9; border: 1px solid #cfd9e0; }
 .cid-signature-field p { margin: 0; color: #526572; line-height: 1.45; }
 .cid-signature-field canvas { width: 100%; height: 150px; touch-action: none; background: #fff; border: 1px solid #8fa1ae; cursor: crosshair; }
@@ -161,6 +185,9 @@ body.operations-mode .cid-export-intro, body.operations-mode .cid-export-selecto
 body.operations-mode .cid-export-intro h3, body.operations-mode .cid-export-selector h3, body.operations-mode .cid-signature-field h3 { color: #edf1f3; }
 body.operations-mode .cid-export-intro p, body.operations-mode .cid-signature-field p { color: #aeb7bd; }
 body.operations-mode .cid-export-selector label { background: #252a2e; border-color: #454d53; }
+body.operations-mode .cid-readiness-panel { color: #d8dde0; background: #202428; border-color: #41484d; }
+body.operations-mode .cid-readiness-checks article { background: #252a2e; border-color: #454d53; }
+body.operations-mode .cid-version-notice { color: #eadbaa; background: #30291c; border-color: #76633b; }
 
 @media (max-width: 800px) {
   .workflow-launcher { grid-template-columns: 1fr; }
@@ -178,4 +205,8 @@ body.operations-mode .cid-export-selector label { background: #252a2e; border-co
   .cid-signature-field canvas { height: 125px; }
   .cid-signature-field > div:last-child { align-items: stretch; flex-direction: column; }
   .cid-export-history article { grid-template-columns: 1fr; }
+  .cid-readiness-panel { grid-template-columns: 1fr; }
+  .cid-readiness-checks { grid-template-columns: 1fr; }
+  .cid-redaction-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .cid-redaction-actions button:last-child { grid-column: 1 / -1; }
 }
