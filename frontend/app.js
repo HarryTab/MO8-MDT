@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-06-29-8';
+const APP_VERSION = '2026-07-01-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -1634,7 +1634,7 @@ function renderOpsIncidentWorkspace(row) {
   workspace.innerHTML = `<header class="cad-detail-head">
     <div class="cad-priority-block ${escapeHtml(String(row.Priority || '').toLowerCase())}">${escapeHtml(String(opsPriorityWeight(row.Priority)))}</div>
     <div><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)}</small><h2>${escapeHtml(row.Title)}</h2><p>${escapeHtml(row.Location || 'Location not recorded')}</p></div>
-    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed ? `<button class="workflow-action" data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow ${workflow.completed}/${workflow.total}</button><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
+    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed ? `<button class="workflow-action" data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow ${workflow.completed}/${workflow.total}</button><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="cid-export-action" data-export-cid-referral="CAD:${escapeHtml(row.IncidentID)}">CID referral PDF</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
   </header>
   <nav class="cad-record-tabs"><button class="${activeDetailTab === 'overview' ? 'active' : ''}" data-cad-detail-tab="overview">Overview</button><button class="${activeDetailTab === 'intelligence' ? 'active' : ''}" data-cad-detail-tab="intelligence">Intelligence <span>${escapeHtml(String((row.Entities || []).length))}</span></button><button class="${activeDetailTab === 'command' ? 'active' : ''}" data-cad-detail-tab="command">Command</button><button class="${activeDetailTab === 'timeline' ? 'active' : ''}" data-cad-detail-tab="timeline">Timeline <span>${escapeHtml(String(logs.length))}</span></button><button class="${activeDetailTab === 'evidence' ? 'active' : ''}" data-cad-detail-tab="evidence">Evidence <span>${escapeHtml(String((row.Attachments || []).length + (row.Links || []).length))}</span></button></nav>
   <section class="cad-detail-panel" data-cad-detail-panel="overview"${activeDetailTab === 'overview' ? '' : ' hidden'}><div class="cad-detail-grid">
@@ -1653,7 +1653,7 @@ function renderOpsIncidentWorkspace(row) {
     <section class="cad-detail-section"><h3>Operational objectives</h3><p>${escapeHtml(row.Description || 'No operational objectives recorded.')}</p><div class="row-actions"><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Update command record</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Record decision</button></div></section>
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="timeline"${activeDetailTab === 'timeline' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Incident timeline</h3><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add entry</button></div><div class="cad-timeline">${logs.length ? logs.map(opsLogEntry).join('') : '<p class="empty">No log entries yet.</p>'}</div></section></section>
-  <section class="cad-detail-panel" data-cad-detail-panel="evidence"${activeDetailTab === 'evidence' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Evidence and links</h3><div><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button></div></div><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div></section></section>`;
+  <section class="cad-detail-panel" data-cad-detail-panel="evidence"${activeDetailTab === 'evidence' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Evidence and links</h3><div><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button><button class="cid-export-action" data-export-cid-referral="CAD:${escapeHtml(row.IncidentID)}">Create CID pack</button></div></div><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div>${cidReferralHistoryHtml('CAD', row.IncidentID)}</section></section>`;
   renderOpsCallQueue();
 }
 
@@ -1701,6 +1701,544 @@ function opsIncidentPowerUses(rows) {
 
 function opsAttachmentRow(row) {
   return `<a class="cad-file-row" href="${escapeHtml(row.Url || '#')}" target="_blank" rel="noopener"><span>${escapeHtml(row.Title || row.FileName)}</span><small>${escapeHtml(row.FileType || 'File')}</small></a>`;
+}
+
+function cidReferralHistoryHtml(sourceType, sourceId) {
+  const rows = (state.operationsHub.cidReferrals || []).filter((row) => row.SourceType === sourceType && row.SourceID === sourceId);
+  return `<section class="cid-export-history"><div class="cad-panel-title"><div><small>Prepared for external submission</small><h3>CID referral packs</h3></div></div>${rows.length ? rows.map((row) => `<article><div><span>${escapeHtml(row.ReferralReference)} / version ${escapeHtml(String(row.Version))}</span><strong>${escapeHtml(row.Classification)}</strong><small>Exported ${escapeHtml(formatDisplayDateTime(row.ExportedAt))} / SHA-256 ${escapeHtml(String(row.PdfHash || '').slice(0, 16))}...</small>${row.SentTo ? `<small>Recorded as sent to ${escapeHtml(row.SentTo)}${row.SentAt ? ` on ${escapeHtml(formatDisplayDateTime(row.SentAt))}` : ''}</small>` : ''}</div><button class="mini ghost" data-download-cid-referral="${escapeHtml(row.ReferralID)}">Download PDF</button></article>`).join('') : '<p class="empty">No referral packs have been exported from this record.</p>'}</section>`;
+}
+
+function openCidReferralExporter(sourceType, sourceId) {
+  const source = sourceType === 'Case'
+    ? (state.operationsHub.operations || []).find((row) => row.OperationID === sourceId)
+    : operationalIncidentById(sourceId);
+  if (!source) return;
+  const allIncidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
+  const linkedIds = sourceType === 'Case'
+    ? (source.Links || []).filter((row) => row.SubjectType === 'Incident').map((row) => row.SubjectID)
+    : [source.IncidentID, ...(source.LinkedIncidentIDs || [])];
+  const incidentRows = [...new Map(linkedIds.map((id) => [id, allIncidents.find((row) => row.IncidentID === id)]).filter((entry) => entry[1])).values()];
+  if (sourceType === 'CAD' && !incidentRows.length) incidentRows.push(source);
+  const attachments = incidentRows.flatMap((incident) => (incident.Attachments || []).map((row) => ({ ...row, IncidentID: incident.IncidentID, IncidentNumber: incident.IncidentNumber })));
+  const offenceText = [...new Set(incidentRows.flatMap((row) => (row.Disposals || []).map((item) => item.Offence).filter(Boolean)))].join('\n');
+  const existing = (state.operationsHub.cidReferrals || []).filter((row) => row.SourceType === sourceType && row.SourceID === sourceId);
+  const version = Math.max(0, ...existing.map((row) => Number(row.Version) || 0)) + 1;
+  const referralReference = createCidReferralReference();
+  const sourceReference = sourceType === 'Case' ? source.Reference : source.IncidentNumber;
+  const incidentChoices = incidentRows.map((row) => `<label><input type="checkbox" data-cid-incident value="${escapeHtml(row.IncidentID)}" checked${sourceType === 'CAD' && row.IncidentID === sourceId ? ' disabled' : ''}><span><strong>${escapeHtml(row.IncidentNumber)}</strong><small>${escapeHtml(row.Title)} / ${escapeHtml(row.Status)}</small></span></label>`).join('');
+  const evidenceChoices = attachments.map((row) => `<label><input type="checkbox" data-cid-evidence value="${escapeHtml(row.AttachmentID)}" checked><span><strong>${escapeHtml(row.Title || row.FileName)}</strong><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.FileType || 'File')} / ${escapeHtml(formatFileSize(row.FileSize))}</small></span></label>`).join('');
+  const declaration = 'I confirm that this referral pack is an accurate export of the records available to me at the time shown and that the information has not knowingly been altered or omitted.';
+  openEditor('Create CID referral pack', [
+    { html: `<section class="cid-export-intro"><span>${escapeHtml(referralReference)} / version ${escapeHtml(String(version))}</span><h3>${escapeHtml(sourceReference)} / ${escapeHtml(sourceType === 'Case' ? source.Name : source.Title)}</h3><p>The generated PDF and frozen record snapshot will be retained in the MDT. It will not be sent automatically.</p></section>` },
+    hiddenField('ReferralReference', referralReference),
+    hiddenField('Version', version),
+    selectField('Classification', 'Document classification', ['Official - Internal', 'Official - Sensitive', 'Restricted'], source.Sensitivity || 'Official - Internal'),
+    { html: `<label class="wide">Referral summary<textarea name="ReferralSummary" required>${escapeHtml(source.Summary || source.Outcome || source.Description || '')}</textarea></label>` },
+    { html: '<label class="wide">Requested CID consideration<textarea name="RequestedAction" required placeholder="Explain what CID is being asked to consider, review or progress."></textarea></label>' },
+    field('SuspectedOffences', 'Suspected offences and charging considerations', 'textarea', true, offenceText),
+    field('SentTo', 'Intended CID recipient (optional)', 'text', false),
+    field('SentAt', 'Date sent (optional)', 'datetime-local', false),
+    { html: `<section class="cid-export-selector wide"><div><h3>Included CAD records</h3><small>Untick linked records that are not relevant to this referral.</small></div>${incidentChoices || '<p>No linked CAD records.</p>'}</section>` },
+    { html: `<section class="cid-export-selector wide"><div><h3>Included evidence</h3><small>Images will be embedded. Attached PDFs will be appended. Videos and other files receive secure evidence links.</small></div>${evidenceChoices || '<p>No uploaded evidence is linked to the selected CAD records.</p>'}</section>` },
+    { html: `<section class="cid-signature-field wide"><div><h3>Officer declaration and signature</h3><p>${escapeHtml(declaration)}</p></div><canvas id="cidSignatureCanvas" aria-label="Draw your signature"></canvas><div><button type="button" class="ghost" id="clearCidSignature">Clear signature</button><label><input type="checkbox" name="DeclarationAccepted" value="Accepted" required> I accept the declaration above.</label></div></section>` },
+  ], async (values) => {
+    const canvas = document.querySelector('#cidSignatureCanvas');
+    if (!canvas?.dataset.signed) return { ok: false, error: 'Draw your signature before generating the referral pack.' };
+    const selectedIncidentIds = [...elements.editorFields.querySelectorAll('[data-cid-incident]')].filter((input) => input.checked || input.disabled).map((input) => input.value);
+    const selectedEvidenceIds = [...elements.editorFields.querySelectorAll('[data-cid-evidence]:checked')].map((input) => input.value);
+    if (!selectedIncidentIds.length) return { ok: false, error: 'Include at least one CAD record.' };
+    elements.editorStatus.textContent = 'Preparing records and secure evidence links...';
+    const signatureDataUrl = canvas.toDataURL('image/png');
+    const snapshot = await buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration });
+    elements.editorStatus.textContent = 'Hashing evidence and building PDF...';
+    const evidenceAssets = await prepareCidEvidenceAssets(snapshot.Evidence);
+    evidenceAssets.forEach((asset, id) => {
+      const evidence = snapshot.Evidence.find((row) => row.AttachmentID === id);
+      if (evidence) evidence.FileHash = asset.hash || '';
+    });
+    const pdfBytes = await createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets);
+    const pdfHash = await sha256Hex(pdfBytes);
+    const pdfFile = new File([pdfBytes], `${values.ReferralReference}-V${values.Version}.pdf`, { type: 'application/pdf' });
+    const signatureBlob = dataUrlToBlob(signatureDataUrl);
+    const signatureFile = new File([signatureBlob], 'officer-signature.png', { type: 'image/png' });
+    elements.editorStatus.textContent = 'Securing completed referral pack...';
+    const response = await api('saveCidReferralExport', {
+      SourceType: sourceType,
+      SourceID: sourceId,
+      SourceReference: sourceReference,
+      ReferralReference: values.ReferralReference,
+      Version: values.Version,
+      Classification: values.Classification,
+      ReferralSummary: values.ReferralSummary,
+      RequestedAction: values.RequestedAction,
+      SuspectedOffences: values.SuspectedOffences,
+      SentTo: values.SentTo,
+      SentAt: values.SentAt,
+      Declaration: declaration,
+      IncidentIDs: selectedIncidentIds,
+      EvidenceIDs: selectedEvidenceIds,
+      EvidenceLinkExpiresAt: snapshot.EvidenceLinkExpiresAt,
+      Snapshot: snapshot,
+      PdfHash: pdfHash,
+      PdfFile: pdfFile,
+      SignatureFile: signatureFile,
+    });
+    if (response.ok) downloadBlob(pdfFile, pdfFile.name);
+    return response;
+  }, { persistDraft: false, successMessage: 'CID referral pack generated, retained and downloaded.', onSuccess: refreshOperationsHub });
+  initializeCidSignaturePad(document.querySelector('#cidSignatureCanvas'));
+}
+
+function createCidReferralReference() {
+  const random = crypto.getRandomValues(new Uint8Array(4));
+  return `CID-${new Date().getFullYear()}-${[...random].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+function initializeCidSignaturePad(canvas) {
+  if (!canvas) return;
+  canvas.width = 900;
+  canvas.height = 220;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#102b44';
+  context.lineWidth = 4;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  let drawing = false;
+  const point = (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    return { x: ((event.clientX - bounds.left) / bounds.width) * canvas.width, y: ((event.clientY - bounds.top) / bounds.height) * canvas.height };
+  };
+  canvas.addEventListener('pointerdown', (event) => {
+    drawing = true;
+    canvas.setPointerCapture(event.pointerId);
+    const start = point(event);
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!drawing) return;
+    const next = point(event);
+    context.lineTo(next.x, next.y);
+    context.stroke();
+    canvas.dataset.signed = 'true';
+  });
+  const finish = () => { drawing = false; context.closePath(); };
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', finish);
+  document.querySelector('#clearCidSignature')?.addEventListener('click', () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    delete canvas.dataset.signed;
+  });
+}
+
+async function buildCidReferralSnapshot({ sourceType, sourceId, source, values, selectedIncidentIds, selectedEvidenceIds, declaration }) {
+  const allIncidents = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])];
+  const incidents = allIncidents.filter((row) => selectedIncidentIds.includes(row.IncidentID)).map((row) => JSON.parse(JSON.stringify(row)));
+  const evidenceLinkExpiresAt = new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)).toISOString();
+  const evidence = incidents.flatMap((incident) => (incident.Attachments || []).filter((row) => selectedEvidenceIds.includes(row.AttachmentID)).map((row) => ({ ...row, IncidentID: incident.IncidentID, IncidentNumber: incident.IncidentNumber })));
+  await Promise.all(evidence.map(async (row) => {
+    if (!row.StoragePath) return;
+    const { data } = await supabaseClient.storage.from('mo8-cad-evidence').createSignedUrl(row.StoragePath, 30 * 24 * 60 * 60);
+    row.EvidenceAccessUrl = data?.signedUrl || row.Url || '';
+    delete row.Url;
+  }));
+  incidents.forEach((incident) => {
+    incident.Attachments = evidence.filter((row) => row.IncidentID === incident.IncidentID).map((row) => ({ ...row }));
+  });
+  const officer = (state.operationsHub.officerDirectory || []).find((row) => row.OfficerID === state.operationsHub.currentOfficerID) || {};
+  const relevantEntityKeys = new Set(incidents.flatMap((row) => (row.Entities || []).map((entity) => `${entity.EntityType}:${entity.EntityID}`)));
+  const relationships = (state.operationsHub.relationships || []).filter((row) => relevantEntityKeys.has(`${row.SourceType}:${row.SourceID}`) || relevantEntityKeys.has(`${row.TargetType}:${row.TargetID}`));
+  const offenceIds = new Set(incidents.flatMap((row) => (row.Disposals || []).map((item) => item.OffenceID).filter(Boolean)));
+  const offenceCatalogue = (state.operationsHub.offences || []).filter((row) => offenceIds.has(row.OffenceID)).map((row) => JSON.parse(JSON.stringify(row)));
+  return {
+    FormatVersion: 1,
+    ReferralReference: values.ReferralReference,
+    Version: Number(values.Version) || 1,
+    Classification: values.Classification,
+    ExportedAt: new Date().toISOString(),
+    EvidenceLinkExpiresAt: evidenceLinkExpiresAt,
+    SourceType: sourceType,
+    SourceID: sourceId,
+    SourceReference: sourceType === 'Case' ? source.Reference : source.IncidentNumber,
+    SourceTitle: sourceType === 'Case' ? source.Name : source.Title,
+    ReferralSummary: values.ReferralSummary,
+    RequestedAction: values.RequestedAction,
+    SuspectedOffences: values.SuspectedOffences,
+    SentTo: values.SentTo || '',
+    SentAt: values.SentAt || '',
+    Declaration: declaration,
+    SubmittingOfficer: { OfficerID: officer.OfficerID || '', RobloxUsername: state.user.RobloxUsername, Callsign: officer.Callsign || '', Rank: officer.Rank || state.user.Rank || '', UserID: state.user.UserID },
+    Case: sourceType === 'Case' ? JSON.parse(JSON.stringify(source)) : null,
+    Incidents: incidents,
+    Evidence: evidence,
+    Relationships: relationships,
+    OffenceCatalogue: offenceCatalogue,
+  };
+}
+
+async function prepareCidEvidenceAssets(evidence) {
+  const assets = new Map();
+  await Promise.all((evidence || []).map(async (row) => {
+    if (!row.EvidenceAccessUrl) return;
+    try {
+      const response = await fetch(row.EvidenceAccessUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const asset = { bytes, hash: await sha256Hex(bytes), mimeType: row.FileType || blob.type || '' };
+      if (asset.mimeType.startsWith('image/')) asset.imageBytes = await compressCidEvidenceImage(blob);
+      assets.set(row.AttachmentID, asset);
+    } catch (error) {
+      assets.set(row.AttachmentID, { error: error.message, hash: '' });
+    }
+  }));
+  return assets;
+}
+
+async function compressCidEvidenceImage(blob) {
+  const image = await createImageBitmap(blob);
+  const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
+  const compressed = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+  return new Uint8Array(await compressed.arrayBuffer());
+}
+
+async function sha256Hex(value) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [header, encoded] = dataUrl.split(',');
+  const mimeType = header.match(/data:([^;]+)/)?.[1] || 'application/octet-stream';
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mimeType });
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function createCidReferralPdf(snapshot, signatureDataUrl, evidenceAssets) {
+  if (!window.PDFLib) throw new Error('The PDF generator did not load. Refresh the page and try again.');
+  const { PDFDocument, StandardFonts, rgb, PDFName, PDFString } = window.PDFLib;
+  const documentPdf = await PDFDocument.create();
+  const regular = await documentPdf.embedFont(StandardFonts.Helvetica);
+  const bold = await documentPdf.embedFont(StandardFonts.HelveticaBold);
+  const italic = await documentPdf.embedFont(StandardFonts.HelveticaOblique);
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 44;
+  const contentWidth = pageWidth - (margin * 2);
+  const navy = rgb(0.07, 0.17, 0.27);
+  const blue = rgb(0.12, 0.34, 0.53);
+  const paleBlue = rgb(0.91, 0.95, 0.98);
+  const grey = rgb(0.34, 0.39, 0.43);
+  const lightGrey = rgb(0.84, 0.86, 0.88);
+  const white = rgb(1, 1, 1);
+  let page;
+  let y;
+
+  const safeText = (value) => String(value ?? '').replace(/[^\x09\x0A\x0D\x20-\xFF]/g, '?');
+  const wrap = (value, font, size, width) => {
+    const lines = [];
+    safeText(value || '').split(/\r?\n/).forEach((paragraph) => {
+      if (!paragraph) { lines.push(''); return; }
+      let current = '';
+      paragraph.split(/\s+/).forEach((word) => {
+        const candidate = current ? `${current} ${word}` : word;
+        if (font.widthOfTextAtSize(candidate, size) <= width) current = candidate;
+        else {
+          if (current) lines.push(current);
+          if (font.widthOfTextAtSize(word, size) <= width) current = word;
+          else {
+            let chunk = '';
+            [...word].forEach((character) => {
+              if (font.widthOfTextAtSize(chunk + character, size) > width && chunk) { lines.push(chunk); chunk = character; }
+              else chunk += character;
+            });
+            current = chunk;
+          }
+        }
+      });
+      if (current) lines.push(current);
+    });
+    return lines.length ? lines : [''];
+  };
+  const addPage = () => {
+    page = documentPdf.addPage([pageWidth, pageHeight]);
+    page.drawText('MET OPERATIONS 8  |  CID REFERRAL PACK', { x: margin, y: pageHeight - 34, size: 8, font: bold, color: navy });
+    page.drawText(safeText(snapshot.ReferralReference), { x: pageWidth - margin - bold.widthOfTextAtSize(safeText(snapshot.ReferralReference), 8), y: pageHeight - 34, size: 8, font: bold, color: navy });
+    page.drawLine({ start: { x: margin, y: pageHeight - 42 }, end: { x: pageWidth - margin, y: pageHeight - 42 }, thickness: 1, color: blue });
+    y = pageHeight - 64;
+    return page;
+  };
+  const ensureSpace = (height) => { if (!page || y - height < 48) addPage(); };
+  const drawParagraph = (value, options = {}) => {
+    const font = options.font || regular;
+    const size = options.size || 9;
+    const lineHeight = options.lineHeight || size * 1.38;
+    const x = options.x ?? margin;
+    const width = options.width || contentWidth;
+    const color = options.color || navy;
+    const lines = wrap(value || '', font, size, width);
+    lines.forEach((line) => {
+      ensureSpace(lineHeight + 2);
+      page.drawText(line, { x, y, size, font, color });
+      y -= lineHeight;
+    });
+    y -= options.after ?? 4;
+  };
+  const drawSection = (title) => {
+    ensureSpace(30);
+    y -= 3;
+    page.drawRectangle({ x: margin, y: y - 16, width: contentWidth, height: 22, color: paleBlue, borderColor: lightGrey, borderWidth: 0.5 });
+    page.drawText(safeText(title).toUpperCase(), { x: margin + 8, y: y - 9, size: 10, font: bold, color: navy });
+    y -= 29;
+  };
+  const drawSubsection = (title) => {
+    ensureSpace(22);
+    page.drawText(safeText(title), { x: margin, y, size: 10, font: bold, color: blue });
+    y -= 15;
+  };
+  const drawField = (label, value) => {
+    ensureSpace(28);
+    page.drawText(safeText(label).toUpperCase(), { x: margin, y, size: 7.5, font: bold, color: grey });
+    y -= 11;
+    drawParagraph(value || 'Not recorded', { size: 9, after: 6 });
+  };
+  const drawRule = () => {
+    ensureSpace(10);
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: lightGrey });
+    y -= 9;
+  };
+  const drawBullet = (value) => {
+    ensureSpace(16);
+    page.drawCircle({ x: margin + 3, y: y + 3, size: 1.6, color: blue });
+    const lines = wrap(value, regular, 8.6, contentWidth - 16);
+    lines.forEach((line, index) => {
+      ensureSpace(12);
+      page.drawText(line, { x: margin + 12, y, size: 8.6, font: regular, color: navy });
+      y -= 11.8;
+    });
+    y -= 2;
+  };
+  const drawExternalLink = (label, url) => {
+    if (!url) return;
+    ensureSpace(18);
+    const linkText = safeText(label);
+    const size = 8.5;
+    page.drawText(linkText, { x: margin, y, size, font: bold, color: blue });
+    try {
+      const width = Math.min(contentWidth, bold.widthOfTextAtSize(linkText, size));
+      const annotation = documentPdf.context.obj({
+        Type: PDFName.of('Annot'), Subtype: PDFName.of('Link'), Rect: [margin, y - 2, margin + width, y + size + 2], Border: [0, 0, 0],
+        A: { Type: PDFName.of('Action'), S: PDFName.of('URI'), URI: PDFString.of(url) },
+      });
+      page.node.addAnnot(documentPdf.context.register(annotation));
+    } catch (error) {
+      // The printed URL below remains available if a viewer does not support link annotations.
+    }
+    y -= 12;
+    drawParagraph(url, { size: 6.5, color: grey, after: 5 });
+  };
+
+  documentPdf.setTitle(`${snapshot.ReferralReference} CID Referral Pack`);
+  documentPdf.setSubject(snapshot.SourceReference);
+  documentPdf.setAuthor(`${snapshot.SubmittingOfficer.Rank} ${snapshot.SubmittingOfficer.RobloxUsername}`);
+  documentPdf.setCreator('MO8 RPU Command OS');
+  documentPdf.setCreationDate(new Date(snapshot.ExportedAt));
+
+  addPage();
+  y = pageHeight - 112;
+  page.drawText('CID REFERRAL PACK', { x: margin, y, size: 25, font: bold, color: navy });
+  y -= 27;
+  page.drawText(safeText(`${snapshot.SourceReference}  |  ${snapshot.SourceTitle}`), { x: margin, y, size: 12, font: regular, color: blue });
+  y -= 34;
+  page.drawRectangle({ x: margin, y: y - 56, width: contentWidth, height: 64, color: navy });
+  page.drawText(safeText(snapshot.Classification).toUpperCase(), { x: margin + 14, y: y - 14, size: 9, font: bold, color: white });
+  page.drawText(safeText(snapshot.ReferralReference), { x: margin + 14, y: y - 35, size: 16, font: bold, color: white });
+  page.drawText(`VERSION ${snapshot.Version}`, { x: pageWidth - margin - 80, y: y - 35, size: 10, font: bold, color: white });
+  y -= 84;
+  drawField('Referral summary', snapshot.ReferralSummary);
+  drawField('CID consideration requested', snapshot.RequestedAction);
+  drawField('Suspected offences / charging considerations', snapshot.SuspectedOffences || 'No specific offence proposed');
+  drawSection('Submitting officer');
+  drawField('Officer', `${snapshot.SubmittingOfficer.Rank} ${snapshot.SubmittingOfficer.RobloxUsername}`);
+  drawField('Callsign / officer ID', `${snapshot.SubmittingOfficer.Callsign || 'No callsign'} / ${snapshot.SubmittingOfficer.OfficerID || 'No officer ID'}`);
+  drawField('Authenticated MDT account', snapshot.SubmittingOfficer.UserID);
+  drawField('Exported', formatDisplayDateTime(snapshot.ExportedAt));
+  ensureSpace(105);
+  const signatureImage = await documentPdf.embedPng(signatureDataUrl);
+  const signatureScale = Math.min(1, 230 / signatureImage.width, 75 / signatureImage.height);
+  page.drawRectangle({ x: margin, y: y - 82, width: 250, height: 88, borderColor: lightGrey, borderWidth: 0.7, color: white });
+  page.drawImage(signatureImage, { x: margin + 8, y: y - 75, width: signatureImage.width * signatureScale, height: signatureImage.height * signatureScale });
+  page.drawText('OFFICER SIGNATURE', { x: margin + 260, y: y - 15, size: 7.5, font: bold, color: grey });
+  const declarationLines = wrap(snapshot.Declaration, italic, 7.8, contentWidth - 268);
+  declarationLines.forEach((line, index) => page.drawText(line, { x: margin + 260, y: y - 29 - (index * 10), size: 7.8, font: italic, color: navy }));
+  y -= 102;
+
+  addPage();
+  drawSection('Pack contents and identifiers');
+  drawField('Source record', `${snapshot.SourceType} / ${snapshot.SourceReference} / internal ID ${snapshot.SourceID}`);
+  drawField('Included CAD references', snapshot.Incidents.map((row) => `${row.IncidentNumber} (${row.IncidentID})`).join('\n'));
+  drawField('Included exhibits', snapshot.Evidence.length ? snapshot.Evidence.map((row, index) => `EX${String(index + 1).padStart(2, '0')} / ${row.Title || row.FileName} / ${row.AttachmentID}`).join('\n') : 'No uploaded exhibits included');
+  if (snapshot.SentTo) drawField('Intended recipient', `${snapshot.SentTo}${snapshot.SentAt ? ` / ${formatDisplayDateTime(snapshot.SentAt)}` : ''}`);
+  if (snapshot.Case) {
+    drawSection('Case record');
+    drawField('Case', `${snapshot.Case.Reference} / ${snapshot.Case.Name} / ${snapshot.Case.OperationID}`);
+    drawField('Status / classification', `${snapshot.Case.Status} / ${snapshot.Case.Classification} / ${snapshot.Case.Sensitivity}`);
+    drawField('Lead and command', `Lead: ${snapshot.Case.Lead || 'Not assigned'}\nGold: ${snapshot.Case.CommandStructure?.Gold || 'Not assigned'}\nSilver: ${snapshot.Case.CommandStructure?.Silver || 'Not assigned'}\nBronze: ${snapshot.Case.CommandStructure?.Bronze || 'Not assigned'}`);
+    drawField('Summary', snapshot.Case.Summary || snapshot.Case.Objectives);
+    drawSubsection('Linked case records');
+    (snapshot.Case.Links || []).forEach((row) => drawBullet(`${row.SubjectType} / ${row.Label || row.SubjectID} / ${row.Relationship} / ID ${row.SubjectID}${row.IntelligenceSummary ? ` / ${row.IntelligenceSummary}` : ''}`));
+    drawSubsection('Investigation actions');
+    (snapshot.Case.Actions || []).forEach((row) => drawBullet(`${row.Status} / ${row.Priority} / ${row.Title} / assigned to ${row.Owner || 'unassigned'}${row.Details ? ` / ${row.Details}` : ''}`));
+    drawSubsection('Case timeline');
+    (snapshot.Case.Updates || []).forEach((row) => drawBullet(`${formatDisplayDateTime(row.CreatedAt)} / ${row.UpdateType} / ${row.Author || 'System'} / ${row.Body}`));
+  }
+
+  snapshot.Incidents.forEach((incident) => {
+    addPage();
+    drawSection(`CAD ${incident.IncidentNumber} / ${incident.Title}`);
+    drawField('Identifiers', `CAD number: ${incident.IncidentNumber}\nIncident ID: ${incident.IncidentID}\nType: ${incident.IncidentType}\nPriority: ${incident.Priority}\nStatus: ${incident.Status}`);
+    drawField('Location and timing', `Location: ${incident.Location || 'Not recorded'}\nCreated: ${formatDisplayDateTime(incident.CreatedAt)} by ${incident.CreatedBy || 'Unknown'}\nClosed: ${incident.ClosedAt ? `${formatDisplayDateTime(incident.ClosedAt)} by ${incident.ClosedBy || 'Unknown'}` : 'Open'}`);
+    drawField('Incident narrative', incident.Description || 'No incident narrative recorded');
+    if (incident.IncidentData && Object.values(incident.IncidentData).some(Boolean)) drawField('Structured incident information', Object.entries(incident.IncidentData).filter(([, value]) => value !== '' && value !== null && value !== undefined).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join('\n'));
+    drawField('Outcome', `${incident.ClosureCode || 'No closure code'}\n${incident.Outcome || 'No closing summary'}\nReview: ${incident.ReviewStatus || 'Not required'}${incident.ReviewFeedback ? ` / ${incident.ReviewFeedback}` : ''}`);
+    drawField('Officers and units', `Assigned: ${incident.AssignedUnits || 'Unassigned'}\nAttending officers: ${incident.AttendingOfficers || 'Not recorded'}\nRequired capabilities: ${incident.RequiredCapabilities || 'None'}\nRadio / patrol area: ${incident.RadioChannel || 'Not set'} / ${incident.PatrolArea || 'Not set'}`);
+    drawField('Command structure', `Incident commander: ${incident.CommandRoles?.IncidentCommander || 'Not assigned'}\nGold: ${incident.CommandRoles?.Gold || 'Not assigned'}\nSilver: ${incident.CommandRoles?.Silver || 'Not assigned'}\nBronze: ${incident.CommandRoles?.Bronze || 'Not assigned'}`);
+    drawSubsection('People, vehicles and warning markers');
+    (incident.Entities || []).forEach((entity) => {
+      drawBullet(`${entity.EntityType} / ${entity.Label} / ${entity.InvolvementRole} / ID ${entity.EntityID}${entity.Detail ? ` / ${entity.Detail}` : ''}${entity.Notes ? ` / ${entity.Notes}` : ''}`);
+      (entity.Markers || []).forEach((marker) => drawBullet(`MARKER: ${marker.Severity} / ${marker.MarkerType} / ${marker.Details || 'No details'} / ID ${marker.MarkerID}`));
+    });
+    if (!(incident.Entities || []).length) drawParagraph('No people or vehicles linked.', { font: italic, color: grey });
+    drawSubsection('Offences and enforcement outcomes');
+    (incident.Disposals || []).forEach((row) => drawBullet(`${row.OutcomeType} / ${row.Offence || 'No offence selected'} / offence ID ${row.OffenceID || 'None'} / subject ${row.Subject || 'Not recorded'} / issued by ${row.IssuingOfficer || 'Unknown'}${row.FineAmount ? ` / FPN GBP ${row.FineAmount}` : ''}${row.PrisonMinutes ? ` / arrest ${row.PrisonMinutes} minutes` : ''}${row.PenaltyPoints ? ` / ${row.PenaltyPoints} points` : ''}${row.Notes ? ` / ${row.Notes}` : ''}`));
+    if (!(incident.Disposals || []).length) drawParagraph('No enforcement outcomes recorded.', { font: italic, color: grey });
+    drawSubsection('Powers exercised');
+    (incident.PowerUses || []).forEach((row) => drawBullet(`${row.PowerTitle || row.Power || row.PowerID} / ${row.PowerCode || ''} / officer ${row.Officer || row.OfficerID} / grounds: ${row.Grounds || 'Not recorded'} / necessity: ${row.Necessity || 'Not recorded'} / outcome: ${row.Outcome || 'Not recorded'}${row.ItemsSeized ? ` / items seized: ${row.ItemsSeized}` : ''}`));
+    if (!(incident.PowerUses || []).length) drawParagraph('No uses of power recorded.', { font: italic, color: grey });
+    drawSubsection('Officer actions');
+    (incident.OfficerActions || []).forEach((row) => drawBullet(`${row.action_type || row.ActionType || 'Action'} / officer ID ${row.officer_id || row.OfficerID || 'Unknown'} / ${row.notes || row.Notes || 'No notes'} / ${formatDisplayDateTime(row.occurred_at || row.OccurredAt)}`));
+    if (!(incident.OfficerActions || []).length) drawParagraph('No separate officer actions recorded.', { font: italic, color: grey });
+    drawSubsection('Unit attendance');
+    (incident.Attendance || []).forEach((row) => drawBullet(`${row.Callsign || row.UnitID} / assigned ${formatDisplayDateTime(row.AssignedAt)} / en route ${row.EnRouteAt ? formatDisplayDateTime(row.EnRouteAt) : 'not recorded'} / on scene ${row.OnSceneAt ? formatDisplayDateTime(row.OnSceneAt) : 'not recorded'} / cleared ${row.ClearedAt ? formatDisplayDateTime(row.ClearedAt) : 'active'} / ${row.Outcome || 'No unit outcome'}`));
+    drawSubsection('Incident log');
+    (incident.Logs || []).sort((a, b) => String(a.CreatedAt).localeCompare(String(b.CreatedAt))).forEach((row) => drawBullet(`${formatDisplayDateTime(row.CreatedAt)} / ${row.EntryType} / ${row.Author} / ${row.Body} / log ID ${row.LogID}`));
+    if (!(incident.Logs || []).length) drawParagraph('No incident log entries.', { font: italic, color: grey });
+    drawSubsection('Supervisor review history');
+    (incident.Reviews || []).forEach((row) => drawBullet(`${row.Status} / reviewer ${row.Reviewer || 'Not recorded'} / review ID ${row.ReviewID} / opened ${formatDisplayDateTime(row.CreatedAt)}${row.CompletedAt ? ` / completed ${formatDisplayDateTime(row.CompletedAt)}` : ''}${row.Feedback ? ` / feedback: ${row.Feedback}` : ''}${row.AmendmentResponse ? ` / officer response: ${row.AmendmentResponse}` : ''}`));
+    if (!(incident.Reviews || []).length) drawParagraph('No supervisor review history recorded.', { font: italic, color: grey });
+    drawSubsection('External links');
+    (incident.Links || []).forEach((row) => drawExternalLink(`${row.Title || 'Linked material'} / link ID ${row.LinkID}`, row.Url));
+    if (!(incident.Links || []).length) drawParagraph('No external links recorded.', { font: italic, color: grey });
+    drawSubsection('Intelligence correlations');
+    (incident.CorrelationAlerts || []).forEach((row) => drawBullet(`${row.Title} / ${row.Detail}${row.Recommendation ? ` / ${row.Recommendation}` : ''}${row.IncidentNumber ? ` / linked CAD ${row.IncidentNumber}` : ''}`));
+  });
+
+  addPage();
+  drawSection('Offence and charging schedule');
+  if ((snapshot.OffenceCatalogue || []).length) (snapshot.OffenceCatalogue || []).forEach((row) => {
+    drawSubsection(`${row.Title} / ${row.Code}`);
+    drawField('Offence identifiers', `Offence ID: ${row.OffenceID}\nCategory: ${row.Category || 'Not recorded'}\nLegislation: ${row.LegislationSource || 'Not recorded'}\nSection: ${row.SectionReference || 'Not recorded'}`);
+    drawField('Definition and guidance', `${row.Description || 'No definition recorded'}${row.GuidanceNotes ? `\nGuidance: ${row.GuidanceNotes}` : ''}${row.EscalationGuidance ? `\nEscalation: ${row.EscalationGuidance}` : ''}`);
+    drawField('Suggested disposal', `${row.SuggestedOutcome || 'Officer discretion'}${row.DefaultFine ? ` / default FPN GBP ${row.DefaultFine}` : ''}${row.DefaultPrisonMinutes ? ` / default arrest ${row.DefaultPrisonMinutes} minutes` : ''}`);
+    drawRule();
+  });
+  else drawParagraph('No catalogue offences are linked to the recorded outcomes.', { font: italic, color: grey });
+
+  addPage();
+  drawSection('Intelligence relationship schedule');
+  if ((snapshot.Relationships || []).length) snapshot.Relationships.forEach((row) => drawBullet(`${row.SourceType} ${operationalRelationshipLabel(row.SourceType, row.SourceID)} (${row.SourceID}) / ${row.RelationshipType} / ${row.TargetType} ${operationalRelationshipLabel(row.TargetType, row.TargetID)} (${row.TargetID}) / confidence ${row.Confidence}${row.Notes ? ` / ${row.Notes}` : ''}`));
+  else drawParagraph('No analyst-maintained relationships linked to the included subjects.', { font: italic, color: grey });
+
+  addPage();
+  drawSection('Evidence schedule');
+  drawParagraph(`Secure evidence links in this pack expire on ${formatDisplayDateTime(snapshot.EvidenceLinkExpiresAt)}. Original files remain available internally by attachment ID.`, { font: italic, color: grey });
+  (snapshot.Evidence || []).forEach((row, index) => {
+    drawSubsection(`EX${String(index + 1).padStart(2, '0')} / ${row.Title || row.FileName}`);
+    drawField('Evidence details', `Attachment ID: ${row.AttachmentID}\nCAD: ${row.IncidentNumber} / ${row.IncidentID}\nFile: ${row.FileName}\nType: ${row.FileType || 'Unknown'}\nSize: ${formatFileSize(row.FileSize)}\nUploaded: ${formatDisplayDateTime(row.CreatedAt)}\nSHA-256: ${row.FileHash || 'Could not be calculated'}`);
+    drawExternalLink('Open secure evidence file', row.EvidenceAccessUrl);
+  });
+  if (!snapshot.Evidence.length) drawParagraph('No uploaded exhibits were selected for this referral.', { font: italic, color: grey });
+
+  for (let index = 0; index < (snapshot.Evidence || []).length; index += 1) {
+    const evidence = snapshot.Evidence[index];
+    const asset = evidenceAssets.get(evidence.AttachmentID);
+    if (!asset || asset.error) continue;
+    if (asset.imageBytes) {
+      addPage();
+      drawSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / image`);
+      drawParagraph(`${evidence.Title || evidence.FileName} / ${evidence.IncidentNumber} / ${evidence.AttachmentID}`, { font: bold });
+      try {
+        const image = await documentPdf.embedJpg(asset.imageBytes);
+        const scale = Math.min(contentWidth / image.width, (y - 60) / image.height, 1);
+        page.drawImage(image, { x: margin + ((contentWidth - (image.width * scale)) / 2), y: y - (image.height * scale), width: image.width * scale, height: image.height * scale });
+        y -= (image.height * scale) + 8;
+      } catch (error) {
+        drawParagraph('The image could not be embedded. Use the secure evidence link in the schedule.', { font: italic, color: grey });
+      }
+    } else if ((asset.mimeType || '').includes('pdf')) {
+      addPage();
+      drawSection(`Exhibit EX${String(index + 1).padStart(2, '0')} / appended PDF`);
+      drawParagraph(`${evidence.Title || evidence.FileName} / ${evidence.IncidentNumber} / ${evidence.AttachmentID}`, { font: bold });
+      try {
+        const sourcePdf = await PDFDocument.load(asset.bytes, { ignoreEncryption: true });
+        const copiedPages = await documentPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+        copiedPages.forEach((copiedPage) => documentPdf.addPage(copiedPage));
+      } catch (error) {
+        drawParagraph('The attached PDF could not be appended. Use the secure evidence link in the schedule.', { font: italic, color: grey });
+      }
+    }
+  }
+
+  addPage();
+  drawSection('Export assurance');
+  drawField('Declaration', snapshot.Declaration);
+  drawField('Export identity', `${snapshot.SubmittingOfficer.Rank} ${snapshot.SubmittingOfficer.RobloxUsername}\nOfficer ID: ${snapshot.SubmittingOfficer.OfficerID}\nMDT user ID: ${snapshot.SubmittingOfficer.UserID}`);
+  drawField('Export timestamp', formatDisplayDateTime(snapshot.ExportedAt));
+  drawField('Record scope', `${snapshot.Incidents.length} CAD record(s) / ${snapshot.Evidence.length} exhibit(s) / ${snapshot.Relationships.length} relationship record(s)`);
+  drawParagraph('The SHA-256 hash for the completed PDF is stored in the MDT export record and is intentionally not printed inside the file it hashes.', { font: italic, color: grey });
+
+  const pages = documentPdf.getPages();
+  pages.forEach((documentPage, index) => {
+    const footer = `${snapshot.ReferralReference}  |  VERSION ${snapshot.Version}  |  PAGE ${index + 1} OF ${pages.length}`;
+    documentPage.drawLine({ start: { x: margin, y: 34 }, end: { x: pageWidth - margin, y: 34 }, thickness: 0.5, color: lightGrey });
+    documentPage.drawText(footer, { x: margin, y: 21, size: 7, font: bold, color: grey });
+    const classificationWidth = bold.widthOfTextAtSize(safeText(snapshot.Classification).toUpperCase(), 7);
+    documentPage.drawText(safeText(snapshot.Classification).toUpperCase(), { x: pageWidth - margin - classificationWidth, y: 21, size: 7, font: bold, color: grey });
+  });
+  return documentPdf.save();
 }
 
 function renderOpsActivityFeed() {
@@ -2259,7 +2797,7 @@ function renderOpsCaseWorkspace(row) {
   const links = row.Links || [];
   const actions = row.Actions || [];
   const updates = row.Updates || [];
-  workspace.innerHTML = `<header class="case-head"><div><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.CaseType)}</span><h2>${escapeHtml(row.Name)}</h2><p>${escapeHtml(row.Summary || row.Objectives || 'No case summary recorded.')}</p></div><div class="row-actions">${!row.ArchivedAt ? `<button data-add-case-action="${escapeHtml(row.OperationID)}">New action</button><button class="ghost" data-add-case-update="${escapeHtml(row.OperationID)}">Add update</button><button class="ghost" data-link-operation="${escapeHtml(row.OperationID)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(row.OperationID)}">Edit case</button><button class="ghost" data-archive-case="${escapeHtml(row.OperationID)}">Archive</button>` : ''}<button class="danger" data-delete-case="${escapeHtml(row.OperationID)}">Delete</button></div></header><div class="case-status-strip">${opsFact('Status', row.ArchivedAt ? 'Archived' : row.Status)}${opsFact('Sensitivity', row.Sensitivity)}${opsFact('Lead', row.Lead || 'Unassigned')}${opsFact('Review date', row.ReviewDate ? formatDisplayDate(row.ReviewDate) : 'Not set')}</div><section class="case-command-strip"><div><span>Gold</span><strong>${escapeHtml(row.CommandStructure?.Gold || 'Not assigned')}</strong></div><div><span>Silver</span><strong>${escapeHtml(row.CommandStructure?.Silver || 'Not assigned')}</strong></div><div><span>Bronze</span><strong>${escapeHtml(row.CommandStructure?.Bronze || 'Not assigned')}</strong></div></section><div class="case-grid"><section><h3>Linked intelligence</h3>${links.length ? links.map((link) => `<article class="case-record intelligence-link"><div><span>${escapeHtml(link.SubjectType)} / ${escapeHtml(link.Relationship)}</span><strong>${escapeHtml(link.Label || link.SubjectID)}</strong><small>${escapeHtml(link.IntelligenceSummary || link.Notes || '')}</small>${(link.Associations || []).length ? `<div class="case-associations">${link.Associations.slice(0, 5).map((item) => `<button class="mini ghost" data-open-intel-entity="${escapeHtml(item.EntityType)}:${escapeHtml(item.EntityID)}">${escapeHtml(item.Label)}</button>`).join('')}</div>` : ''}</div>${link.SubjectType === 'Incident' ? `<button class="mini ghost" data-open-cad="${escapeHtml(link.SubjectID)}">Open</button>` : `<button class="mini ghost" data-open-intel-entity="${escapeHtml(link.SubjectType)}:${escapeHtml(link.SubjectID)}">Full intelligence</button>`}</article>`).join('') : '<p class="empty">No records linked yet.</p>'}</section><section><h3>Investigation actions</h3>${actions.length ? actions.map((action) => `<article class="case-record"><div><span>${escapeHtml(action.Priority)} / ${escapeHtml(action.Status)}</span><strong>${escapeHtml(action.Title)}</strong><small>${escapeHtml(action.Owner || 'Unassigned')}${action.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(action.DueAt))}` : ''}</small></div><button class="mini ghost" data-edit-case-action="${escapeHtml(action.ActionID)}">Update</button></article>`).join('') : '<p class="empty">No investigation actions.</p>'}</section><section class="case-timeline"><h3>Case timeline</h3>${updates.length ? updates.map((update) => `<article><time>${escapeHtml(formatDisplayDateTime(update.CreatedAt))}</time><div><strong>${escapeHtml(update.UpdateType)} / ${escapeHtml(update.Author || 'System')}</strong><p>${escapeHtml(update.Body)}</p></div></article>`).join('') : '<p class="empty">No case updates.</p>'}</section></div>`;
+  workspace.innerHTML = `<header class="case-head"><div><span>${escapeHtml(row.Reference)} / ${escapeHtml(row.CaseType)}</span><h2>${escapeHtml(row.Name)}</h2><p>${escapeHtml(row.Summary || row.Objectives || 'No case summary recorded.')}</p></div><div class="row-actions">${!row.ArchivedAt ? `<button data-add-case-action="${escapeHtml(row.OperationID)}">New action</button><button class="ghost" data-add-case-update="${escapeHtml(row.OperationID)}">Add update</button><button class="ghost" data-link-operation="${escapeHtml(row.OperationID)}">Link record</button><button class="ghost" data-edit-operation="${escapeHtml(row.OperationID)}">Edit case</button><button class="ghost" data-archive-case="${escapeHtml(row.OperationID)}">Archive</button>` : ''}<button class="cid-export-action" data-export-cid-referral="Case:${escapeHtml(row.OperationID)}">CID referral PDF</button><button class="danger" data-delete-case="${escapeHtml(row.OperationID)}">Delete</button></div></header><div class="case-status-strip">${opsFact('Status', row.ArchivedAt ? 'Archived' : row.Status)}${opsFact('Sensitivity', row.Sensitivity)}${opsFact('Lead', row.Lead || 'Unassigned')}${opsFact('Review date', row.ReviewDate ? formatDisplayDate(row.ReviewDate) : 'Not set')}</div><section class="case-command-strip"><div><span>Gold</span><strong>${escapeHtml(row.CommandStructure?.Gold || 'Not assigned')}</strong></div><div><span>Silver</span><strong>${escapeHtml(row.CommandStructure?.Silver || 'Not assigned')}</strong></div><div><span>Bronze</span><strong>${escapeHtml(row.CommandStructure?.Bronze || 'Not assigned')}</strong></div></section><div class="case-grid"><section><h3>Linked intelligence</h3>${links.length ? links.map((link) => `<article class="case-record intelligence-link"><div><span>${escapeHtml(link.SubjectType)} / ${escapeHtml(link.Relationship)}</span><strong>${escapeHtml(link.Label || link.SubjectID)}</strong><small>${escapeHtml(link.IntelligenceSummary || link.Notes || '')}</small>${(link.Associations || []).length ? `<div class="case-associations">${link.Associations.slice(0, 5).map((item) => `<button class="mini ghost" data-open-intel-entity="${escapeHtml(item.EntityType)}:${escapeHtml(item.EntityID)}">${escapeHtml(item.Label)}</button>`).join('')}</div>` : ''}</div>${link.SubjectType === 'Incident' ? `<button class="mini ghost" data-open-cad="${escapeHtml(link.SubjectID)}">Open</button>` : `<button class="mini ghost" data-open-intel-entity="${escapeHtml(link.SubjectType)}:${escapeHtml(link.SubjectID)}">Full intelligence</button>`}</article>`).join('') : '<p class="empty">No records linked yet.</p>'}</section><section><h3>Investigation actions</h3>${actions.length ? actions.map((action) => `<article class="case-record"><div><span>${escapeHtml(action.Priority)} / ${escapeHtml(action.Status)}</span><strong>${escapeHtml(action.Title)}</strong><small>${escapeHtml(action.Owner || 'Unassigned')}${action.DueAt ? ` / due ${escapeHtml(formatDisplayDateTime(action.DueAt))}` : ''}</small></div><button class="mini ghost" data-edit-case-action="${escapeHtml(action.ActionID)}">Update</button></article>`).join('') : '<p class="empty">No investigation actions.</p>'}</section><section class="case-timeline"><h3>Case timeline</h3>${updates.length ? updates.map((update) => `<article><time>${escapeHtml(formatDisplayDateTime(update.CreatedAt))}</time><div><strong>${escapeHtml(update.UpdateType)} / ${escapeHtml(update.Author || 'System')}</strong><p>${escapeHtml(update.Body)}</p></div></article>`).join('') : '<p class="empty">No case updates.</p>'}</section></div>${cidReferralHistoryHtml('Case', row.OperationID)}`;
   renderOpsCaseworkListSelection();
 }
 
@@ -4122,6 +4660,23 @@ async function handleDocumentClick(event) {
   const opsWorkspace = event.target.closest('[data-ops-workspace]');
   if (opsWorkspace) {
     switchOpsWorkspace(opsWorkspace.dataset.opsWorkspace);
+    return;
+  }
+  const exportCidReferral = event.target.closest('[data-export-cid-referral]');
+  if (exportCidReferral) {
+    const separator = exportCidReferral.dataset.exportCidReferral.indexOf(':');
+    const type = exportCidReferral.dataset.exportCidReferral.slice(0, separator);
+    const id = exportCidReferral.dataset.exportCidReferral.slice(separator + 1);
+    openCidReferralExporter(type, id);
+    return;
+  }
+  const downloadCidReferral = event.target.closest('[data-download-cid-referral]');
+  if (downloadCidReferral) {
+    downloadCidReferral.disabled = true;
+    const response = await api('downloadCidReferralExport', { ReferralID: downloadCidReferral.dataset.downloadCidReferral });
+    downloadCidReferral.disabled = false;
+    if (!response.ok) showInfo('Download failed', `<p>${escapeHtml(response.error || 'The referral pack could not be opened.')}</p>`);
+    else window.open(response.Url, '_blank', 'noopener');
     return;
   }
   const addRelationship = event.target.closest('[data-add-operational-relationship]');
@@ -5993,6 +6548,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
       operationsHub: supabaseOperationsHub,
+      saveCidReferralExport: supabaseSaveCidReferralExport,
+      downloadCidReferralExport: supabaseDownloadCidReferralExport,
       sendOperationalMessage: supabaseSendOperationalMessage,
       saveOperationalRelationship: supabaseSaveOperationalRelationship,
       deleteOperationalRelationship: supabaseDeleteOperationalRelationship,
@@ -8270,7 +8827,7 @@ async function supabaseTeamShifts(data = {}) {
 }
 
 async function supabaseOperationsHub() {
-  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses, messages, relationships] = await Promise.all([
+  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses, messages, relationships, cidReferrals] = await Promise.all([
     supabaseShiftStatus(),
     supabaseAll('shift_logs'),
     supabaseOptionalAll('operational_incidents'),
@@ -8314,6 +8871,7 @@ async function supabaseOperationsHub() {
     supabaseOptionalAll('operational_deployment_responses'),
     supabaseOptionalAll('operational_messages'),
     supabaseOptionalAll('operational_entity_relationships'),
+    supabaseOptionalAll('cid_referral_exports'),
   ]);
   const attachmentRows = await Promise.all((attachments || []).map(async (row) => {
     const { data: signed } = await supabaseClient.storage.from('mo8-cad-evidence').createSignedUrl(row.storage_path, 60 * 60);
@@ -8397,6 +8955,7 @@ async function supabaseOperationsHub() {
       return { MessageID: row.message_id, Channel: row.channel || 'Main', Priority: row.priority || 'Normal', MessageType: row.message_type || 'Transmission', Message: row.message || '', Status: row.status || 'Sent', Sender: sender?.roblox_username || 'System', SenderCallsign: senderOfficer?.callsign || '', TargetUnitID: row.target_unit_id || '', TargetUnit: (units || []).find((unitRow) => unitRow.unit_id === row.target_unit_id)?.callsign || '', IncidentID: row.incident_id || '', IncidentNumber: (incidents || []).find((incidentRow) => incidentRow.incident_id === row.incident_id)?.incident_number || '', CreatedAt: row.created_at };
     }),
     relationships: (relationships || []).map((row) => ({ RelationshipID: row.relationship_id, SourceType: row.source_type, SourceID: row.source_id, TargetType: row.target_type, TargetID: row.target_id, RelationshipType: row.relationship_type, Confidence: row.confidence, Notes: row.notes || '', ValidFrom: row.valid_from || '', ValidTo: row.valid_to || '', CreatedAt: row.created_at })),
+    cidReferrals: (cidReferrals || []).sort((a, b) => String(b.exported_at).localeCompare(String(a.exported_at))).map((row) => ({ ReferralID: row.referral_id, ReferralReference: row.referral_reference, Version: row.version, SourceType: row.source_type, SourceID: row.source_id, SourceReference: row.source_reference, IncidentIDs: row.incident_ids || [], EvidenceIDs: row.evidence_ids || [], SubmittingOfficerID: row.submitting_officer_id || '', Classification: row.classification, Summary: row.referral_summary, RequestedAction: row.requested_action, SuspectedOffences: row.suspected_offences, SentTo: row.sent_to, SentAt: row.sent_at || '', PdfHash: row.pdf_hash, PdfSize: row.pdf_size, Status: row.status, ExportedAt: row.exported_at })),
     controllerEligible,
     controllerSession: controllerSession ? supabaseControllerSession(controllerSession) : null,
     callsignPresets: (callsignPresets || []).filter((row) => row.active !== false).sort((a, b) => a.sort_order - b.sort_order).map((preset) => {
@@ -8463,6 +9022,66 @@ async function supabaseSaveOperationalRelationship(data) {
 async function supabaseDeleteOperationalRelationship(data) {
   const { error } = await supabaseClient.from('operational_entity_relationships').delete().eq('relationship_id', data.RelationshipID);
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveCidReferralExport(data) {
+  const me = await supabaseCurrentProfile();
+  if (!me.ok) return me;
+  const profile = await supabaseProfileByUserId(me.user.UserID);
+  const officer = await supabaseOfficerForMember(profile?.member_id);
+  if (!officer) return { ok: false, error: 'A linked officer profile is required to export a referral pack.' };
+  if (!(data.PdfFile instanceof File) || !(data.SignatureFile instanceof File)) return { ok: false, error: 'The generated PDF or signature is missing.' };
+  const reference = String(data.ReferralReference || '').replace(/[^A-Za-z0-9_-]/g, '');
+  const version = Number(data.Version) || 1;
+  const basePath = `${state.user.UserID}/${reference}/v${version}`;
+  const pdfPath = `${basePath}/${reference}-V${version}.pdf`;
+  const signaturePath = `${basePath}/officer-signature.png`;
+  const pdfUpload = await supabaseClient.storage.from('mo8-cid-referrals').upload(pdfPath, data.PdfFile, { contentType: 'application/pdf', upsert: false });
+  if (pdfUpload.error) return { ok: false, error: `PDF storage failed: ${pdfUpload.error.message}` };
+  const signatureUpload = await supabaseClient.storage.from('mo8-cid-referrals').upload(signaturePath, data.SignatureFile, { contentType: 'image/png', upsert: false });
+  if (signatureUpload.error) {
+    await supabaseClient.storage.from('mo8-cid-referrals').remove([pdfPath]);
+    return { ok: false, error: `Signature storage failed: ${signatureUpload.error.message}` };
+  }
+  const record = {
+    referral_reference: reference,
+    version,
+    source_type: data.SourceType,
+    source_id: data.SourceID,
+    source_reference: data.SourceReference || '',
+    incident_ids: data.IncidentIDs || [],
+    evidence_ids: data.EvidenceIDs || [],
+    submitting_officer_id: officer.officer_id,
+    created_by: state.user.UserID,
+    classification: data.Classification || 'Official - Internal',
+    referral_summary: data.ReferralSummary || '',
+    requested_action: data.RequestedAction || '',
+    suspected_offences: data.SuspectedOffences || '',
+    sent_to: data.SentTo || '',
+    sent_at: data.SentAt || null,
+    declaration: data.Declaration || '',
+    signature_storage_path: signaturePath,
+    pdf_storage_path: pdfPath,
+    pdf_hash: data.PdfHash || '',
+    pdf_size: data.PdfFile.size,
+    evidence_link_expires_at: data.EvidenceLinkExpiresAt || null,
+    snapshot: data.Snapshot || {},
+    status: data.SentTo && data.SentAt ? 'Sent' : 'Exported',
+  };
+  const { data: saved, error } = await supabaseClient.from('cid_referral_exports').insert(record).select('*').maybeSingle();
+  if (error) {
+    await supabaseClient.storage.from('mo8-cid-referrals').remove([pdfPath, signaturePath]);
+    return { ok: false, error: error.message };
+  }
+  await supabaseAudit(state.user.UserID, 'Export CID Referral', data.SourceType, data.SourceID, { ReferralReference: reference, Version: version, PdfHash: data.PdfHash, IncidentIDs: data.IncidentIDs || [] });
+  return { ok: true, ReferralID: saved?.referral_id || '', ReferralReference: reference };
+}
+
+async function supabaseDownloadCidReferralExport(data) {
+  const row = await supabaseById('cid_referral_exports', 'referral_id', data.ReferralID);
+  if (!row) return { ok: false, error: 'Referral export not found.' };
+  const { data: signed, error } = await supabaseClient.storage.from('mo8-cid-referrals').createSignedUrl(row.pdf_storage_path, 60 * 60);
+  return error || !signed?.signedUrl ? { ok: false, error: error?.message || 'A secure download link could not be created.' } : { ok: true, Url: signed.signedUrl, ReferralReference: row.referral_reference };
 }
 
 async function supabaseUpdateOperationalStatus(data) {
@@ -9707,7 +10326,7 @@ function supabaseOperationalIncident(row, officers, profiles, units = [], logs =
     RadioChannel: row.radio_channel || '',
     Logs: (logs || []).filter((log) => log.incident_id === row.incident_id).map((log) => ({ LogID: log.log_id, EntryType: log.entry_type, Body: log.body, CreatedAt: log.created_at, Author: profiles.find((profile) => profile.user_id === log.author_user_id)?.roblox_username || 'System' })),
     Links: (links || []).filter((link) => link.incident_id === row.incident_id).map((link) => ({ LinkID: link.link_id, Title: link.title, Url: link.url, CreatedAt: link.created_at })),
-    Attachments: (attachments || []).filter((item) => item.incident_id === row.incident_id).map((item) => ({ AttachmentID: item.attachment_id, Title: item.title, FileName: item.file_name, FileType: item.file_type, FileSize: item.file_size, Url: item.signed_url, CreatedAt: item.created_at })),
+    Attachments: (attachments || []).filter((item) => item.incident_id === row.incident_id).map((item) => ({ AttachmentID: item.attachment_id, Title: item.title, FileName: item.file_name, FileType: item.file_type, FileSize: item.file_size, StoragePath: item.storage_path, Url: item.signed_url, CreatedAt: item.created_at })),
     Attendance: incidentAttendance.map((item) => ({ AttendanceID: item.attendance_id, Callsign: item.callsign_snapshot, UnitID: item.unit_id, AssignedAt: item.assigned_at, EnRouteAt: item.en_route_at, OnSceneAt: item.on_scene_at, ClearedAt: item.cleared_at, Outcome: item.outcome, Duration: item.cleared_at ? durationText(new Date(item.cleared_at) - new Date(item.assigned_at)) : 'Active' })),
     CreatedBy: profiles.find((profile) => profile.user_id === row.created_by)?.roblox_username || '',
     CreatedAt: row.created_at,
@@ -9722,6 +10341,7 @@ function supabaseOperationalIncident(row, officers, profiles, units = [], logs =
     ReviewStatus: latestReview.status || row.review_status || 'Not Required',
     ReviewFeedback: latestReview.feedback || '',
     ReviewAmendmentResponse: latestReview.amendment_response || '',
+    Reviews: incidentReviews.map((review) => ({ ReviewID: review.review_id, Status: review.status, Feedback: review.feedback || '', AmendmentResponse: review.amendment_response || '', Reviewer: profiles.find((profile) => profile.user_id === review.reviewer_user_id)?.roblox_username || '', CreatedAt: review.created_at, CompletedAt: review.completed_at || '' })),
     ReviewDueAt: row.review_due_at || '',
     DuplicateOfIncidentID: row.duplicate_of_incident_id || '',
   };
