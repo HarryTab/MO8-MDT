@@ -1,0 +1,96 @@
+.nav-unread { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; color: #fff; background: #b73a43; border-radius: 9px; font-size: 10px; }
+.messaging-view { padding: 0 !important; overflow: hidden; }
+.messaging-shell { display: grid; grid-template-columns: 280px minmax(420px, 1fr) 250px; min-height: calc(100vh - 116px); background: #d7dfe5; gap: 1px; }
+.messaging-sidebar, .conversation-pane, .conversation-details { min-width: 0; background: #f7f9fb; }
+.messaging-sidebar { display: flex; flex-direction: column; }
+.messaging-sidebar-head, .conversation-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 70px; padding: 13px 15px; background: #fff; border-bottom: 1px solid #d7dfe5; }
+.messaging-sidebar-head h2, .conversation-header h2 { margin: 2px 0 0; color: #18344c; font-size: 18px; }
+.messaging-sidebar-head small, .conversation-header small { color: #647684; }
+.messaging-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 12px 0; background: #fff; }
+.messaging-mode-tabs button { color: #5a6b78; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
+.messaging-mode-tabs button.active { color: #173c5b; border-bottom-color: #315f85; }
+.messaging-search { margin: 10px 12px; }
+.messaging-search span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+.conversation-list { flex: 1; overflow: auto; border-top: 1px solid #e0e6eb; }
+.conversation-item { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; width: 100%; padding: 11px 12px; color: #263b4c; text-align: left; background: transparent; border: 0; border-bottom: 1px solid #e0e6eb; border-radius: 0; }
+.conversation-item:hover, .conversation-item.active { background: #e9f0f5; }
+.conversation-avatar { display: grid; place-items: center; width: 36px; height: 36px; color: #fff; background: #315f85; border-radius: 4px; font-size: 12px; font-weight: 800; }
+.conversation-item-main { min-width: 0; }
+.conversation-item strong, .conversation-item p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-item strong { display: block; }
+.conversation-item p { margin: 3px 0 0; color: #6a7984; font-size: 11px; }
+.conversation-item time { color: #7b8993; font-size: 9px; }
+.conversation-unread { display: grid; place-items: center; min-width: 18px; height: 18px; margin-top: 5px; color: #fff; background: #b73a43; border-radius: 9px; font-size: 9px; }
+.conversation-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
+.conversation-header-actions { display: flex; gap: 6px; }
+.conversation-mobile-back { display: none; }
+.message-thread { padding: 18px; overflow: auto; background: #eef2f5; }
+.message-day { margin: 12px 0; color: #71818d; text-align: center; font-size: 10px; }
+.chat-message { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 9px; max-width: 760px; margin: 0 0 14px; }
+.chat-message.mine { margin-left: auto; grid-template-columns: minmax(0, 1fr) 34px; }
+.chat-message.mine .message-avatar { grid-column: 2; }
+.chat-message.mine .message-content { grid-column: 1; grid-row: 1; }
+.message-avatar { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; background: #637d91; border-radius: 3px; font-size: 10px; font-weight: 800; }
+.message-content { min-width: 0; }
+.message-meta { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
+.message-meta span, .message-meta time { color: #6b7a85; font-size: 10px; }
+.message-bubble { padding: 9px 11px; color: #263945; background: #fff; border: 1px solid #d5dde3; border-radius: 3px; }
+.mine .message-bubble { background: #e2eef6; border-color: #bfd2df; }
+.chat-message.important .message-bubble { border-left: 4px solid #c1842f; }
+.chat-message.urgent .message-bubble { border-left: 4px solid #b73a43; }
+.message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.message-reply { margin-bottom: 7px; padding: 6px 8px; color: #536977; background: #eef3f6; border-left: 3px solid #6d8ca3; font-size: 10px; }
+.message-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.message-actions button, .reaction-pill { padding: 3px 7px; color: #536977; background: transparent; border: 1px solid #c8d3db; font-size: 9px; }
+.message-attachment, .message-record-card { display: grid; gap: 2px; margin-top: 8px; padding: 8px; color: #294a63; background: #eef4f7; border: 1px solid #c9d8e2; text-decoration: none; }
+.message-ack { margin-top: 8px; padding: 7px; color: #654919; background: #fff5d9; border: 1px solid #dfc98b; font-size: 10px; }
+.message-composer { padding: 10px 14px; background: #fff; border-top: 1px solid #d7dfe5; }
+.reply-preview { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 7px; padding: 7px 9px; color: #526978; background: #eef3f6; border-left: 3px solid #315f85; font-size: 10px; }
+.message-composer textarea { min-height: 68px; resize: vertical; }
+.typing-indicator { display: block; min-height: 16px; margin-top: 3px; color: #687985; font-size: 10px; font-style: italic; }
+.composer-record { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 7px; margin-top: 7px; }
+.composer-tools { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.composer-tools label { margin: 0; }
+.composer-tools input[type="file"] { max-width: 190px; }
+.composer-tools button:last-child { margin-left: auto; }
+.conversation-details { padding: 14px; overflow: auto; }
+.conversation-details h3 { margin: 0 0 8px; color: #18344c; font-size: 14px; }
+.conversation-details section { margin-bottom: 18px; }
+.conversation-details article { padding: 8px 0; border-bottom: 1px solid #dce3e8; }
+.conversation-details article strong, .conversation-details article span { display: block; }
+.conversation-details article span, .conversation-details article small { color: #687985; font-size: 10px; }
+.formal-list-item { border-left: 3px solid #315f85; }
+.formal-list-item.urgent { border-left-color: #b73a43; }
+.formal-message-body { padding: 20px; overflow: auto; }
+.formal-message-sheet { max-width: 780px; margin: 0 auto; padding: 24px; background: #fff; border: 1px solid #d4dde3; }
+.formal-message-sheet h2 { margin: 5px 0 12px; color: #18344c; }
+.formal-message-sheet .formal-copy { white-space: pre-wrap; line-height: 1.6; }
+.formal-message-sheet footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #d7dfe5; }
+.rank-home-strip { display: grid; grid-template-columns: minmax(220px, 1.3fr) repeat(3, minmax(130px, 1fr)); gap: 1px; margin-bottom: 12px; background: #ccd7df; border: 1px solid #ccd7df; }
+.rank-home-strip article { padding: 13px; background: #f7f9fb; }
+.rank-home-strip article:first-child { color: #fff; background: #244b69; }
+.rank-home-strip small, .rank-home-strip span { display: block; color: #647684; }
+.rank-home-strip article:first-child small, .rank-home-strip article:first-child span { color: #d7e5ef; }
+.rank-home-strip strong { display: block; margin: 3px 0; font-size: 17px; }
+
+@media (max-width: 1050px) {
+  .messaging-shell { grid-template-columns: 260px minmax(0, 1fr); }
+  .conversation-details { display: none; }
+}
+@media (max-width: 700px) {
+  .messaging-shell { display: block; min-height: calc(100vh - 74px); }
+  .messaging-sidebar, .conversation-pane { min-height: calc(100vh - 74px); }
+  .messaging-shell.conversation-open .messaging-sidebar { display: none; }
+  .messaging-shell:not(.conversation-open) .conversation-pane { display: none; }
+  .conversation-mobile-back { display: inline-flex; }
+  .conversation-header { padding: 9px 10px; }
+  .conversation-header h2 { font-size: 15px; }
+  .message-thread { padding: 12px 8px; }
+  .chat-message { max-width: 94%; }
+  .composer-tools { display: grid; grid-template-columns: 1fr 1fr; }
+  .composer-record { grid-template-columns: 1fr; }
+  .composer-tools label:first-child { grid-column: 1 / -1; }
+  .composer-tools button:last-child { width: 100%; margin: 0; }
+  .rank-home-strip { grid-template-columns: 1fr 1fr; }
+  .rank-home-strip article:first-child { grid-column: 1 / -1; }
+}

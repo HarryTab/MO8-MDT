@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-01-2';
+const APP_VERSION = '2026-07-05-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -92,6 +92,7 @@ const state = {
   user: null,
   permissions: [],
   unreadNotifications: 0,
+  unreadChatMessages: 0,
   activeView: 'dashboard',
   activeHub: '',
   operationsHub: { units: [], incidents: [], archive: [], bolos: [], assigned: [], reviews: [], templates: [], people: [], vehicles: [], offences: [], operations: [], markers: [], invitations: [], shiftStatus: null },
@@ -107,6 +108,15 @@ const state = {
   opsRealtimeRefreshTimer: null,
   cidExportRedactions: {},
   cidRedactionSession: null,
+  messaging: { conversations: [], formalMessages: [], directory: [], messages: [], members: [], reactions: [], acknowledgements: [] },
+  messagingMode: 'chat',
+  selectedConversationId: '',
+  selectedFormalMessageId: '',
+  replyToMessageId: '',
+  messagingRealtimeChannel: null,
+  messagingRefreshTimer: null,
+  messagingPresenceUsers: [],
+  messagingTypingUsers: {},
   officers: [],
   training: [],
   trainingSummary: [],
@@ -187,9 +197,11 @@ const elements = {
 
 document.addEventListener('click', handleDocumentClick);
 document.addEventListener('change', handleDocumentChange);
+document.addEventListener('submit', handleMessagingSubmit);
 document.addEventListener('change', handleBulkOfficerSelection);
 document.addEventListener('input', handleSearchableOfficerInput);
 document.addEventListener('input', handleSearchableReferenceInput);
+document.addEventListener('input', handleMessagingInput);
 document.addEventListener('pointerdown', handleDashboardPointerDown);
 document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
@@ -285,6 +297,9 @@ document.querySelector('#refreshInboxButton')?.addEventListener('click', async (
   invalidateCache('personalInbox');
   await loadInbox();
 });
+document.querySelector('#newChatButton')?.addEventListener('click', openNewCommunicationEditor);
+document.querySelector('#chatSearch')?.addEventListener('input', renderConversationList);
+document.querySelectorAll('[data-message-mode]').forEach((button) => button.addEventListener('click', () => switchMessagingMode(button.dataset.messageMode)));
 
 document.querySelector('#officerSearch').addEventListener('input', () => renderOfficerTable());
 document.querySelector('#documentSearch').addEventListener('input', () => renderDocumentTable());
@@ -479,6 +494,7 @@ function bootTasks() {
   ];
   if (can('VIEW_DASHBOARD')) tasks.push({ label: 'Preparing dashboard widgets', run: () => apiCached('dashboard', {}) });
   tasks.push({ label: 'Preparing personal inbox', run: () => apiCached('personalInbox', {}) });
+  tasks.push({ label: 'Syncing internal messages', run: preloadMessaging });
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
@@ -495,6 +511,16 @@ async function preloadNotifications() {
   if (response.ok) {
     state.unreadNotifications = response.unread || 0;
     updateNotificationBadge();
+  }
+  return response;
+}
+
+async function preloadMessaging() {
+  const response = await apiCached('messagingHub', {});
+  if (response.ok) {
+    state.messaging = { ...state.messaging, ...response };
+    state.unreadChatMessages = response.unread || 0;
+    updateChatBadge();
   }
   return response;
 }
@@ -535,6 +561,7 @@ function backgroundPreload() {
     ['operationsHub', {}],
     ['operationalCalendar', {}],
     ['personalInbox', {}],
+    ['messagingHub', {}],
     ['savedViews', {}],
     ['tasks', {}],
     can('VIEW_TASKS') ? ['supervisorDashboard', {}] : null,
@@ -553,6 +580,7 @@ function wait(ms) {
 
 function showLogin() {
   stopOperationsRealtime();
+  stopMessagingRealtime();
   document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
   document.body.classList.remove('is-officer-portal');
@@ -607,6 +635,7 @@ async function enterPersonnelHub() {
   elements.operationsView.hidden = true;
   elements.nav.hidden = false;
   await showView(defaultView());
+  startMessagingRealtime();
 }
 
 async function enterOperationsHub() {
@@ -671,6 +700,7 @@ async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
     inbox: ['Inbox', 'Your actions, notices and assigned work'],
+    messaging: ['Chat', 'Direct messages, team conversations and formal communications'],
     globalSearch: ['Search', 'Search across the MDT and open saved views'],
     calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
@@ -710,6 +740,7 @@ async function showView(view) {
   const loaders = {
     dashboard: loadDashboard,
     inbox: loadInbox,
+    messaging: loadMessaging,
     globalSearch: loadGlobalSearch,
     calendar: loadCalendar,
     myProfile: loadMyProfile,
@@ -750,6 +781,11 @@ function renderViewLoading(view) {
     ['#inboxPriority', '#inboxActions', '#inboxNotifications', '#inboxCalendar', '#inboxDocuments', '#inboxSupervisor'].forEach((selector) => {
       document.querySelector(selector).innerHTML = loadingBlock('Loading...');
     });
+    return;
+  }
+  if (view === 'messaging') {
+    document.querySelector('#conversationList').innerHTML = loadingBlock('Loading conversations...');
+    document.querySelector('#conversationPane').innerHTML = loadingBlock('Preparing messages...');
     return;
   }
   if (view === 'globalSearch') {
@@ -833,6 +869,7 @@ function loaderActionForView(view) {
   const actions = {
     dashboard: 'dashboard',
     inbox: 'personalInbox',
+    messaging: 'messagingHub',
     globalSearch: 'savedViews',
     calendar: 'operationalCalendar',
     myProfile: 'myProfile',
@@ -899,6 +936,7 @@ async function loadDashboard() {
         <button class="ghost" data-configure-dashboard>Widgets</button>
       </div>
     </div>
+    ${rankHomeStrip(response)}
     <div class="stat-row">
       ${[
     stat('Active Officers', counts.activeOfficers || 0),
@@ -914,6 +952,22 @@ async function loadDashboard() {
       ${renderedWidgets || emptyState('No dashboard widgets selected.')}
     </section>
   `;
+}
+
+function rankHomeStrip(response) {
+  const rank = state.user?.Rank || 'Police Constable';
+  const rankIndex = OFFICER_RANKS.indexOf(rank);
+  let focus = 'Your shifts, training, documents and personal requests are prioritised here.';
+  let label = 'Officer workspace';
+  if (rankIndex >= OFFICER_RANKS.indexOf('Superintendent')) { label = 'Command workspace'; focus = 'Command assurance, staffing risks, policy and strategic workload.'; }
+  else if (rankIndex >= OFFICER_RANKS.indexOf('Inspector')) { label = 'Management workspace'; focus = 'Operational oversight, staffing, reviews and outstanding team decisions.'; }
+  else if (rankIndex >= OFFICER_RANKS.indexOf('Sergeant')) { label = 'Supervisor workspace'; focus = 'Supervisees, approvals, CAD reviews and team development.'; }
+  return `<section class="rank-home-strip">
+    <article><small>${escapeHtml(label)}</small><strong>${escapeHtml(rank)}</strong><span>${escapeHtml(focus)}</span></article>
+    <article data-view-link="messaging"><small>Unread chat</small><strong>${escapeHtml(String(state.unreadChatMessages || 0))}</strong><span>Open communications</span></article>
+    <article data-view-link="tasks"><small>My actions</small><strong>${escapeHtml(String((response.myActions || []).length))}</strong><span>Review assigned work</span></article>
+    <article data-view-link="calendar"><small>Upcoming training</small><strong>${escapeHtml(String(response.counts?.upcomingTraining || 0))}</strong><span>View your calendar</span></article>
+  </section>`;
 }
 
 function actionCard(row) {
@@ -947,6 +1001,174 @@ async function loadInbox() {
   document.querySelector('#inboxCalendar').innerHTML = inboxList(response.calendar || [], 'No upcoming calendar entries.');
   document.querySelector('#inboxDocuments').innerHTML = inboxList(response.documents || [], 'No document acknowledgements due.');
   document.querySelector('#inboxSupervisor').innerHTML = inboxList(response.supervisor || [], 'No supervisor messages.');
+}
+
+async function loadMessaging(force = false) {
+  await showViewOnly('messaging');
+  const response = force ? await api('messagingHub', {}) : await apiCached('messagingHub', {});
+  if (!response.ok) {
+    document.querySelector('#conversationList').innerHTML = emptyState(response.error || 'Could not load messages. Run the internal messaging migration first.');
+    return;
+  }
+  state.messaging = { ...state.messaging, ...response };
+  state.unreadChatMessages = Number(response.unread || 0);
+  updateChatBadge();
+  renderConversationList();
+  if (state.messagingMode === 'chat' && state.selectedConversationId) await openChatConversation(state.selectedConversationId, false);
+  else if (state.messagingMode === 'formal' && state.selectedFormalMessageId) renderFormalMessage(state.selectedFormalMessageId);
+  else renderMessagingEmpty();
+}
+
+function updateChatBadge() {
+  const badge = document.querySelector('#chatNavUnread');
+  if (!badge) return;
+  badge.hidden = state.unreadChatMessages < 1;
+  badge.textContent = state.unreadChatMessages > 99 ? '99+' : String(state.unreadChatMessages);
+}
+
+function switchMessagingMode(mode) {
+  state.messagingMode = mode === 'formal' ? 'formal' : 'chat';
+  document.querySelectorAll('[data-message-mode]').forEach((button) => button.classList.toggle('active', button.dataset.messageMode === state.messagingMode));
+  document.querySelector('#newChatButton').textContent = state.messagingMode === 'formal' ? 'Compose' : 'New';
+  renderConversationList();
+  renderMessagingEmpty();
+}
+
+function renderConversationList() {
+  const container = document.querySelector('#conversationList');
+  if (!container) return;
+  const query = String(document.querySelector('#chatSearch')?.value || '').trim().toLowerCase();
+  if (state.messagingMode === 'formal') {
+    const rows = (state.messaging.formalMessages || []).filter((row) => !query || [row.Subject, row.Body, row.SenderName].some((value) => String(value || '').toLowerCase().includes(query)));
+    container.innerHTML = rows.map((row) => `<button class="conversation-item formal-list-item ${String(row.Importance || '').toLowerCase()}${row.FormalMessageID === state.selectedFormalMessageId ? ' active' : ''}" data-open-formal-message="${escapeHtml(row.FormalMessageID)}"><span class="conversation-avatar">FM</span><span class="conversation-item-main"><strong>${escapeHtml(row.Subject)}</strong><p>${escapeHtml(row.SenderName)} / ${escapeHtml(row.Body)}</p></span><span><time>${escapeHtml(shortMessageTime(row.CreatedAt))}</time>${!row.ReadAt ? '<i class="conversation-unread">1</i>' : ''}</span></button>`).join('') || emptyState('No formal messages found.');
+    return;
+  }
+  const rows = (state.messaging.conversations || []).filter((row) => !query || [row.Title, row.Type, row.LastMessage, ...(row.Members || []).map((member) => member.RobloxUsername)].some((value) => String(value || '').toLowerCase().includes(query)));
+  container.innerHTML = rows.map((row) => `<button class="conversation-item${row.ConversationID === state.selectedConversationId ? ' active' : ''}" data-open-conversation="${escapeHtml(row.ConversationID)}"><span class="conversation-avatar">${escapeHtml(conversationInitials(row))}</span><span class="conversation-item-main"><strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.LastSender ? `${row.LastSender}: ${row.LastMessage}` : row.Description || row.Type)}</p></span><span><time>${escapeHtml(shortMessageTime(row.LastMessageAt || row.UpdatedAt))}</time>${row.Unread ? `<i class="conversation-unread">${escapeHtml(String(row.Unread))}</i>` : ''}</span></button>`).join('') || emptyState('No conversations found.');
+}
+
+function conversationInitials(row) {
+  if (row.Type === 'Direct') return (row.Title || '?').split(/[_\s]+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  return ({ Rank: 'R+', Supervisor: 'SV', CAD: 'CAD', Case: 'CS', Callsign: 'CU', Group: 'GR' })[row.Type] || 'CH';
+}
+
+function shortMessageTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  const today = new Date();
+  return date.toDateString() === today.toDateString() ? date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+}
+
+function renderMessagingEmpty() {
+  document.querySelector('#messagingShell')?.classList.remove('conversation-open');
+  document.querySelector('#conversationPane').innerHTML = `<div class="conversation-empty"><strong>${state.messagingMode === 'formal' ? 'Formal communications' : 'Select a conversation'}</strong><p>${state.messagingMode === 'formal' ? 'Choose a message or compose a formal instruction.' : 'Choose a recent chat or start a new one.'}</p></div>`;
+  document.querySelector('#conversationDetails').innerHTML = '<div class="conversation-empty"><strong>Conversation details</strong><p>Members, pinned messages and shared records appear here.</p></div>';
+}
+
+async function openChatConversation(conversationId, refreshHub = true) {
+  state.selectedConversationId = conversationId;
+  state.replyToMessageId = '';
+  document.querySelector('#messagingShell')?.classList.add('conversation-open');
+  document.querySelector('#conversationPane').innerHTML = loadingBlock('Loading conversation...');
+  const response = await api('chatConversation', { ConversationID: conversationId });
+  if (!response.ok) return renderError(document.querySelector('#conversationPane'), response.error);
+  state.messaging.messages = response.messages || [];
+  state.messaging.members = response.members || [];
+  state.messaging.reactions = response.reactions || [];
+  state.messaging.acknowledgements = response.acknowledgements || [];
+  renderChatConversation(response.conversation);
+  if (refreshHub) {
+    invalidateCache('messagingHub');
+    const hub = await api('messagingHub', {});
+    if (hub.ok) { state.messaging = { ...state.messaging, ...hub, messages: response.messages || [], members: response.members || [], reactions: response.reactions || [], acknowledgements: response.acknowledgements || [] }; state.unreadChatMessages = hub.unread || 0; updateChatBadge(); renderConversationList(); }
+  }
+}
+
+function renderChatConversation(conversation) {
+  const messages = state.messaging.messages || [];
+  const replying = messages.find((row) => row.MessageID === state.replyToMessageId);
+  document.querySelector('#conversationPane').innerHTML = `
+    <header class="conversation-header"><div class="conversation-header-actions"><button type="button" class="ghost conversation-mobile-back" data-close-conversation>Back</button><div><small>${escapeHtml(conversation.Type)}${conversation.LinkedRecordType ? ` / ${escapeHtml(conversation.LinkedRecordType)} ${escapeHtml(conversation.LinkedRecordID)}` : ''}</small><h2>${escapeHtml(conversation.Title)}</h2></div></div><div class="conversation-header-actions"><button type="button" class="ghost" data-search-current-chat>Search</button>${conversation.IsOwner ? '<button type="button" class="ghost" data-edit-conversation>Manage</button>' : ''}</div></header>
+    <div class="message-thread" id="messageThread">${messages.map(renderChatMessage).join('') || emptyState('No messages yet. Start the conversation below.')}</div>
+    <form class="message-composer" id="messageComposer"><input type="hidden" name="ConversationID" value="${escapeHtml(conversation.ConversationID)}">${replying ? `<div class="reply-preview"><span>Replying to <strong>${escapeHtml(replying.SenderName)}</strong>: ${escapeHtml(replying.Body.slice(0, 100))}</span><button type="button" class="ghost" data-cancel-message-reply>Cancel</button></div><input type="hidden" name="ReplyToMessageID" value="${escapeHtml(replying.MessageID)}">` : ''}<textarea name="Body" placeholder="Write a message" aria-label="Message"></textarea><span class="typing-indicator" id="chatTypingIndicator"></span><div class="composer-record"><select name="LinkedRecordType" aria-label="Linked record type"><option value="">No linked record</option><option>CAD</option><option>Case</option><option>Task</option><option>Document</option><option>Officer</option><option>Person</option><option>Vehicle</option></select><input name="LinkedRecordID" placeholder="Record ID or reference" aria-label="Linked record ID"></div><div class="composer-tools"><label>Attach file<input type="file" name="Attachment"></label><select name="Importance" aria-label="Importance"><option>Normal</option><option>Important</option><option>Urgent</option></select><label><input type="checkbox" name="RequiresAcknowledgement" value="true"> Require acknowledgement</label><button type="submit">Send</button></div><p class="form-status" data-message-status></p></form>`;
+  renderConversationDetails(conversation);
+  const thread = document.querySelector('#messageThread');
+  if (thread) thread.scrollTop = thread.scrollHeight;
+}
+
+function renderChatMessage(message) {
+  const mine = message.SenderUserID === state.user.UserID;
+  const reply = (state.messaging.messages || []).find((row) => row.MessageID === message.ReplyToMessageID);
+  const reactions = (state.messaging.reactions || []).filter((row) => row.MessageID === message.MessageID);
+  const grouped = Object.entries(reactions.reduce((result, row) => ({ ...result, [row.Reaction]: (result[row.Reaction] || 0) + 1 }), {}));
+  const acknowledged = (state.messaging.acknowledgements || []).some((row) => row.MessageID === message.MessageID && row.UserID === state.user.UserID);
+  const readBy = mine ? (state.messaging.members || []).filter((member) => member.UserID !== state.user.UserID && member.LastReadAt && new Date(member.LastReadAt) >= new Date(message.CreatedAt)).length : 0;
+  const deleted = Boolean(message.DeletedAt);
+  return `<article class="chat-message ${mine ? 'mine ' : ''}${escapeHtml(String(message.Importance || 'normal').toLowerCase())}" data-message-id="${escapeHtml(message.MessageID)}"><span class="message-avatar">${escapeHtml((message.SenderName || '?').slice(0, 2).toUpperCase())}</span><div class="message-content"><div class="message-meta"><strong>${escapeHtml(message.SenderName)}</strong><span>${escapeHtml(message.SenderRank || '')}</span><time>${escapeHtml(formatDisplayDateTime(message.CreatedAt))}${message.EditedAt ? ' / edited' : ''}${message.Pinned ? ' / pinned' : ''}${readBy ? ` / read by ${readBy}` : ''}</time></div><div class="message-bubble">${reply ? `<div class="message-reply"><strong>${escapeHtml(reply.SenderName)}</strong> ${escapeHtml(reply.Body.slice(0, 120))}</div>` : ''}<p>${deleted ? '<em>Message deleted</em>' : escapeHtml(message.Body || '')}</p>${!deleted ? (message.Attachments || []).map((file) => `<button type="button" class="message-attachment" data-open-chat-attachment="${escapeHtml(message.MessageID)}:${escapeHtml(file.path)}"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(formatFileSize(file.size))}</small></button>`).join('') : ''}${!deleted && message.LinkedRecord?.type ? `<button type="button" class="message-record-card" data-open-shared-record="${escapeHtml(message.LinkedRecord.type)}:${escapeHtml(message.LinkedRecord.id)}"><small>Shared ${escapeHtml(message.LinkedRecord.type)}</small><strong>${escapeHtml(message.LinkedRecord.label || message.LinkedRecord.id)}</strong></button>` : ''}${message.RequiresAcknowledgement ? `<div class="message-ack">${acknowledged ? 'Acknowledged' : `<button type="button" data-ack-chat-message="${escapeHtml(message.MessageID)}">Acknowledge message</button>`}</div>` : ''}</div>${!deleted ? `<div class="message-actions"><button type="button" data-reply-message="${escapeHtml(message.MessageID)}">Reply</button>${['Like', 'Agree', 'Thanks'].map((reaction) => `<button type="button" data-react-message="${escapeHtml(message.MessageID)}:${reaction}">${escapeHtml(reaction)}</button>`).join('')}${grouped.map(([reaction, count]) => `<span class="reaction-pill">${escapeHtml(reaction)} ${count}</span>`).join('')}${mine ? `<button type="button" data-pin-chat-message="${escapeHtml(message.MessageID)}">${message.Pinned ? 'Unpin' : 'Pin'}</button><button type="button" data-edit-chat-message="${escapeHtml(message.MessageID)}">Edit</button><button type="button" data-delete-chat-message="${escapeHtml(message.MessageID)}">Delete</button>` : ''}</div>` : ''}</div></article>`;
+}
+
+function renderConversationDetails(conversation) {
+  const pinned = (state.messaging.messages || []).filter((row) => row.Pinned && !row.DeletedAt);
+  const shared = (state.messaging.messages || []).filter((row) => row.LinkedRecord?.type);
+  document.querySelector('#conversationDetails').innerHTML = `<section><h3>${escapeHtml(conversation.Title)}</h3><p>${escapeHtml(conversation.Description || `${conversation.Type} conversation`)}</p></section><section><h3>Members</h3>${(state.messaging.members || []).map((row) => `<article><strong>${escapeHtml(row.RobloxUsername)}</strong><span>${state.messagingPresenceUsers.includes(row.UserID) ? 'Online / ' : ''}${escapeHtml(row.Rank)} / ${escapeHtml(row.MemberRole)}</span></article>`).join('') || '<p class="empty">Rank channel membership is automatic.</p>'}</section><section><h3>Pinned</h3>${pinned.map((row) => `<article><strong>${escapeHtml(row.SenderName)}</strong><span>${escapeHtml(row.Body.slice(0, 100))}</span></article>`).join('') || '<p class="empty">No pinned messages.</p>'}</section><section><h3>Shared records</h3>${shared.map((row) => `<article><strong>${escapeHtml(row.LinkedRecord.label || row.LinkedRecord.id)}</strong><span>${escapeHtml(row.LinkedRecord.type)}</span></article>`).join('') || '<p class="empty">No records shared.</p>'}</section>`;
+}
+
+function handleMessagingInput(event) {
+  if (event.target.form?.id !== 'messageComposer' || event.target.name !== 'Body' || !state.messagingRealtimeChannel) return;
+  state.messagingRealtimeChannel.send({ type: 'broadcast', event: 'typing', payload: { conversationId: state.selectedConversationId, userId: state.user.UserID, username: state.user.RobloxUsername, typing: Boolean(event.target.value) } });
+}
+
+function updateTypingIndicator() {
+  const indicator = document.querySelector('#chatTypingIndicator');
+  if (!indicator) return;
+  const names = Object.values(state.messagingTypingUsers).filter((row) => row.conversationId === state.selectedConversationId && row.userId !== state.user.UserID && Date.now() - row.at < 3500).map((row) => row.username);
+  indicator.textContent = names.length ? `${names.slice(0, 2).join(', ')} ${names.length === 1 ? 'is' : 'are'} typing...` : '';
+}
+
+async function handleMessagingSubmit(event) {
+  if (event.target.id !== 'messageComposer') return;
+  event.preventDefault();
+  const status = event.target.querySelector('[data-message-status]');
+  const values = formValues(event.target);
+  if (!String(values.Body || '').trim() && !values.Attachment) { status.textContent = 'Write a message or attach a file.'; return; }
+  status.textContent = 'Sending...';
+  const response = await api('sendChatMessage', values);
+  if (!response.ok) { status.textContent = response.error || 'Message could not be sent.'; return; }
+  state.replyToMessageId = '';
+  await openChatConversation(values.ConversationID);
+}
+
+function openNewCommunicationEditor() {
+  const directory = state.messaging.directory || [];
+  if (state.messagingMode === 'formal') {
+    openEditor('New formal message', [
+      searchableReferenceCheckboxGroupField('RecipientUserIDs', 'Recipients', directory, '', 'Search officer, rank or callsign'),
+      field('Subject', 'Subject', 'text', false), field('Body', 'Message', 'textarea', true),
+      selectField('Importance', 'Importance', ['Normal', 'Important', 'Urgent'], 'Normal'),
+      field('DueAt', 'Acknowledgement deadline', 'datetime-local', false),
+      { html: '<label><input type="checkbox" name="RequiresAcknowledgement" value="true" checked> Require acknowledgement</label>' },
+      selectField('LinkedRecordType', 'Linked record type', ['', 'CAD', 'Case', 'Task', 'Document', 'Officer'], ''), field('LinkedRecordID', 'Linked record ID', 'text', false), fileField('Attachment', 'Attachment (optional)'),
+    ], (values) => api('sendFormalMessage', values), { successMessage: 'Formal message sent.', persistDraft: false, onSuccess: async () => { invalidateCache('messagingHub'); invalidateCache('personalInbox'); await loadMessaging(true); } });
+    return;
+  }
+  openEditor('Start conversation', [
+    selectField('ConversationType', 'Conversation type', ['Direct', 'Group', 'Supervisor', 'CAD', 'Case', 'Callsign'], 'Direct'),
+    field('Title', 'Conversation name (group or linked chat)', 'text', false),
+    field('Description', 'Description', 'textarea', true),
+    searchableReferenceCheckboxGroupField('MemberUserIDs', 'Officers', directory, '', 'Search officer, rank or callsign'),
+    field('LinkedRecordID', 'CAD, case or callsign ID (when relevant)', 'text', false),
+  ], (values) => api('createChatConversation', values), { successMessage: 'Conversation created.', onSuccess: async (response) => { invalidateCache('messagingHub'); await loadMessaging(true); if (response.ConversationID) await openChatConversation(response.ConversationID); } });
+}
+
+function renderFormalMessage(formalMessageId) {
+  const row = (state.messaging.formalMessages || []).find((item) => item.FormalMessageID === formalMessageId);
+  if (!row) return renderMessagingEmpty();
+  state.selectedFormalMessageId = formalMessageId;
+  document.querySelector('#messagingShell')?.classList.add('conversation-open');
+  document.querySelector('#conversationPane').innerHTML = `<header class="conversation-header"><div class="conversation-header-actions"><button type="button" class="ghost conversation-mobile-back" data-close-conversation>Back</button><div><small>Formal message / ${escapeHtml(row.Importance)}</small><h2>${escapeHtml(row.Subject)}</h2></div></div></header><div class="formal-message-body"><article class="formal-message-sheet"><small>FROM ${escapeHtml(row.SenderName)} / ${escapeHtml(row.SenderRank)}</small><h2>${escapeHtml(row.Subject)}</h2><p class="formal-copy">${escapeHtml(row.Body)}</p>${row.LinkedRecord?.type ? `<button type="button" class="message-record-card" data-open-shared-record="${escapeHtml(row.LinkedRecord.type)}:${escapeHtml(row.LinkedRecord.id)}"><small>Linked ${escapeHtml(row.LinkedRecord.type)}</small><strong>${escapeHtml(row.LinkedRecord.label || row.LinkedRecord.id)}</strong></button>` : ''}${(row.Attachments || []).map((file) => `<button type="button" class="message-attachment" data-open-formal-attachment="${escapeHtml(row.FormalMessageID)}:${escapeHtml(file.path)}"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(formatFileSize(file.size))}</small></button>`).join('')}<footer><p>Sent ${escapeHtml(formatDisplayDateTime(row.CreatedAt))}${row.DueAt ? ` / acknowledgement due ${escapeHtml(formatDisplayDateTime(row.DueAt))}` : ''}</p>${row.RequiresAcknowledgement && !row.AcknowledgedAt ? `<button type="button" data-ack-formal-message="${escapeHtml(row.FormalMessageID)}">Acknowledge</button>` : row.AcknowledgedAt ? `<strong>Acknowledged ${escapeHtml(formatDisplayDateTime(row.AcknowledgedAt))}</strong>` : ''}</footer></article></div>`;
+  document.querySelector('#conversationDetails').innerHTML = `<section><h3>Recipients</h3>${(row.Recipients || []).map((recipient) => `<article><strong>${escapeHtml(recipient.RobloxUsername)}</strong><span>${recipient.AcknowledgedAt ? `Acknowledged ${escapeHtml(formatDisplayDateTime(recipient.AcknowledgedAt))}` : recipient.ReadAt ? 'Read' : 'Unread'}</span></article>`).join('')}</section>`;
+  api('markFormalMessageRead', { FormalMessageID: formalMessageId });
+  renderConversationList();
 }
 
 function inboxList(rows, emptyMessage) {
@@ -3089,6 +3311,58 @@ function stopOperationsRealtime() {
   state.opsPresenceUsers = [];
 }
 
+function startMessagingRealtime() {
+  if (!USE_SUPABASE || !state.user || state.messagingRealtimeChannel) return;
+  const channel = supabaseClient.channel('mo8-internal-messaging', { config: { presence: { key: state.user.UserID } } });
+  ['chat_messages', 'chat_message_reactions', 'chat_message_acknowledgements', 'formal_message_recipients'].forEach((table) => {
+    channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleMessagingRefresh);
+  });
+  channel.on('presence', { event: 'sync' }, () => {
+    state.messagingPresenceUsers = Object.values(channel.presenceState()).flat().map((row) => row.userId).filter(Boolean);
+    if (state.activeView === 'messaging' && state.selectedConversationId) {
+      const conversation = (state.messaging.conversations || []).find((row) => row.ConversationID === state.selectedConversationId);
+      if (conversation) renderConversationDetails(conversation);
+    }
+  });
+  channel.on('broadcast', { event: 'typing' }, ({ payload }) => {
+    if (!payload?.userId) return;
+    state.messagingTypingUsers[payload.userId] = { ...payload, at: Date.now() };
+    updateTypingIndicator();
+    window.setTimeout(updateTypingIndicator, 3600);
+  });
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') await channel.track({ userId: state.user.UserID, username: state.user.RobloxUsername, rank: state.user.Rank });
+  });
+  state.messagingRealtimeChannel = channel;
+}
+
+function scheduleMessagingRefresh() {
+  window.clearTimeout(state.messagingRefreshTimer);
+  state.messagingRefreshTimer = window.setTimeout(async () => {
+    invalidateCache('messagingHub');
+    const hub = await api('messagingHub', {});
+    if (!hub.ok) return;
+    state.messaging = { ...state.messaging, ...hub };
+    state.unreadChatMessages = hub.unread || 0;
+    updateChatBadge();
+    if (state.activeView === 'messaging') {
+      renderConversationList();
+      if (state.messagingMode === 'chat' && state.selectedConversationId) await openChatConversation(state.selectedConversationId, false);
+      else if (state.messagingMode === 'formal' && state.selectedFormalMessageId) renderFormalMessage(state.selectedFormalMessageId);
+    }
+    invalidateCache('personalInbox');
+  }, 240);
+}
+
+function stopMessagingRealtime() {
+  window.clearTimeout(state.messagingRefreshTimer);
+  state.messagingRefreshTimer = null;
+  if (state.messagingRealtimeChannel && supabaseClient) supabaseClient.removeChannel(state.messagingRealtimeChannel);
+  state.messagingRealtimeChannel = null;
+  state.messagingPresenceUsers = [];
+  state.messagingTypingUsers = {};
+}
+
 function renderOpsActionQueue() {
   const container = document.querySelector('#opsActionQueue');
   if (!container) return;
@@ -4905,6 +5179,36 @@ async function handleDocumentClick(event) {
     && !event.target.closest('.mobile-menu-button')) {
     closeMobileNav();
   }
+  const conversation = event.target.closest('[data-open-conversation]');
+  if (conversation) { await openChatConversation(conversation.dataset.openConversation); return; }
+  if (event.target.closest('[data-edit-conversation]')) {
+    const row = (state.messaging.conversations || []).find((item) => item.ConversationID === state.selectedConversationId);
+    if (row) openEditor('Manage conversation', [hiddenField('ConversationID', row.ConversationID), field('Title', 'Conversation name', 'text', false, row.Title), field('Description', 'Description', 'textarea', true, row.Description), searchableReferenceCheckboxGroupField('MemberUserIDs', 'Members', state.messaging.directory || [], (row.Members || []).map((member) => member.UserID).filter((id) => id !== state.user.UserID).join(','), 'Search officer, rank or callsign')], (values) => api('updateChatConversation', values), { successMessage: 'Conversation updated.', onSuccess: async () => { invalidateCache('messagingHub'); await loadMessaging(true); await openChatConversation(row.ConversationID); } });
+    return;
+  }
+  const formalMessage = event.target.closest('[data-open-formal-message]');
+  if (formalMessage) { renderFormalMessage(formalMessage.dataset.openFormalMessage); return; }
+  if (event.target.closest('[data-close-conversation]')) { state.selectedConversationId = ''; state.selectedFormalMessageId = ''; renderMessagingEmpty(); renderConversationList(); return; }
+  const replyMessage = event.target.closest('[data-reply-message]');
+  if (replyMessage) { state.replyToMessageId = replyMessage.dataset.replyMessage; const active = (state.messaging.conversations || []).find((row) => row.ConversationID === state.selectedConversationId); if (active) renderChatConversation(active); return; }
+  if (event.target.closest('[data-cancel-message-reply]')) { state.replyToMessageId = ''; const active = (state.messaging.conversations || []).find((row) => row.ConversationID === state.selectedConversationId); if (active) renderChatConversation(active); return; }
+  const reaction = event.target.closest('[data-react-message]');
+  if (reaction) { const [MessageID, Reaction] = reaction.dataset.reactMessage.split(':'); const response = await api('toggleChatReaction', { MessageID, Reaction }); if (response.ok) await openChatConversation(state.selectedConversationId, false); return; }
+  const acknowledgeMessage = event.target.closest('[data-ack-chat-message]');
+  if (acknowledgeMessage) { const response = await api('acknowledgeChatMessage', { MessageID: acknowledgeMessage.dataset.ackChatMessage }); if (response.ok) await openChatConversation(state.selectedConversationId, false); return; }
+  const pinMessage = event.target.closest('[data-pin-chat-message]');
+  if (pinMessage) { const row = (state.messaging.messages || []).find((item) => item.MessageID === pinMessage.dataset.pinChatMessage); const response = await api('updateChatMessage', { MessageID: row.MessageID, Pinned: !row.Pinned, Body: row.Body }); if (response.ok) await openChatConversation(state.selectedConversationId, false); return; }
+  const editMessage = event.target.closest('[data-edit-chat-message]');
+  if (editMessage) { const row = (state.messaging.messages || []).find((item) => item.MessageID === editMessage.dataset.editChatMessage); if (row) openEditor('Edit message', [hiddenField('MessageID', row.MessageID), field('Body', 'Message', 'textarea', true, row.Body)], (values) => api('updateChatMessage', values), { successMessage: 'Message updated.', onSuccess: () => openChatConversation(state.selectedConversationId, false) }); return; }
+  const deleteMessage = event.target.closest('[data-delete-chat-message]');
+  if (deleteMessage) { if (window.confirm('Delete this message? Its audit record will be retained.')) { const response = await api('deleteChatMessage', { MessageID: deleteMessage.dataset.deleteChatMessage }); if (response.ok) await openChatConversation(state.selectedConversationId, false); } return; }
+  const chatAttachment = event.target.closest('[data-open-chat-attachment], [data-open-formal-attachment]');
+  if (chatAttachment) { const value = chatAttachment.dataset.openChatAttachment || chatAttachment.dataset.openFormalAttachment; const separator = value.indexOf(':'); const response = await api('openChatAttachment', { RecordID: value.slice(0, separator), Path: value.slice(separator + 1) }); if (response.ok) window.open(response.Url, '_blank', 'noopener'); else showInfo('Attachment unavailable', `<p>${escapeHtml(response.error)}</p>`); return; }
+  const formalAck = event.target.closest('[data-ack-formal-message]');
+  if (formalAck) { const response = await api('acknowledgeFormalMessage', { FormalMessageID: formalAck.dataset.ackFormalMessage }); if (response.ok) { invalidateCache('messagingHub'); await loadMessaging(true); renderFormalMessage(formalAck.dataset.ackFormalMessage); } return; }
+  const sharedRecord = event.target.closest('[data-open-shared-record]');
+  if (sharedRecord) { const separator = sharedRecord.dataset.openSharedRecord.indexOf(':'); const type = sharedRecord.dataset.openSharedRecord.slice(0, separator); const id = sharedRecord.dataset.openSharedRecord.slice(separator + 1); if (['CAD', 'Case', 'Person', 'Vehicle'].includes(type)) { await enterOperationsHub(); const target = type === 'CAD' ? `Incident:${id}` : `${type}:${id}`; const [targetType, targetId] = target.split(':'); if (targetType === 'Incident') { const record = operationalIncidentById(targetId); if (record) renderOpsIncidentWorkspace(record); } else if (targetType === 'Case') { const record = (state.operationsHub.operations || []).find((row) => row.OperationID === targetId); if (record) renderOpsCaseWorkspace(record); } else renderOpsRelationshipView(targetType, targetId); } else if (type === 'Officer') { state.selectedOfficerId = id; await showView('officerProfile'); } else if (type === 'Task') await showView('tasks'); else if (type === 'Document') await showView('documents'); return; }
+  if (event.target.closest('[data-search-current-chat]')) { const query = window.prompt('Search this conversation'); if (query) { const matches = (state.messaging.messages || []).filter((row) => String(row.Body || '').toLowerCase().includes(query.toLowerCase())); showInfo('Conversation search', matches.length ? matches.map((row) => `<article class="inbox-card"><strong>${escapeHtml(row.SenderName)}</strong><p>${escapeHtml(row.Body)}</p><small>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</small></article>`).join('') : '<p class="empty">No matching messages.</p>'); } return; }
 
   const officerOption = event.target.closest('[data-officer-option]');
   if (officerOption) {
@@ -6776,6 +7080,19 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       saveDashboardWidgets: supabaseSaveDashboardWidgets,
       myActions: supabaseMyActions,
       personalInbox: supabasePersonalInbox,
+      messagingHub: supabaseMessagingHub,
+      chatConversation: supabaseChatConversation,
+      createChatConversation: supabaseCreateChatConversation,
+      updateChatConversation: supabaseUpdateChatConversation,
+      sendChatMessage: supabaseSendChatMessage,
+      updateChatMessage: supabaseUpdateChatMessage,
+      deleteChatMessage: supabaseDeleteChatMessage,
+      toggleChatReaction: supabaseToggleChatReaction,
+      acknowledgeChatMessage: supabaseAcknowledgeChatMessage,
+      sendFormalMessage: supabaseSendFormalMessage,
+      markFormalMessageRead: supabaseMarkFormalMessageRead,
+      acknowledgeFormalMessage: supabaseAcknowledgeFormalMessage,
+      openChatAttachment: supabaseOpenChatAttachment,
       globalSearch: supabaseGlobalSearch,
       savedViews: supabaseSavedViews,
       saveSavedView: supabaseSaveSavedView,
@@ -7189,7 +7506,7 @@ async function supabasePersonalInbox() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [actions, notifications, documents, acknowledgements, calendar, tasks, supervisorRequests] = await Promise.all([
+  const [actions, notifications, documents, acknowledgements, calendar, tasks, supervisorRequests, messaging] = await Promise.all([
     supabaseMyActions(),
     supabaseNotificationRows(profile.member_id),
     supabaseVisibleDocuments(),
@@ -7197,6 +7514,7 @@ async function supabasePersonalInbox() {
     supabaseOperationalCalendar(),
     supabaseTasks(),
     officer ? supabaseOptionalRows('supervisor_requests', 'officer_id', officer.officer_id, 'created_at') : [],
+    supabaseMessagingHub(),
   ]);
   if (!actions.ok) return actions;
   if (!calendar.ok) return calendar;
@@ -7222,12 +7540,16 @@ async function supabasePersonalInbox() {
   const docRows = pendingDocs.map((doc) => ({ Type: 'Document', Priority: 'High', Title: doc.Title, Detail: `${doc.Category || 'Document'} acknowledgement required`, CreatedAt: doc.UpdatedAt, View: 'documents' }));
   const supervisorRows = (supervisorRequests || []).slice(0, 8).map((row) => ({ Type: 'Supervisor', Priority: row.status === 'Pending' ? 'High' : 'Normal', Title: row.subject || 'Supervisor request', Detail: `${row.category || 'General'} / ${row.status || 'Pending'}${row.review_reason ? ` / ${row.review_reason}` : ''}`, CreatedAt: row.created_at, Status: row.status, View: 'myProfile' }));
   const actionRows = (actions.rows || []).map((row) => ({ ...row, Type: row.Type || 'Action', View: row.View || 'dashboard' }));
-  const important = [...actionRows, ...taskRows, ...docRows, ...notificationRows, ...calendarRows, ...supervisorRows]
+  const messageRows = [
+    ...(messaging.formalMessages || []).filter((row) => !row.ReadAt || (row.RequiresAcknowledgement && !row.AcknowledgedAt)).map((row) => ({ Type: 'Formal Message', Priority: row.Importance === 'Urgent' ? 'Critical' : row.Importance === 'Important' ? 'High' : 'Normal', Title: row.Subject, Detail: `${row.SenderName}${row.RequiresAcknowledgement && !row.AcknowledgedAt ? ' / acknowledgement required' : ' / unread'}`, CreatedAt: row.CreatedAt, View: 'messaging' })),
+    ...(messaging.unread ? [{ Type: 'Chat', Priority: 'Normal', Title: `${messaging.unread} unread communication${messaging.unread === 1 ? '' : 's'}`, Detail: 'Open Chat to review recent messages.', View: 'messaging' }] : []),
+  ];
+  const important = [...actionRows, ...taskRows, ...docRows, ...notificationRows, ...calendarRows, ...supervisorRows, ...messageRows]
     .filter((row) => ['Critical', 'High'].includes(row.Priority) || String(row.Type || '').includes('Unread'))
     .sort((a, b) => priorityWeight(b.Priority) - priorityWeight(a.Priority));
   return {
     ok: true,
-    actions: actionRows,
+    actions: [...messageRows, ...actionRows],
     tasks: taskRows,
     notifications: notificationRows,
     calendar: calendarRows,
@@ -7236,8 +7558,8 @@ async function supabasePersonalInbox() {
     priority: important,
     counts: {
       urgent: important.length,
-      unread: notifications.filter((row) => !row.ReadAt).length,
-      actions: actionRows.length,
+      unread: notifications.filter((row) => !row.ReadAt).length + (messaging.unread || 0),
+      actions: actionRows.length + messageRows.length,
       tasks: taskRows.length,
       documents: docRows.length,
       calendar: calendarRows.length,
@@ -7247,6 +7569,211 @@ async function supabasePersonalInbox() {
 
 function priorityWeight(priority) {
   return { Critical: 4, High: 3, Normal: 2, Low: 1 }[priority] || 0;
+}
+
+async function supabaseMessagingDirectory() {
+  const { data, error } = await supabaseClient.rpc('messaging_directory');
+  if (error) throw new Error(error.message);
+  return (data || []).map((row) => ({ UserID: row.user_id, MemberID: row.member_id, RobloxUsername: row.roblox_username, Rank: row.rank, Callsign: row.callsign, Meta: row.callsign || '' }));
+}
+
+async function supabaseMessagingHub() {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  await ensureSupervisorConversation(me.user.UserID);
+  const [conversations, memberships, messages, formalMessages, formalRecipients, directory] = await Promise.all([
+    supabaseOptionalAll('chat_conversations'), supabaseOptionalAll('chat_members'), supabaseOptionalAll('chat_messages'),
+    supabaseOptionalAll('formal_messages'), supabaseOptionalAll('formal_message_recipients'), supabaseMessagingDirectory(),
+  ]);
+  const person = (userId) => directory.find((row) => row.UserID === userId) || { RobloxUsername: userId, Rank: '' };
+  const visibleConversations = conversations.map((conversation) => {
+    const members = memberships.filter((row) => row.conversation_id === conversation.conversation_id);
+    const lastRead = members.find((row) => row.user_id === me.user.UserID)?.last_read_at || '';
+    const conversationMessages = messages.filter((row) => row.conversation_id === conversation.conversation_id).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    const last = conversationMessages[conversationMessages.length - 1];
+    const other = members.find((row) => row.user_id !== me.user.UserID);
+    const title = conversation.conversation_type === 'Direct' && other ? person(other.user_id).RobloxUsername : conversation.title;
+    return {
+      ConversationID: conversation.conversation_id, Type: conversation.conversation_type, Title: title, Description: conversation.description,
+      MinimumRank: conversation.minimum_rank || '', LinkedRecordType: conversation.linked_record_type || '', LinkedRecordID: conversation.linked_record_id || '',
+      CreatedBy: conversation.created_by, IsOwner: conversation.created_by === me.user.UserID, UpdatedAt: conversation.updated_at,
+      Members: members.map((row) => ({ ...person(row.user_id), MemberRole: row.member_role })),
+      LastMessage: last?.deleted_at ? 'Message deleted' : last?.body || (last?.attachments?.length ? 'Shared an attachment' : ''), LastMessageAt: last?.created_at || conversation.updated_at,
+      LastSender: last ? person(last.sender_user_id).RobloxUsername : '', Unread: conversationMessages.filter((row) => row.sender_user_id !== me.user.UserID && (!lastRead || row.created_at > lastRead)).length,
+    };
+  }).sort((a, b) => String(b.LastMessageAt).localeCompare(String(a.LastMessageAt)));
+  const formal = formalMessages.map((row) => {
+    const ownRecipient = formalRecipients.find((recipient) => recipient.formal_message_id === row.formal_message_id && recipient.recipient_user_id === me.user.UserID);
+    return {
+      FormalMessageID: row.formal_message_id, Subject: row.subject, Body: row.body, Importance: row.importance, RequiresAcknowledgement: row.requires_acknowledgement,
+      DueAt: row.due_at || '', LinkedRecord: row.linked_record || {}, Attachments: row.attachments || [], SenderUserID: row.sender_user_id,
+      SenderName: person(row.sender_user_id).RobloxUsername, SenderRank: person(row.sender_user_id).Rank, CreatedAt: row.created_at, ReadAt: ownRecipient?.read_at || (row.sender_user_id === me.user.UserID ? row.created_at : ''), AcknowledgedAt: ownRecipient?.acknowledged_at || '',
+      Recipients: formalRecipients.filter((recipient) => recipient.formal_message_id === row.formal_message_id).map((recipient) => ({ ...person(recipient.recipient_user_id), ReadAt: recipient.read_at || '', AcknowledgedAt: recipient.acknowledged_at || '' })),
+    };
+  }).sort((a, b) => String(b.CreatedAt).localeCompare(String(a.CreatedAt)));
+  return { ok: true, conversations: visibleConversations, formalMessages: formal, directory, unread: visibleConversations.reduce((sum, row) => sum + row.Unread, 0) + formal.filter((row) => !row.ReadAt).length };
+}
+
+async function ensureSupervisorConversation(userId) {
+  const profile = await supabaseProfileByUserId(userId);
+  const officer = profile ? await supabaseOfficerForMember(profile.member_id) : null;
+  if (!officer?.supervisor_user_id) return;
+  const [conversations, memberships] = await Promise.all([supabaseOptionalAll('chat_conversations'), supabaseOptionalAll('chat_members')]);
+  const exists = conversations.some((conversation) => conversation.conversation_type === 'Supervisor' && !conversation.archived_at && (() => {
+    const ids = memberships.filter((member) => member.conversation_id === conversation.conversation_id).map((member) => member.user_id);
+    return ids.includes(userId) && ids.includes(officer.supervisor_user_id);
+  })());
+  if (exists) return;
+  const { data: created, error } = await supabaseClient.from('chat_conversations').insert({ conversation_type: 'Supervisor', title: 'Supervisor chat', description: 'Private communication between an officer and their assigned supervisor.', created_by: userId }).select('conversation_id').maybeSingle();
+  if (error || !created) return;
+  await supabaseClient.from('chat_members').insert([
+    { conversation_id: created.conversation_id, user_id: userId, member_role: 'Owner', last_read_at: new Date().toISOString() },
+    { conversation_id: created.conversation_id, user_id: officer.supervisor_user_id, member_role: 'Member' },
+  ]);
+}
+
+async function supabaseChatConversation(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const conversation = await supabaseById('chat_conversations', 'conversation_id', data.ConversationID);
+  if (!conversation) return { ok: false, error: 'Conversation not found or you do not have access.' };
+  const [messages, members, reactions, acknowledgements, directory] = await Promise.all([
+    supabaseRows('chat_messages', 'conversation_id', data.ConversationID, 'created_at'), supabaseRows('chat_members', 'conversation_id', data.ConversationID),
+    supabaseOptionalAll('chat_message_reactions'), supabaseOptionalAll('chat_message_acknowledgements'), supabaseMessagingDirectory(),
+  ]);
+  await supabaseClient.from('chat_members').upsert({ conversation_id: data.ConversationID, user_id: me.user.UserID, member_role: conversation.created_by === me.user.UserID ? 'Owner' : 'Member', last_read_at: new Date().toISOString() }, { onConflict: 'conversation_id,user_id' });
+  const person = (userId) => directory.find((row) => row.UserID === userId) || { RobloxUsername: userId, Rank: '' };
+  const otherMember = members.find((row) => row.user_id !== me.user.UserID);
+  const displayTitle = conversation.conversation_type === 'Direct' && otherMember ? person(otherMember.user_id).RobloxUsername : conversation.title;
+  return {
+    ok: true,
+    conversation: { ConversationID: conversation.conversation_id, Type: conversation.conversation_type, Title: displayTitle, Description: conversation.description, LinkedRecordType: conversation.linked_record_type || '', LinkedRecordID: conversation.linked_record_id || '', IsOwner: conversation.created_by === me.user.UserID },
+    members: members.map((row) => ({ ...person(row.user_id), MemberRole: row.member_role, LastReadAt: row.user_id === me.user.UserID ? new Date().toISOString() : row.last_read_at || '' })),
+    messages: messages.map((row) => ({ MessageID: row.message_id, ConversationID: row.conversation_id, SenderUserID: row.sender_user_id, SenderName: person(row.sender_user_id).RobloxUsername, SenderRank: person(row.sender_user_id).Rank, Body: row.body, ReplyToMessageID: row.reply_to_message_id || '', Importance: row.importance, RequiresAcknowledgement: row.requires_acknowledgement, Pinned: row.pinned, Attachments: row.attachments || [], LinkedRecord: row.linked_record || {}, CreatedAt: row.created_at, EditedAt: row.edited_at || '', DeletedAt: row.deleted_at || '' })),
+    reactions: reactions.filter((row) => messages.some((message) => message.message_id === row.message_id)).map((row) => ({ MessageID: row.message_id, UserID: row.user_id, Reaction: row.reaction })),
+    acknowledgements: acknowledgements.filter((row) => messages.some((message) => message.message_id === row.message_id)).map((row) => ({ MessageID: row.message_id, UserID: row.user_id, AcknowledgedAt: row.acknowledged_at })),
+  };
+}
+
+async function supabaseCreateChatConversation(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const type = data.ConversationType || 'Direct';
+  const memberIds = [...new Set(splitTags(data.MemberUserIDs || '').filter((id) => id && id !== me.user.UserID))];
+  if (!memberIds.length) return { ok: false, error: 'Select at least one other officer.' };
+  if (type === 'Direct' && memberIds.length !== 1) return { ok: false, error: 'A direct message must contain exactly one other officer.' };
+  if (type === 'Direct') {
+    const [existingConversations, existingMembers] = await Promise.all([supabaseOptionalAll('chat_conversations'), supabaseOptionalAll('chat_members')]);
+    const existing = existingConversations.find((conversation) => conversation.conversation_type === 'Direct' && !conversation.archived_at && (() => {
+      const ids = existingMembers.filter((member) => member.conversation_id === conversation.conversation_id).map((member) => member.user_id);
+      return ids.length === 2 && ids.includes(me.user.UserID) && ids.includes(memberIds[0]);
+    })());
+    if (existing) return { ok: true, ConversationID: existing.conversation_id, warning: 'Your existing direct conversation was opened.' };
+  }
+  const directory = await supabaseMessagingDirectory();
+  const linkedTypes = ['CAD', 'Case', 'Callsign'];
+  const title = String(data.Title || '').trim() || (type === 'Direct' ? directory.find((row) => row.UserID === memberIds[0])?.RobloxUsername : `${type} conversation`);
+  const { data: saved, error } = await supabaseClient.from('chat_conversations').insert({ conversation_type: type, title, description: data.Description || '', linked_record_type: linkedTypes.includes(type) ? type : null, linked_record_id: linkedTypes.includes(type) ? data.LinkedRecordID || null : null, created_by: me.user.UserID }).select('*').maybeSingle();
+  if (error || !saved) return { ok: false, error: error?.message || 'Conversation could not be created.' };
+  const memberRows = [{ conversation_id: saved.conversation_id, user_id: me.user.UserID, member_role: 'Owner', last_read_at: new Date().toISOString() }, ...memberIds.map((userId) => ({ conversation_id: saved.conversation_id, user_id: userId, member_role: 'Member' }))];
+  const memberInsert = await supabaseClient.from('chat_members').insert(memberRows);
+  if (memberInsert.error) { await supabaseClient.from('chat_conversations').delete().eq('conversation_id', saved.conversation_id); return { ok: false, error: memberInsert.error.message }; }
+  await supabaseAudit(me.user.UserID, 'Create Chat', 'Conversation', saved.conversation_id, { Type: type, Members: memberIds });
+  return { ok: true, ConversationID: saved.conversation_id };
+}
+
+async function supabaseUpdateChatConversation(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const update = await supabaseClient.from('chat_conversations').update({ title: data.Title, description: data.Description || '', updated_at: new Date().toISOString() }).eq('conversation_id', data.ConversationID);
+  if (update.error) return { ok: false, error: update.error.message };
+  if (data.MemberUserIDs !== undefined) {
+    const ids = [...new Set([me.user.UserID, ...splitTags(data.MemberUserIDs || '')])];
+    await supabaseClient.from('chat_members').delete().eq('conversation_id', data.ConversationID).neq('user_id', me.user.UserID);
+    const rows = ids.filter((id) => id !== me.user.UserID).map((userId) => ({ conversation_id: data.ConversationID, user_id: userId, member_role: 'Member' }));
+    if (rows.length) { const inserted = await supabaseClient.from('chat_members').insert(rows); if (inserted.error) return { ok: false, error: inserted.error.message }; }
+  }
+  return { ok: true };
+}
+
+function safeChatFileName(name) {
+  return String(name || 'attachment').replace(/[^A-Za-z0-9._-]/g, '_').slice(-120);
+}
+
+async function uploadChatAttachment(folderId, file) {
+  if (!(file instanceof File) || !file.size) return [];
+  if (file.size > 10 * 1024 * 1024) throw new Error('Chat attachments must be 10 MB or smaller.');
+  const path = `${folderId}/${crypto.randomUUID()}-${safeChatFileName(file.name)}`;
+  const upload = await supabaseClient.storage.from('mo8-chat-files').upload(path, file, { contentType: file.type || 'application/octet-stream' });
+  if (upload.error) throw new Error(upload.error.message);
+  return [{ path, name: file.name, size: file.size, type: file.type || 'application/octet-stream' }];
+}
+
+async function supabaseSendChatMessage(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const attachments = await uploadChatAttachment(data.ConversationID, data.Attachment);
+  const linkedRecord = data.LinkedRecordType && data.LinkedRecordID ? { type: data.LinkedRecordType, id: data.LinkedRecordID, label: data.LinkedRecordID } : {};
+  const { error } = await supabaseClient.from('chat_messages').insert({ conversation_id: data.ConversationID, sender_user_id: me.user.UserID, body: String(data.Body || '').trim(), reply_to_message_id: data.ReplyToMessageID || null, importance: data.Importance || 'Normal', requires_acknowledgement: data.RequiresAcknowledgement === 'true', attachments, linked_record: linkedRecord });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseUpdateChatMessage(data) {
+  const existing = await supabaseById('chat_messages', 'message_id', data.MessageID);
+  const update = { body: String(data.Body || ''), edited_at: new Date().toISOString() };
+  if (data.Pinned !== undefined) update.pinned = Boolean(data.Pinned);
+  const { error } = await supabaseClient.from('chat_messages').update(update).eq('message_id', data.MessageID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseAudit(state.user.UserID, data.Pinned !== undefined ? 'Pin Chat Message' : 'Edit Chat Message', 'ChatMessage', data.MessageID, { ConversationID: existing?.conversation_id || '', Pinned: update.pinned });
+  return { ok: true };
+}
+
+async function supabaseDeleteChatMessage(data) {
+  const existing = await supabaseById('chat_messages', 'message_id', data.MessageID);
+  const { error } = await supabaseClient.from('chat_messages').update({ body: '', attachments: [], linked_record: {}, deleted_at: new Date().toISOString(), edited_at: new Date().toISOString() }).eq('message_id', data.MessageID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseAudit(state.user.UserID, 'Delete Chat Message', 'ChatMessage', data.MessageID, { ConversationID: existing?.conversation_id || '' });
+  return { ok: true };
+}
+
+async function supabaseToggleChatReaction(data) {
+  const existing = await supabaseClient.from('chat_message_reactions').select('message_id').eq('message_id', data.MessageID).eq('user_id', state.user.UserID).eq('reaction', data.Reaction).maybeSingle();
+  const response = existing.data ? await supabaseClient.from('chat_message_reactions').delete().eq('message_id', data.MessageID).eq('user_id', state.user.UserID).eq('reaction', data.Reaction) : await supabaseClient.from('chat_message_reactions').insert({ message_id: data.MessageID, user_id: state.user.UserID, reaction: data.Reaction });
+  return response.error ? { ok: false, error: response.error.message } : { ok: true };
+}
+
+async function supabaseAcknowledgeChatMessage(data) {
+  const { error } = await supabaseClient.from('chat_message_acknowledgements').upsert({ message_id: data.MessageID, user_id: state.user.UserID }, { onConflict: 'message_id,user_id' });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSendFormalMessage(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const recipients = [...new Set(splitTags(data.RecipientUserIDs || '').filter((id) => id && id !== me.user.UserID))];
+  if (!recipients.length) return { ok: false, error: 'Select at least one recipient.' };
+  if (!String(data.Subject || '').trim() || !String(data.Body || '').trim()) return { ok: false, error: 'A subject and message are required.' };
+  const linkedRecord = data.LinkedRecordType && data.LinkedRecordID ? { type: data.LinkedRecordType, id: data.LinkedRecordID, label: data.LinkedRecordID } : {};
+  const { data: saved, error } = await supabaseClient.from('formal_messages').insert({ subject: data.Subject, body: data.Body, importance: data.Importance || 'Normal', requires_acknowledgement: data.RequiresAcknowledgement === 'true', due_at: data.DueAt || null, linked_record: linkedRecord, sender_user_id: me.user.UserID }).select('*').maybeSingle();
+  if (error || !saved) return { ok: false, error: error?.message || 'Formal message could not be created.' };
+  const recipientInsert = await supabaseClient.from('formal_message_recipients').insert(recipients.map((userId) => ({ formal_message_id: saved.formal_message_id, recipient_user_id: userId })));
+  if (recipientInsert.error) { await supabaseClient.from('formal_messages').delete().eq('formal_message_id', saved.formal_message_id); return { ok: false, error: recipientInsert.error.message }; }
+  const attachments = await uploadChatAttachment(saved.formal_message_id, data.Attachment);
+  if (attachments.length) await supabaseClient.from('formal_messages').update({ attachments }).eq('formal_message_id', saved.formal_message_id);
+  const directory = await supabaseMessagingDirectory();
+  await Promise.all(recipients.map((userId) => supabaseNotify(directory.find((row) => row.UserID === userId)?.MemberID, `Formal message: ${data.Subject}`, `From ${me.user.RobloxUsername}. Open the MDT Chat section to read${data.RequiresAcknowledgement === 'true' ? ' and acknowledge' : ''} this message.`, me.user.UserID)));
+  await supabaseAudit(me.user.UserID, 'Send Formal Message', 'FormalMessage', saved.formal_message_id, { Subject: data.Subject, Recipients: recipients, Importance: data.Importance || 'Normal' });
+  return { ok: true, FormalMessageID: saved.formal_message_id };
+}
+
+async function supabaseMarkFormalMessageRead(data) {
+  const { error } = await supabaseClient.from('formal_message_recipients').update({ read_at: new Date().toISOString() }).eq('formal_message_id', data.FormalMessageID).eq('recipient_user_id', state.user.UserID).is('read_at', null);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseAcknowledgeFormalMessage(data) {
+  const now = new Date().toISOString();
+  const { error } = await supabaseClient.from('formal_message_recipients').update({ read_at: now, acknowledged_at: now }).eq('formal_message_id', data.FormalMessageID).eq('recipient_user_id', state.user.UserID);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseOpenChatAttachment(data) {
+  const { data: signed, error } = await supabaseClient.storage.from('mo8-chat-files').createSignedUrl(data.Path, 60 * 15);
+  return error || !signed?.signedUrl ? { ok: false, error: error?.message || 'Secure attachment link could not be created.' } : { ok: true, Url: signed.signedUrl };
 }
 
 async function supabaseGlobalSearch(data) {
