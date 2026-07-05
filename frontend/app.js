@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-05-1';
+const APP_VERSION = '2026-07-05-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -7623,12 +7623,14 @@ async function ensureSupervisorConversation(userId) {
     return ids.includes(userId) && ids.includes(officer.supervisor_user_id);
   })());
   if (exists) return;
-  const { data: created, error } = await supabaseClient.from('chat_conversations').insert({ conversation_type: 'Supervisor', title: 'Supervisor chat', description: 'Private communication between an officer and their assigned supervisor.', created_by: userId }).select('conversation_id').maybeSingle();
-  if (error || !created) return;
-  await supabaseClient.from('chat_members').insert([
-    { conversation_id: created.conversation_id, user_id: userId, member_role: 'Owner', last_read_at: new Date().toISOString() },
-    { conversation_id: created.conversation_id, user_id: officer.supervisor_user_id, member_role: 'Member' },
-  ]);
+  await supabaseClient.rpc('create_chat_conversation', {
+    conversation_type_arg: 'Supervisor',
+    title_arg: 'Supervisor chat',
+    description_arg: 'Private communication between an officer and their assigned supervisor.',
+    member_user_ids_arg: [officer.supervisor_user_id],
+    linked_record_type_arg: null,
+    linked_record_id_arg: null,
+  });
 }
 
 async function supabaseChatConversation(data) {
@@ -7670,13 +7672,17 @@ async function supabaseCreateChatConversation(data) {
   const directory = await supabaseMessagingDirectory();
   const linkedTypes = ['CAD', 'Case', 'Callsign'];
   const title = String(data.Title || '').trim() || (type === 'Direct' ? directory.find((row) => row.UserID === memberIds[0])?.RobloxUsername : `${type} conversation`);
-  const { data: saved, error } = await supabaseClient.from('chat_conversations').insert({ conversation_type: type, title, description: data.Description || '', linked_record_type: linkedTypes.includes(type) ? type : null, linked_record_id: linkedTypes.includes(type) ? data.LinkedRecordID || null : null, created_by: me.user.UserID }).select('*').maybeSingle();
-  if (error || !saved) return { ok: false, error: error?.message || 'Conversation could not be created.' };
-  const memberRows = [{ conversation_id: saved.conversation_id, user_id: me.user.UserID, member_role: 'Owner', last_read_at: new Date().toISOString() }, ...memberIds.map((userId) => ({ conversation_id: saved.conversation_id, user_id: userId, member_role: 'Member' }))];
-  const memberInsert = await supabaseClient.from('chat_members').insert(memberRows);
-  if (memberInsert.error) { await supabaseClient.from('chat_conversations').delete().eq('conversation_id', saved.conversation_id); return { ok: false, error: memberInsert.error.message }; }
-  await supabaseAudit(me.user.UserID, 'Create Chat', 'Conversation', saved.conversation_id, { Type: type, Members: memberIds });
-  return { ok: true, ConversationID: saved.conversation_id };
+  const { data: conversationId, error } = await supabaseClient.rpc('create_chat_conversation', {
+    conversation_type_arg: type,
+    title_arg: title,
+    description_arg: data.Description || '',
+    member_user_ids_arg: memberIds,
+    linked_record_type_arg: linkedTypes.includes(type) ? type : null,
+    linked_record_id_arg: linkedTypes.includes(type) ? data.LinkedRecordID || null : null,
+  });
+  if (error || !conversationId) return { ok: false, error: error?.message || 'Conversation could not be created.' };
+  await supabaseAudit(me.user.UserID, 'Create Chat', 'Conversation', conversationId, { Type: type, Members: memberIds });
+  return { ok: true, ConversationID: conversationId };
 }
 
 async function supabaseUpdateChatConversation(data) {
