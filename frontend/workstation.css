@@ -1,0 +1,135 @@
+/* Workstation shell: lock screen, sign-in, startup and authenticated desktop. */
+body:not(.is-authenticated) { overflow: hidden; background: #071628; }
+body:not(.is-authenticated)::before { display: none; }
+body:not(.is-authenticated) .terminal-shell { display: block; min-height: 100dvh; padding: 0; }
+body:not(.is-authenticated) .terminal-window,
+body:not(.is-authenticated) .workspace { display: block; width: 100%; height: 100dvh; min-height: 100dvh; padding: 0; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
+body:not(.is-authenticated) .topbar { display: none; }
+
+.workstation-login { position: relative; display: block; width: 100%; max-width: none; height: 100dvh; margin: 0; padding: 0; overflow: hidden; color: #fff; background: transparent; border: 0; border-radius: 0; }
+.workstation-login::before { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(6, 21, 39, .94), rgba(12, 53, 91, .78)), radial-gradient(circle at 72% 26%, rgba(81, 161, 211, .32), transparent 34%), linear-gradient(150deg, #061322, #154d78 58%, #071727); }
+.workstation-login::after { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 40px 40px; mask-image: linear-gradient(180deg, #000, transparent 80%); }
+.workstation-lock, .workstation-signin { position: relative; z-index: 1; min-height: 100dvh; }
+.workstation-lock { display: grid; grid-template-rows: auto 1fr auto auto; padding: 34px 42px 22px; }
+.lock-brand { display: flex; align-items: center; gap: 13px; }
+.lock-brand > span, .desktop-brand > span, .boot-mark span { display: grid; place-items: center; width: 48px; height: 48px; color: #fff; background: #1a5b8f; border: 2px solid #d3ab3d; border-radius: 7px; font-weight: 950; }
+.lock-brand strong, .lock-brand small { display: block; }
+.lock-brand strong { font-size: 14px; }
+.lock-brand small { margin-top: 3px; color: #b9cbda; font-size: 11px; }
+.lock-time { align-self: end; padding-bottom: 28px; }
+.lock-time time { display: block; font-size: clamp(62px, 9vw, 112px); font-weight: 280; line-height: .9; letter-spacing: 0; }
+.lock-time span { display: block; margin-top: 14px; color: #d8e5ee; font-size: 19px; }
+.lock-actions { display: flex; align-items: center; gap: 16px; }
+.lock-actions button { min-width: 150px; background: #e8f2f8; border-color: #e8f2f8; color: #15364f; }
+.lock-actions button:hover { color: #fff; background: #2777aa; border-color: #2777aa; }
+.lock-actions a { color: #d9e8f2; font-size: 12px; }
+.workstation-lock footer, .workstation-signin footer { display: flex; justify-content: space-between; padding-top: 22px; color: #9eb5c6; font-size: 10px; text-transform: uppercase; }
+
+.workstation-signin { display: grid; place-content: center; justify-items: center; padding: 34px 20px 70px; background: rgba(3, 14, 26, .28); backdrop-filter: blur(12px); }
+.workstation-signin[hidden] { display: none; }
+.signin-back { position: fixed; top: 24px; left: 26px; min-height: 36px; color: #d9e8f2; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.22); }
+.signin-user-icon { display: grid; place-items: center; width: 84px; height: 84px; margin-bottom: 16px; background: rgba(224, 240, 250, .94); border: 1px solid #fff; border-radius: 50%; color: #174b72; }
+.signin-user-icon span { font-size: 18px; font-weight: 950; }
+.signin-heading { margin-bottom: 18px; text-align: center; }
+.signin-heading span { color: #b9cfde; font-size: 10px; text-transform: uppercase; }
+.signin-heading h2 { margin: 4px 0; color: #fff; font-size: 24px; }
+.signin-heading p { margin: 0; color: #c7d8e4; }
+.workstation-signin .login-form { display: grid; grid-template-columns: 1fr; gap: 11px; width: min(360px, calc(100vw - 36px)); padding: 0; background: transparent; border: 0; }
+.workstation-signin .login-form label { color: #dbe8f1; font-size: 11px; }
+.workstation-signin .login-form input { height: 44px; color: #152f43; background: rgba(250, 253, 255, .95); border: 1px solid rgba(255,255,255,.8); border-radius: 4px; }
+.workstation-signin .login-form input:focus { border-color: #55a8de; box-shadow: 0 0 0 2px rgba(85,168,222,.25); }
+.workstation-signin .login-form button { min-height: 43px; border-radius: 4px; }
+.workstation-signin .login-form button.ghost { color: #e2eef5; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.23); }
+.workstation-signin .form-status { color: #ffd5d5; text-align: center; }
+.workstation-signin .form-status.success { color: #bdeccd; }
+.workstation-signin footer { position: fixed; right: 30px; bottom: 22px; left: 30px; }
+.workstation-signin footer a { color: #c8dce9; }
+
+body.is-booting { overflow: hidden; background: #071628; }
+body.is-booting .terminal-shell, body.is-booting .terminal-window, body.is-booting .workspace { display: block; width: 100%; min-height: 100dvh; padding: 0; border: 0; border-radius: 0; }
+body.is-booting .system-bar, body.is-booting .topbar { display: none; }
+.boot-console { min-height: 100dvh; background: linear-gradient(145deg, #071423, #123f64); }
+.boot-console .boot-card { width: min(460px, calc(100vw - 36px)); color: #eaf3f8; background: transparent; border: 0; text-align: center; }
+.boot-mark { display: grid; place-items: center; margin-bottom: 18px; }
+.boot-mark span { width: 62px; height: 62px; }
+.boot-console .boot-card > small { color: #9fc0d6; text-transform: uppercase; }
+.boot-console .boot-card h2 { color: #fff; font-size: 22px; }
+.boot-console .boot-card p { color: #bed1de; }
+.boot-console .boot-progress { height: 4px; background: rgba(255,255,255,.14); }
+.boot-console .boot-progress span { background: #68b4e4; }
+.boot-console .boot-steps { color: #92acbd; }
+
+body.hub-select-mode { overflow: hidden; background: #10273d; }
+body.hub-select-mode .terminal-shell { display: block; min-height: 100dvh; padding: 0; }
+body.hub-select-mode .system-bar, body.hub-select-mode .topbar { display: none; }
+body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display: block; width: 100%; height: 100dvh; min-height: 100dvh; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
+.hub-select { width: 100%; height: 100dvh; min-height: 100dvh; padding: 0; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
+.desktop-wallpaper { position: relative; display: grid; grid-template-rows: auto auto 1fr 50px; width: 100%; min-height: 100dvh; color: #fff; background: linear-gradient(135deg, rgba(7, 24, 40, .9), rgba(15, 61, 92, .76)), radial-gradient(circle at 76% 20%, rgba(83, 164, 211, .34), transparent 30%), linear-gradient(145deg, #092038, #1c6189 60%, #081a2b); }
+.desktop-wallpaper::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px); background-size: 44px 44px; }
+.desktop-heading { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 25px 30px; }
+.desktop-brand { display: flex; align-items: center; gap: 12px; }
+.desktop-brand strong, .desktop-brand small { display: block; }
+.desktop-brand small { color: #b4cad9; }
+.desktop-brand strong { margin-top: 2px; }
+.desktop-security { display: flex; align-items: center; gap: 7px; color: #bdd4e2; font-size: 10px; text-transform: uppercase; }
+.desktop-security i { width: 7px; height: 7px; background: #65d38e; border-radius: 50%; }
+.desktop-welcome { position: relative; padding: 12px 34px 20px; }
+.desktop-welcome small { color: #9fc2d9; font-weight: 800; }
+.desktop-welcome h2 { margin: 4px 0; font-size: 28px; font-weight: 580; }
+.desktop-welcome p { margin: 0; color: #c5d8e4; }
+.desktop-apps { position: relative; display: grid; grid-template-columns: repeat(4, minmax(120px, 150px)); grid-auto-rows: 132px; align-content: start; gap: 10px; padding: 8px 34px 28px; overflow: auto; }
+.desktop-app, a.desktop-app { position: relative; display: grid; justify-items: center; align-content: center; gap: 5px; min-width: 0; padding: 10px; color: #fff; text-align: center; text-decoration: none; background: rgba(7, 24, 40, .24); border: 1px solid transparent; border-radius: 5px; box-shadow: none; }
+.desktop-app:hover, a.desktop-app:hover { color: #fff; text-decoration: none; background: rgba(210, 235, 249, .13); border-color: rgba(210, 235, 249, .28); }
+.desktop-app strong { overflow: hidden; max-width: 100%; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-app small { overflow: hidden; max-width: 100%; color: #b9cedb; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.app-icon { display: grid; place-items: center; width: 54px; height: 54px; color: #fff; background: #2e76a6; border: 1px solid rgba(255,255,255,.24); border-radius: 7px; font-size: 12px; font-weight: 950; }
+.app-cad .app-icon { background: #b14349; }
+.app-chat .app-icon { background: #31735c; }
+.app-documents .app-icon { background: #76623a; }
+.app-calendar .app-icon { background: #526c9a; }
+.app-training .app-icon { background: #6c568d; }
+.app-tasks .app-icon { background: #39717a; }
+.app-careers .app-icon { background: #445a72; }
+.desktop-app-badge { position: absolute; top: 12px; right: 22px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; color: #fff; background: #c33d45; border: 2px solid #18334b; border-radius: 9px; font-size: 9px; font-style: normal; }
+.desktop-taskbar { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; min-height: 50px; padding: 5px 10px; background: rgba(5, 16, 28, .88); border-top: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(18px); }
+.desktop-taskbar button { min-height: 36px; color: #dbe9f2; background: transparent; border-color: transparent; border-radius: 4px; }
+.desktop-taskbar button:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.1); }
+.taskbar-home { width: 45px; padding: 0; }
+.taskbar-home span { font-size: 11px; font-weight: 950; }
+.taskbar-pinned { display: flex; gap: 3px; }
+.taskbar-session { display: flex; align-items: center; gap: 5px; color: #c4d7e3; font-size: 10px; }
+.taskbar-session > span { padding: 0 8px; }
+.taskbar-session time { min-width: 46px; padding: 0 6px; text-align: right; font-size: 12px; }
+
+body.is-authenticated:not(.hub-select-mode):not(.operations-mode) #hubSwitchButton { color: #173b58; background: #e9f1f6; border-color: #a9bfce; }
+
+@media (max-width: 700px) {
+  .workstation-lock { padding: 24px 20px 18px; }
+  .lock-brand strong { font-size: 12px; }
+  .lock-time { padding-bottom: 22px; }
+  .lock-time time { font-size: 64px; }
+  .lock-time span { font-size: 15px; }
+  .lock-actions { align-items: stretch; flex-direction: column; gap: 10px; }
+  .lock-actions button { width: 100%; }
+  .workstation-lock footer span:last-child { display: none; }
+  .workstation-signin { align-content: center; padding-bottom: 90px; }
+  .workstation-signin footer { right: 18px; bottom: 16px; left: 18px; gap: 8px; flex-direction: column; align-items: center; }
+  .desktop-wallpaper { grid-template-rows: auto auto minmax(0, 1fr) 56px; }
+  .desktop-heading { padding: 18px; }
+  .desktop-brand > span { width: 42px; height: 42px; }
+  .desktop-security { display: none; }
+  .desktop-welcome { padding: 10px 20px 16px; }
+  .desktop-welcome h2 { font-size: 22px; }
+  .desktop-apps { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 118px; gap: 5px; padding: 4px 12px 18px; }
+  .desktop-app, a.desktop-app { padding: 7px 3px; }
+  .app-icon { width: 49px; height: 49px; }
+  .desktop-app small { display: none; }
+  .desktop-taskbar { grid-template-columns: auto 1fr auto; }
+  .taskbar-pinned { display: none; }
+  .taskbar-session > span { display: none; }
+  .taskbar-session time { min-width: 42px; }
+}
+
+@media (max-width: 390px) {
+  .desktop-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

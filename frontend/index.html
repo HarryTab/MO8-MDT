@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
+    <link rel="stylesheet" href="workstation.css?v=2026-07-05-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -100,32 +101,42 @@
             </div>
         </header>
 
-          <section class="login-console" id="loginView">
-            <div class="console-copy">
-              <span class="access-chip">Restricted access</span>
-              <h2>Roads Policing command terminal</h2>
-              <p>Authenticate with your Roblox staff account to access officer records, training status, LOA workflows, documents, and command logs.</p>
-            </div>
-            <form class="login-form" id="loginForm">
-              <label>
-                Roblox username
-                <input name="username" autocomplete="username" required>
-              </label>
-              <label>
-                Password
-                <input name="password" type="password" autocomplete="current-password" required>
-              </label>
-              <button type="submit">Authenticate</button>
-              <button class="ghost" id="requestAccountButton" type="button">Request an account</button>
-              <a class="button-link ghost" href="careers/">Careers and applications</a>
-              <p class="form-status" id="loginStatus"></p>
-            </form>
+          <section class="login-console workstation-login" id="loginView">
+            <section class="workstation-lock" id="workstationLock">
+              <div class="lock-brand"><span>MO8</span><div><strong>Metropolitan Operations 8</strong><small>Secure operational workstation</small></div></div>
+              <div class="lock-time"><time id="lockScreenTime">00:00</time><span id="lockScreenDate">Loading date</span></div>
+              <div class="lock-actions">
+                <button type="button" id="unlockWorkstationButton">Sign in</button>
+                <a href="careers/">Careers and applications</a>
+              </div>
+              <footer><span>MO8-RPU-TERM-01</span><span>Network available</span></footer>
+            </section>
+            <section class="workstation-signin" id="workstationSignin" hidden>
+              <button type="button" class="signin-back" id="signinBackButton" aria-label="Return to lock screen">Back</button>
+              <div class="signin-user-icon" aria-hidden="true"><span>MO8</span></div>
+              <div class="signin-heading"><span>Restricted system</span><h2>Sign in to MO8</h2><p>Use your authorised staff account.</p></div>
+              <form class="login-form" id="loginForm">
+                <label>
+                  Roblox username
+                  <input name="username" autocomplete="username" required autofocus>
+                </label>
+                <label>
+                  Password
+                  <input name="password" type="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit">Sign in</button>
+                <button class="ghost" id="requestAccountButton" type="button">Request an account</button>
+                <p class="form-status" id="loginStatus"></p>
+              </form>
+              <footer><a href="careers/">Open public careers site</a><span>Authorised access only</span></footer>
+            </section>
           </section>
 
           <section class="boot-console" id="bootView" hidden>
             <div class="boot-card">
-              <span class="access-chip">Secure session</span>
-              <h2>Initializing MDT session</h2>
+              <div class="boot-mark"><span>MO8</span></div>
+              <small>MO8 Workstation</small>
+              <h2>Preparing your desktop</h2>
               <p id="bootStatus">Preparing workspace...</p>
               <div class="boot-progress" aria-hidden="true">
                 <span id="bootProgressBar"></span>
@@ -135,30 +146,21 @@
           </section>
 
           <section class="hub-select" id="hubSelectView" hidden>
-            <header class="hub-launcher-head">
-              <div class="hub-launcher-brand"><span>MO8</span><div><small>Metropolitan Operations 8</small><strong>Command Operating System</strong></div></div>
-              <div class="hub-session-state"><i></i><span>Authenticated session</span></div>
-            </header>
-            <div class="hub-launcher-copy">
-              <span>Workspace selection</span>
-              <h2>Where are you working?</h2>
-              <p>Choose the system required for this session. You can switch workspace at any time without signing out.</p>
+            <div class="desktop-wallpaper">
+              <header class="desktop-heading"><div class="desktop-brand"><span>MO8</span><div><small>Metropolitan Operations 8</small><strong>Operational Workstation</strong></div></div><div class="desktop-security"><i></i><span>Secure network</span></div></header>
+              <div class="desktop-welcome"><small>WELCOME BACK</small><h2 id="desktopWelcome">Officer</h2><p>Select an application to begin.</p></div>
+              <div class="desktop-apps" aria-label="Workstation applications">
+                <button class="desktop-app app-personnel" id="enterPersonnelHub" type="button"><span class="app-icon">PD</span><strong>Personnel</strong><small>Records and administration</small></button>
+                <button class="desktop-app app-cad" id="enterOperationsHub" type="button"><span class="app-icon">CAD</span><strong>Control and CAD</strong><small>Live operations</small></button>
+                <button class="desktop-app app-chat" data-launch-personnel-app="messaging" type="button"><span class="app-icon">CH</span><strong>Chat</strong><small>Internal communications</small><i class="desktop-app-badge" id="desktopChatUnread" hidden></i></button>
+                <button class="desktop-app app-documents" data-launch-personnel-app="documents" data-permission="VIEW_DOCUMENTS" type="button"><span class="app-icon">DOC</span><strong>Documents</strong><small>Policies and guidance</small></button>
+                <button class="desktop-app app-calendar" data-launch-personnel-app="calendar" type="button"><span class="app-icon">CAL</span><strong>Calendar</strong><small>Courses, LOA and events</small></button>
+                <button class="desktop-app app-training" data-launch-personnel-app="courses" data-permission="VIEW_COURSES" type="button"><span class="app-icon">TR</span><strong>Training</strong><small>Courses and bookings</small></button>
+                <button class="desktop-app app-tasks" data-launch-personnel-app="tasks" type="button"><span class="app-icon">TK</span><strong>My Tasks</strong><small>Actions and approvals</small></button>
+                <a class="desktop-app app-careers" href="careers/"><span class="app-icon">JOB</span><strong>Careers</strong><small>Public recruitment site</small></a>
+              </div>
+              <footer class="desktop-taskbar"><button class="taskbar-home" id="desktopHomeButton" type="button" aria-label="MO8 workstation menu"><span>MO8</span></button><div class="taskbar-pinned"><button type="button" data-launch-personnel-app="dashboard">Personnel</button><button type="button" id="taskbarCadButton">CAD</button><button type="button" data-launch-personnel-app="messaging">Chat</button></div><div class="taskbar-session"><span id="desktopSessionUser">Officer</span><button type="button" id="desktopSignOutButton">Sign out</button><time id="desktopClock">00:00</time></div></footer>
             </div>
-            <div class="hub-cards hub-launcher-grid">
-              <button class="hub-card personnel" id="enterPersonnelHub" type="button">
-                <span class="hub-code">01 / Personnel</span>
-                <strong>Personnel Database</strong>
-                <small>Officer records, development, training, documents, requests and command administration.</small>
-                <b>Enter Personnel</b>
-              </button>
-              <button class="hub-card operations" id="enterOperationsHub" type="button">
-                <span class="hub-code">02 / Operations</span>
-                <strong>Control and CAD</strong>
-                <small>Live units, dispatch, intelligence, operational cases, BOLOs and incident command.</small>
-                <b>Enter Operations</b>
-              </button>
-            </div>
-            <footer class="hub-launcher-foot"><span>MO8 Internal System</span><span>Roleplay data only</span></footer>
           </section>
 
           <section id="appView" hidden>
@@ -754,6 +756,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-05-2"></script>
+    <script src="app.js?v=2026-07-05-3"></script>
   </body>
 </html>

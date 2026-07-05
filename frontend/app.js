@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-05-2';
+const APP_VERSION = '2026-07-05-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -206,6 +206,10 @@ document.addEventListener('pointerdown', handleDashboardPointerDown);
 document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
+document.addEventListener('keydown', (event) => {
+  const lock = document.querySelector('#workstationLock');
+  if (!elements.loginView.hidden && lock && !lock.hidden && ['Enter', ' '].includes(event.key)) showWorkstationSignin();
+});
 
 elements.loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -293,6 +297,15 @@ elements.mobileMenuButton?.addEventListener('click', () => toggleMobileNav());
 elements.hubSwitchButton?.addEventListener('click', showHubSelector);
 document.querySelector('#enterPersonnelHub')?.addEventListener('click', enterPersonnelHub);
 document.querySelector('#enterOperationsHub')?.addEventListener('click', enterOperationsHub);
+document.querySelector('#taskbarCadButton')?.addEventListener('click', enterOperationsHub);
+document.querySelector('#desktopHomeButton')?.addEventListener('click', showHubSelector);
+document.querySelector('#desktopSignOutButton')?.addEventListener('click', () => elements.logoutButton.click());
+document.querySelector('#unlockWorkstationButton')?.addEventListener('click', showWorkstationSignin);
+document.querySelector('#signinBackButton')?.addEventListener('click', showWorkstationLock);
+document.querySelectorAll('[data-launch-personnel-app]').forEach((button) => button.addEventListener('click', async () => {
+  await enterPersonnelHub();
+  await showView(button.dataset.launchPersonnelApp || defaultView());
+}));
 document.querySelector('#refreshInboxButton')?.addEventListener('click', async () => {
   invalidateCache('personalInbox');
   await loadInbox();
@@ -578,6 +591,35 @@ function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function showWorkstationSignin() {
+  const lock = document.querySelector('#workstationLock');
+  const signin = document.querySelector('#workstationSignin');
+  if (!lock || !signin) return;
+  lock.hidden = true;
+  signin.hidden = false;
+  window.setTimeout(() => signin.querySelector('input[name="username"]')?.focus(), 50);
+}
+
+function showWorkstationLock() {
+  const lock = document.querySelector('#workstationLock');
+  const signin = document.querySelector('#workstationSignin');
+  if (!lock || !signin) return;
+  lock.hidden = false;
+  signin.hidden = true;
+}
+
+function updateWorkstationClock() {
+  const now = new Date();
+  const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+  const date = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+  const lockTime = document.querySelector('#lockScreenTime');
+  const lockDate = document.querySelector('#lockScreenDate');
+  const desktopClock = document.querySelector('#desktopClock');
+  if (lockTime) lockTime.textContent = time;
+  if (lockDate) lockDate.textContent = date;
+  if (desktopClock) { desktopClock.textContent = time; desktopClock.dateTime = now.toISOString(); }
+}
+
 function showLogin() {
   stopOperationsRealtime();
   stopMessagingRealtime();
@@ -596,6 +638,8 @@ function showLogin() {
   elements.operationsView.hidden = true;
   elements.nav.hidden = true;
   elements.identity.hidden = true;
+  showWorkstationLock();
+  updateWorkstationClock();
 }
 
 function showHubSelector() {
@@ -622,6 +666,13 @@ function showHubSelector() {
     <strong>${escapeHtml(state.user.RobloxUsername)}</strong>
     <span>${escapeHtml(state.user.Rank || state.user.Role)}</span>
   `;
+  const desktopName = state.user.RobloxUsername || 'Officer';
+  const welcome = document.querySelector('#desktopWelcome');
+  const sessionUser = document.querySelector('#desktopSessionUser');
+  if (welcome) welcome.textContent = desktopName;
+  if (sessionUser) sessionUser.textContent = `${desktopName} / ${state.user.Rank || state.user.Role || 'Officer'}`;
+  updateWorkstationClock();
+  updateChatBadge();
   applyPermissions();
 }
 
@@ -1021,9 +1072,10 @@ async function loadMessaging(force = false) {
 
 function updateChatBadge() {
   const badge = document.querySelector('#chatNavUnread');
-  if (!badge) return;
-  badge.hidden = state.unreadChatMessages < 1;
-  badge.textContent = state.unreadChatMessages > 99 ? '99+' : String(state.unreadChatMessages);
+  const desktopBadge = document.querySelector('#desktopChatUnread');
+  const value = state.unreadChatMessages > 99 ? '99+' : String(state.unreadChatMessages);
+  if (badge) { badge.hidden = state.unreadChatMessages < 1; badge.textContent = value; }
+  if (desktopBadge) { desktopBadge.hidden = state.unreadChatMessages < 1; desktopBadge.textContent = value; }
 }
 
 function switchMessagingMode(mode) {
@@ -12235,4 +12287,6 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+updateWorkstationClock();
+window.setInterval(updateWorkstationClock, 1000);
 boot();
