@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-4';
+const APP_VERSION = '2026-07-06-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -344,7 +344,7 @@ function setupNavigation() {
   document.querySelectorAll('.nav-group .nav-item').forEach((button) => {
     if (button.closest('.nav-item-row')) return;
     const row = document.createElement('div'); row.className = 'nav-item-row'; button.parentNode.insertBefore(row, button); row.appendChild(button);
-    const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'nav-pin'; pin.dataset.pinView = button.dataset.view; pin.title = `Pin ${button.innerText.trim()}`; pin.setAttribute('aria-label', pin.title); pin.textContent = '+'; row.appendChild(pin);
+    const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'nav-pin'; pin.dataset.pinView = button.dataset.view; pin.title = `Pin ${button.innerText.trim()}`; pin.setAttribute('aria-label', pin.title); row.appendChild(pin);
   });
   document.querySelectorAll('[data-pin-view]').forEach((button) => button.addEventListener('click', () => toggleNavFavourite(button.dataset.pinView)));
   document.querySelector('#navSearchInput')?.addEventListener('input', filterNavigation);
@@ -363,7 +363,7 @@ function toggleNavFavourite(view) {
 function renderNavFavourites() {
   const favourites = navFavourites(); const container = document.querySelector('#navFavouriteItems'); const section = document.querySelector('#navFavourites');
   const sourceButtons = [...document.querySelectorAll('.nav-group .nav-item')];
-  document.querySelectorAll('[data-pin-view]').forEach((button) => { button.textContent = favourites.includes(button.dataset.pinView) ? '-' : '+'; button.classList.toggle('active', favourites.includes(button.dataset.pinView)); });
+  document.querySelectorAll('[data-pin-view]').forEach((button) => { const pinned = favourites.includes(button.dataset.pinView); button.classList.toggle('active', pinned); button.title = `${pinned ? 'Unpin' : 'Pin'} ${button.closest('.nav-item-row')?.querySelector('.nav-item span:nth-child(2)')?.textContent || 'page'}`; button.setAttribute('aria-label', button.title); });
   const rows = favourites.map((view) => sourceButtons.find((button) => button.dataset.view === view)).filter((button) => button && !button.hidden);
   section.hidden = !rows.length;
   container.innerHTML = rows.map((button) => `<button class="nav-item nav-favourite-item" data-favourite-view="${escapeHtml(button.dataset.view)}"><span class="nav-symbol">${escapeHtml(button.querySelector('.nav-symbol')?.textContent || 'AP')}</span><span>${escapeHtml(button.querySelector('span:nth-child(2)')?.textContent || button.innerText)}</span></button>`).join('');
@@ -725,6 +725,7 @@ function showLogin() {
   elements.appView.hidden = true;
   elements.operationsView.hidden = true;
   elements.nav.hidden = true;
+  document.querySelector('.module-dock').hidden = true;
   elements.identity.hidden = true;
   showWorkstationLock();
   updateWorkstationClock();
@@ -743,12 +744,13 @@ function showHubSelector() {
   elements.loginView.hidden = true;
   elements.bootView.hidden = true;
   elements.hubSelectView.hidden = false;
-  elements.appView.hidden = false;
+  elements.appView.hidden = true;
   elements.operationsView.hidden = true;
   document.querySelectorAll('#appView > section').forEach((section) => {
     if (section !== elements.hubSelectView) section.hidden = true;
   });
-  elements.nav.hidden = false;
+  elements.nav.hidden = true;
+  document.querySelector('.module-dock').hidden = true;
   elements.identity.hidden = false;
   elements.currentUser.innerHTML = `
     <strong>${escapeHtml(state.user.RobloxUsername)}</strong>
@@ -773,6 +775,7 @@ async function enterPersonnelHub() {
   elements.appView.hidden = false;
   elements.operationsView.hidden = true;
   elements.nav.hidden = false;
+  document.querySelector('.module-dock').hidden = false;
   await showView(defaultView());
   startMessagingRealtime();
 }
@@ -785,6 +788,7 @@ async function enterOperationsHub() {
   elements.appView.hidden = true;
   elements.operationsView.hidden = false;
   elements.nav.hidden = true;
+  document.querySelector('.module-dock').hidden = true;
   elements.pageTitle.textContent = 'Operations Hub';
   elements.pageSubtitle.textContent = 'Live units, dispatch incidents and operational alerts';
   if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = 'Operations';
