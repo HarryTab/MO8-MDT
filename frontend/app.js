@@ -1776,7 +1776,7 @@ function renderDevelopmentTables() {
   renderTable('#performanceReviewsTable', filter(state.operations.reviews), ['Officer', 'ReviewDate', 'Rating', 'Reviewer', 'NextReviewDate', 'Objectives'], { actions: (row) => `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` });
   renderTable('#restrictionsTable', filter(state.operations.restrictions), ['Officer', 'RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` });
   const visibleAips = state.operations.aips.filter((row) => state.showArchivedAips ? Boolean(row.ArchivedAt) : !row.ArchivedAt);
-  renderTable('#aipTable', filter(visibleAips), ['Reference', 'Officer', 'Rank', 'Status', 'IssueDate', 'ReviewEndDate', 'LineManager', 'AuthorisingManager', 'SignaturesLabel'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button><button class="mini ghost" data-archive-aip="${escapeHtml(row.AipID)}" data-archive-mode="${row.ArchivedAt ? 'restore' : 'archive'}">${row.ArchivedAt ? 'Restore' : 'Archive'}</button>` });
+  renderTable('#aipTable', filter(visibleAips), ['Reference', 'Officer', 'Rank', 'Status', 'IssueDate', 'ReviewEndDate', 'LineManager', 'AuthorisingManager', 'SignaturesLabel'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button><button class="mini ghost" data-archive-aip="${escapeHtml(row.AipID)}" data-archive-mode="${row.ArchivedAt ? 'restore' : 'archive'}">${row.ArchivedAt ? 'Restore' : 'Archive'}</button>${row.ArchivedAt && can('FULL_ACCESS') ? `<button class="mini danger" data-delete-aip="${escapeHtml(row.AipID)}">Delete permanently</button>` : ''}` });
 }
 
 function officerRecordField(selected = '') {
@@ -6313,6 +6313,12 @@ async function handleDocumentClick(event) {
     openEditor(restoring ? 'Restore AIP to current records' : 'Archive Activity Improvement Notice', [hiddenField('AipID', archiveAip.dataset.archiveAip), hiddenField('Mode', restoring ? 'restore' : 'archive'), field('Reason', restoring ? 'Reason for restoring' : 'Archive note', 'textarea', false)], (values) => api('archiveAip', values), { successMessage: restoring ? 'AIP restored.' : 'AIP moved to the archive.', onSuccess: loadDevelopment });
     return;
   }
+  const deleteAip = event.target.closest('[data-delete-aip]');
+  if (deleteAip) {
+    const row = state.operations.aips.find((item) => item.AipID === deleteAip.dataset.deleteAip);
+    openEditor(`Permanently delete ${row?.Reference || 'archived AIP'}`, [hiddenField('AipID', deleteAip.dataset.deleteAip), { html: '<section class="task-brief wide"><span>Permanent action</span><h3>This removes the AIP and its signatures from operational records.</h3><p>A non-sensitive deletion tombstone will remain in the audit log. This action cannot be undone.</p></section>' }, field('Reason', 'Reason for permanent deletion', 'textarea', false), selectField('Confirmation', 'Confirmation', ['Cancel', 'Permanently delete archived AIP'], 'Cancel')], (values) => api('deleteAip', values), { successMessage: 'Archived AIP permanently deleted and audit record retained.', onSuccess: async () => { invalidateCache('developmentRecords'); invalidateCache('myProfile'); invalidateCache('getOfficerProfile'); invalidateCache('systemTimeline'); await loadDevelopment(); } });
+    return;
+  }
   const deleteProbation = event.target.closest('[data-delete-probation]');
   if (deleteProbation) {
     await confirmDelete('Delete this probation record?', 'deleteProbation', { ProbationID: deleteProbation.dataset.deleteProbation }, reloadDevelopmentContext);
@@ -7757,6 +7763,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       reviewAip: supabaseReviewAip,
       withdrawAip: supabaseWithdrawAip,
       archiveAip: supabaseArchiveAip,
+      deleteAip: supabaseDeleteAip,
       saveProbation: supabaseSaveProbation,
       deleteProbation: (payload) => supabaseDeleteOperationsRecord('probation_records', 'probation_id', payload.ProbationID),
       savePerformanceReview: supabaseSavePerformanceReview,
@@ -8471,7 +8478,7 @@ async function supabaseGlobalSearch(data) {
     ...offences.filter((row) => matches([row.title, row.code, row.category, row.description])).map((row) => ({ Type: 'Offences', Title: row.title, Detail: `${row.code} / ${row.category}`, Meta: row.active === false ? 'Inactive' : 'Current', OperationsTarget: `Reference:${row.title}` })),
     ...powers.filter((row) => matches([row.title, row.code, row.category, row.definition, row.legal_test, row.legislation_source, row.section_reference])).map((row) => ({ Type: 'Police Powers', Title: row.title, Detail: `${row.code} / ${row.section_reference || row.category}`, Meta: row.legislation_source, OperationsTarget: `Reference:${row.title}` })),
     ...loa.filter((row) => matches([officerName(row.officer_id), row.reason, row.status, row.decision_reason])).map((row) => ({ Type: 'Leave', Title: `${officerName(row.officer_id)} / ${row.status}`, Detail: `${formatDisplayDate(row.start_date)} - ${formatDisplayDate(row.end_date)}`, Meta: row.reason, View: 'loa' })),
-    ...aips.filter((row) => matches([row.reference, officerName(row.officer_id), row.reason, row.status, row.review_outcome])).map((row) => ({ Type: 'AIPs', Title: `${row.reference} / ${officerName(row.officer_id)}`, Detail: row.reason, Meta: row.status, View: 'development' })),
+    ...aips.filter((row) => !row.archived_at && matches([row.reference, officerName(row.officer_id), row.reason, row.status, row.review_outcome])).map((row) => ({ Type: 'AIPs', Title: `${row.reference} / ${officerName(row.officer_id)}`, Detail: row.reason, Meta: row.status, View: 'development' })),
     ...shifts.filter((row) => matches([row.roblox_username, row.callsign, row.rank, row.summary, row.status, row.operational_status])).map((row) => ({ Type: 'Shifts', Title: `${row.roblox_username || officerName(row.officer_id)} / ${formatDisplayDateTime(row.started_at)}`, Detail: row.summary || row.operational_status || row.status, Meta: row.callsign, View: 'shift' })),
     ...evidence.filter((row) => matches([row.title, row.file_name, row.file_type, incidentReference(row.incident_id)])).map((row) => ({ Type: 'Evidence', Title: row.title || row.file_name, Detail: `${incidentReference(row.incident_id)} / ${row.file_name}`, Meta: row.file_type, OperationsTarget: `Incident:${row.incident_id}` })),
   ].slice(0, 250) };
@@ -8495,7 +8502,7 @@ async function supabaseSystemTimeline() {
   loa.forEach((row) => add(row.reviewed_at || row.created_at || row.start_date, 'Personnel', 'Leave', `${officer(row.officer_id).roblox_username || 'Officer'} / ${row.status}`, `${formatDisplayDate(row.start_date)} - ${formatDisplayDate(row.end_date)}${row.reason ? ` / ${row.reason}` : ''}`, { OfficerID: row.officer_id, View: 'loa', Reference: row.request_id, Actor: profile(row.reviewed_by).roblox_username || '' }));
   shifts.forEach((row) => add(row.ended_at || row.started_at, 'Personnel', 'Shift', `${row.roblox_username || officer(row.officer_id).roblox_username || 'Officer'} / ${row.status}`, row.summary || `${row.callsign || 'No callsign'} / ${row.operational_status || ''}`, { OfficerID: row.officer_id, View: 'shift', Reference: row.shift_id }));
   tasks.forEach((row) => add(row.updated_at || row.created_at, 'Personnel', 'Task', row.title, `${officer(row.assigned_officer_id).roblox_username || 'Unassigned'} / ${row.status} / ${row.details || ''}`, { View: 'tasks', OfficerID: row.assigned_officer_id, Reference: row.task_id, Severity: row.priority === 'Critical' ? 'Critical' : row.priority === 'High' ? 'High' : 'Information' }));
-  aips.forEach((row) => add(row.reviewed_at || row.updated_at || row.created_at, 'Personnel', 'AIP', `${row.reference} / ${officer(row.officer_id).roblox_username || 'Officer'}`, `${row.status} / ${row.reason}`, { OfficerID: row.officer_id, View: 'development', Reference: row.aip_id, Severity: ['No Improvement', 'Partial Improvement'].includes(row.review_outcome) ? 'High' : 'Warning' }));
+  aips.filter((row) => !row.archived_at).forEach((row) => add(row.reviewed_at || row.updated_at || row.created_at, 'Personnel', 'AIP', `${row.reference} / ${officer(row.officer_id).roblox_username || 'Officer'}`, `${row.status} / ${row.reason}`, { OfficerID: row.officer_id, View: 'development', Reference: row.aip_id, Severity: ['No Improvement', 'Partial Improvement'].includes(row.review_outcome) ? 'High' : 'Warning' }));
   incidents.forEach((row) => add(row.closed_at || row.updated_at || row.created_at, 'Operations', 'CAD', `${row.incident_number} / ${row.title}`, `${row.status} / ${row.location || 'No location'} / ${row.outcome || row.closure_code || ''}`, { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number, Actor: profile(row.created_by).roblox_username || '', Severity: row.priority === 'Immediate' ? 'Critical' : row.priority === 'Priority' ? 'High' : 'Information' }));
   logs.forEach((row) => { const cad = incident(row.incident_id); add(row.created_at, 'Operations', 'CAD Log', `${cad.incident_number || row.incident_id} / ${row.entry_type}`, row.body || '', { OperationsTarget: `Incident:${row.incident_id}`, Reference: cad.incident_number || row.incident_id, Actor: profile(row.created_by).roblox_username || '' }); });
   caseUpdates.forEach((row) => add(row.created_at, 'Operations', 'Case Update', row.update_type || 'Case update', row.body || '', { OperationsTarget: `Case:${row.operation_id}`, Reference: row.operation_id, Actor: profile(row.created_by).roblox_username || '' }));
@@ -8522,7 +8529,7 @@ async function supabaseDataQualityCentre() {
   profiles.filter((row) => row.status !== 'Archived' && !officers.some((officerRow) => officerRow.member_id === row.member_id)).forEach((row) => issue('Warning', 'Accounts', 'Unlinked account', row.roblox_username, 'Active user account has no linked officer record.', { View: 'users', Reference: row.user_id }));
   tasks.filter((row) => row.due_at && new Date(row.due_at).getTime() < now && !['Completed', 'Cancelled'].includes(row.status)).forEach((row) => issue(row.priority === 'Critical' ? 'Critical' : 'High', 'Tasks', 'Overdue task', row.title, `${row.status} / due ${formatDisplayDateTime(row.due_at)}`, { View: 'tasks', OfficerID: row.assigned_officer_id, Reference: row.task_id }));
   loa.filter((row) => !row.start_date || !row.end_date || new Date(row.end_date) < new Date(row.start_date)).forEach((row) => issue('Critical', 'Personnel', 'Invalid leave dates', officers.find((item) => item.officer_id === row.officer_id)?.roblox_username || row.request_id, 'Leave record has missing or invalid dates.', { View: 'loa', OfficerID: row.officer_id, Reference: row.request_id }));
-  aips.filter((row) => row.review_end_date && new Date(`${row.review_end_date}T23:59:59`).getTime() < now && !['Closed', 'Withdrawn'].includes(row.status)).forEach((row) => issue('Critical', 'Personnel', 'Overdue AIP review', row.reference, `${officers.find((item) => item.officer_id === row.officer_id)?.roblox_username || 'Officer'} / review due ${formatDisplayDate(row.review_end_date)}`, { View: 'development', OfficerID: row.officer_id, Reference: row.aip_id }));
+  aips.filter((row) => !row.archived_at && row.review_end_date && new Date(`${row.review_end_date}T23:59:59`).getTime() < now && !['Closed', 'Withdrawn'].includes(row.status)).forEach((row) => issue('Critical', 'Personnel', 'Overdue AIP review', row.reference, `${officers.find((item) => item.officer_id === row.officer_id)?.roblox_username || 'Officer'} / review due ${formatDisplayDate(row.review_end_date)}`, { View: 'development', OfficerID: row.officer_id, Reference: row.aip_id }));
   incidents.filter((row) => ['Resolved', 'Cancelled'].includes(row.status) && !row.outcome && !row.closure_code).forEach((row) => issue('High', 'Operations', 'Missing CAD outcome', `${row.incident_number} / ${row.title}`, 'Closed CAD has no outcome or closure code recorded.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
   incidents.filter((row) => !['Resolved', 'Cancelled'].includes(row.status) && now - new Date(row.updated_at || row.created_at).getTime() > 24 * 60 * 60 * 1000).forEach((row) => issue('Warning', 'Operations', 'Stale open CAD', `${row.incident_number} / ${row.title}`, 'Open CAD has not been updated for more than 24 hours.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
   incidents.filter((row) => !entities.some((item) => item.incident_id === row.incident_id)).forEach((row) => issue('Warning', 'Operations', 'No linked intelligence', `${row.incident_number} / ${row.title}`, 'CAD has no person or vehicle linked.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
@@ -8918,6 +8925,19 @@ async function supabaseArchiveAip(data) {
   const update = restoring ? { archived_at: null, archived_by: null, archive_reason: `Restored: ${data.Reason}`, updated_at: new Date().toISOString() } : { archived_at: new Date().toISOString(), archived_by: me.user.UserID, archive_reason: data.Reason, updated_at: new Date().toISOString() };
   const { error } = await supabaseClient.from('activity_improvement_notices').update(update).eq('aip_id', data.AipID); if (error) return { ok: false, error: error.message };
   await supabaseAudit(me.user.UserID, restoring ? 'RESTORE_AIP' : 'ARCHIVE_AIP', 'Activity Improvement Notice', data.AipID, { reason: data.Reason });
+  return { ok: true };
+}
+
+async function supabaseDeleteAip(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('FULL_ACCESS')) return { ok: false, error: 'Full Access permission is required to permanently delete an AIP.' };
+  if (data.Confirmation !== 'Permanently delete archived AIP') return { ok: false, error: 'Confirm that the archived AIP should be permanently deleted.' };
+  if (!String(data.Reason || '').trim()) return { ok: false, error: 'A deletion reason is required.' };
+  const row = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID);
+  if (!row) return { ok: false, error: 'AIP not found.' };
+  if (!row.archived_at) return { ok: false, error: 'Only archived AIPs can be permanently deleted.' };
+  const { error } = await supabaseClient.rpc('permanently_delete_archived_aip', { target_aip_id: row.aip_id, deletion_reason: String(data.Reason).trim() });
+  if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
 
