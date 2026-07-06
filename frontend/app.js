@@ -211,6 +211,12 @@ document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
 document.addEventListener('keydown', (event) => {
+  const searchPreview = event.target.closest?.('[data-search-preview]');
+  if (searchPreview && ['Enter', ' '].includes(event.key)) {
+    event.preventDefault();
+    openGlobalSearchPreview(searchPreview.dataset.searchPreview);
+    return;
+  }
   const lock = document.querySelector('#workstationLock');
   if (!elements.loginView.hidden && lock && !lock.hidden && ['Enter', ' '].includes(event.key)) showWorkstationSignin();
 });
@@ -1467,7 +1473,7 @@ function renderGlobalSearchResults() {
   if (summary) summary.innerHTML = `<strong>${visibleRows.length}</strong> result${visibleRows.length === 1 ? '' : 's'}${typeFilter ? ` in ${escapeHtml(typeFilter)}` : ''} for <span>${escapeHtml(query)}</span>`;
   container.innerHTML = visibleRows.length ? Object.entries(grouped).map(([type, rows]) => `
     <section class="search-result-group"><h3>${escapeHtml(type)} <span>${rows.length}</span></h3><div class="search-result-list">${rows.map((row) => `
-      <article class="search-result" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}${row.OfficerID ? ` data-open-officer="${escapeHtml(row.OfficerID)}"` : ''}${row.OperationsTarget ? ` data-open-ops-search="${escapeHtml(row.OperationsTarget)}"` : ''}>
+      <article class="search-result" data-search-preview="${state.operations.search.indexOf(row)}" tabindex="0" role="button">
         <strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Detail || '')}</p><span>${escapeHtml(row.Meta || '')}</span>
       </article>`).join('')}</div></section>`).join('') : emptyState(query ? 'No matching accessible records found.' : 'Enter a search term or select a saved view.');
 }
@@ -1476,7 +1482,22 @@ async function runOpsCommandSearch(query) {
   const response = await api('globalSearch', { Query: query });
   if (!response.ok) return showInfo('Search failed', `<p>${escapeHtml(response.error || 'The MDT search could not be completed.')}</p>`);
   const rows = response.rows || [];
-  showInfo(`Search / ${query}`, `<div class="command-search-results">${rows.slice(0, 40).map((row) => `<button ${row.OperationsTarget ? `data-open-ops-search="${escapeHtml(row.OperationsTarget)}"` : row.OfficerID ? `data-open-officer="${escapeHtml(row.OfficerID)}"` : row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(row.Title)}</strong><small>${escapeHtml([row.Detail, row.Meta].filter(Boolean).join(' / '))}</small></button>`).join('') || '<p class="empty">No matching records found.</p>'}</div>`);
+  state.operations.search = rows;
+  showInfo(`Search / ${query}`, `<div class="command-search-results">${rows.slice(0, 40).map((row, index) => `<button data-search-preview="${index}"><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(row.Title)}</strong><small>${escapeHtml([row.Detail, row.Meta].filter(Boolean).join(' / '))}</small></button>`).join('') || '<p class="empty">No matching records found.</p>'}</div>`);
+}
+
+function openGlobalSearchPreview(index) {
+  const row = state.operations.search?.[Number(index)];
+  if (!row) return;
+  const destination = row.OperationsTarget
+    ? `data-open-ops-search="${escapeHtml(row.OperationsTarget)}"`
+    : row.OfficerID
+      ? `data-open-officer="${escapeHtml(row.OfficerID)}"`
+      : row.View
+        ? `data-view-link="${escapeHtml(row.View)}"`
+        : '';
+  if (elements.infoDialog.open) elements.infoDialog.close();
+  showInfo(row.Title || 'Search result', `<section class="search-record-preview"><header><span>${escapeHtml(row.Type || 'Record')}</span><h3>${escapeHtml(row.Title || '')}</h3></header><dl><div><dt>Summary</dt><dd>${escapeHtml(row.Detail || 'No summary recorded.')}</dd></div><div><dt>Status / reference</dt><dd>${escapeHtml(row.Meta || 'Not recorded')}</dd></div></dl>${destination ? `<button type="button" ${destination}>Open full record</button>` : '<p class="empty">This result has no separate full-record page.</p>'}</section>`);
 }
 
 function renderSavedViewOptions() {
@@ -5754,6 +5775,11 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
+  const searchPreview = event.target.closest('[data-search-preview]');
+  if (searchPreview) {
+    openGlobalSearchPreview(searchPreview.dataset.searchPreview);
+    return;
+  }
   if (event.target.closest('[data-widget-drag], [data-widget-resize]')) return;
   if (!event.target.closest('.notification-shell')) {
     closeNotificationMenu();
@@ -6366,6 +6392,7 @@ async function handleDocumentClick(event) {
 
   const viewLink = event.target.closest('[data-view-link]');
   if (viewLink) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
     await showView(viewLink.dataset.viewLink);
     return;
   }
