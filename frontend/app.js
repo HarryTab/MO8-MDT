@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-6';
+const APP_VERSION = '2026-07-06-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -623,8 +623,16 @@ async function preloadTasks() {
 
 function updateTaskNavBadge(count) {
   const value = Math.max(0, Number(count || 0)); const label = value > 99 ? '99+' : String(value);
-  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; });
+  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; if (value > 0) pulseBadge(badge, value); });
   const navButton = document.querySelector('.nav-item[data-view="tasks"]'); if (navButton) navButton.setAttribute('aria-label', value ? `Tasks, ${value} outstanding` : 'Tasks');
+}
+
+function pulseBadge(element, value) {
+  if (!element || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const previous = Number(element.dataset.motionCount || 0); element.dataset.motionCount = String(value);
+  if (Number(value) <= previous) return;
+  element.classList.remove('badge-pop'); void element.offsetWidth; element.classList.add('badge-pop');
+  window.setTimeout(() => element.classList.remove('badge-pop'), 380);
 }
 
 async function preloadMessaging() {
@@ -836,6 +844,7 @@ function updateNotificationBadge() {
   elements.notificationsButton.setAttribute('aria-label', state.unreadNotifications > 0
     ? `Notifications, ${state.unreadNotifications} unread`
     : 'Notifications');
+  if (state.unreadNotifications > 0) pulseBadge(elements.notificationsButton, state.unreadNotifications);
 }
 
 function toggleMobileNav(force) {
@@ -926,6 +935,16 @@ async function showView(view) {
 
   await loaders[view]();
   applyPermissions();
+  animateViewEntrance(view);
+}
+
+function animateViewEntrance(view) {
+  const section = document.querySelector(`#${view}View`);
+  if (!section || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  section.classList.remove('view-enter');
+  void section.offsetWidth;
+  section.classList.add('view-enter');
+  window.setTimeout(() => section.classList.remove('view-enter'), 280);
 }
 
 function renderViewLoading(view) {
@@ -1187,8 +1206,8 @@ function updateChatBadge() {
   const badge = document.querySelector('#chatNavUnread');
   const desktopBadge = document.querySelector('#desktopChatUnread');
   const value = state.unreadChatMessages > 99 ? '99+' : String(state.unreadChatMessages);
-  if (badge) { badge.hidden = state.unreadChatMessages < 1; badge.textContent = value; }
-  if (desktopBadge) { desktopBadge.hidden = state.unreadChatMessages < 1; desktopBadge.textContent = value; }
+  if (badge) { badge.hidden = state.unreadChatMessages < 1; badge.textContent = value; if (state.unreadChatMessages) pulseBadge(badge, state.unreadChatMessages); }
+  if (desktopBadge) { desktopBadge.hidden = state.unreadChatMessages < 1; desktopBadge.textContent = value; if (state.unreadChatMessages) pulseBadge(desktopBadge, state.unreadChatMessages); }
 }
 
 function switchMessagingMode(mode) {
