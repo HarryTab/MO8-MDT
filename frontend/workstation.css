@@ -65,7 +65,7 @@ body.hub-select-mode .system-bar, body.hub-select-mode .topbar { display: none; 
 body.hub-select-mode .module-dock { display: none !important; }
 body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display: block; width: 100%; height: 100dvh; min-height: 100dvh; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
 .hub-select { width: 100%; height: 100dvh; min-height: 100dvh; padding: 0; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
-.desktop-wallpaper { position: relative; display: grid; grid-template-rows: auto auto minmax(0, 1fr) minmax(58px, auto); width: 100%; height: 100dvh; min-height: 100dvh; color: #fff; background: linear-gradient(135deg, rgba(7, 24, 40, .9), rgba(15, 61, 92, .76)), radial-gradient(circle at 76% 20%, rgba(83, 164, 211, .34), transparent 30%), linear-gradient(145deg, #092038, #1c6189 60%, #081a2b); }
+.desktop-wallpaper { position: relative; display: grid; grid-template-rows: auto auto minmax(0, 1fr); width: 100%; height: 100dvh; min-height: 100dvh; padding-bottom: calc(58px + env(safe-area-inset-bottom)); box-sizing: border-box; color: #fff; background: linear-gradient(135deg, rgba(7, 24, 40, .9), rgba(15, 61, 92, .76)), radial-gradient(circle at 76% 20%, rgba(83, 164, 211, .34), transparent 30%), linear-gradient(145deg, #092038, #1c6189 60%, #081a2b); }
 .desktop-wallpaper::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px); background-size: 44px 44px; }
 .desktop-heading { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 25px 30px; }
 .desktop-brand { display: flex; align-items: center; gap: 12px; }
@@ -92,7 +92,7 @@ body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display
 .app-tasks .app-icon { background: #39717a; }
 .app-careers .app-icon { background: #445a72; }
 .desktop-app-badge { position: absolute; top: 12px; right: 22px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; color: #fff; background: #c33d45; border: 2px solid #18334b; border-radius: 9px; font-size: 9px; font-style: normal; }
-.desktop-taskbar { position: relative; z-index: 2; display: grid; grid-template-columns: auto 1fr auto; align-items: center; width: 100%; min-height: 58px; margin: 0; padding: 7px 12px max(8px, env(safe-area-inset-bottom)); box-sizing: border-box; background: rgba(5, 16, 28, .92); border-top: 1px solid rgba(255,255,255,.12); border-radius: 0; backdrop-filter: blur(18px); }
+.desktop-taskbar { position: fixed; z-index: 125; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: auto 1fr auto; align-items: center; width: 100vw; min-height: 58px; margin: 0; padding: 7px 12px max(8px, env(safe-area-inset-bottom)); box-sizing: border-box; background: rgba(5, 16, 28, .94); border-top: 1px solid rgba(255,255,255,.12); border-radius: 0; backdrop-filter: blur(18px); }
 .desktop-taskbar button { min-height: 36px; color: #dbe9f2; background: transparent; border-color: transparent; border-radius: 4px; }
 .desktop-taskbar button:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.1); }
 .taskbar-home { width: 45px; padding: 0; }
@@ -133,7 +133,7 @@ body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { 
   .workstation-lock footer span:last-child { display: none; }
   .workstation-signin { align-content: center; padding-bottom: 90px; }
   .workstation-signin footer { right: 18px; bottom: 16px; left: 18px; gap: 8px; flex-direction: column; align-items: center; }
-  .desktop-wallpaper { grid-template-rows: auto auto minmax(0, 1fr) minmax(62px, auto); }
+  .desktop-wallpaper { grid-template-rows: auto auto minmax(0, 1fr); padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
   .desktop-heading { padding: 18px; }
   .desktop-brand > span { width: 42px; height: 42px; }
   .desktop-security { display: none; }
