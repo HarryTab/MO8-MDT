@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-3';
+const APP_VERSION = '2026-07-06-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -67,6 +67,7 @@ const BOOT_STORAGE_KEY = 'mo8_boot_ready';
 const SESSION_STORAGE_KEY = 'mo8_session_auth';
 const VERSION_STORAGE_KEY = 'mo8_app_version';
 const DASHBOARD_LAYOUT_STORAGE_KEY = 'mo8_dashboard_layout';
+const NAV_FAVOURITES_STORAGE_KEY = 'mo8_nav_favourites';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -91,6 +92,7 @@ const state = {
   token: localStorage.getItem('mo8_token') || '',
   user: null,
   permissions: [],
+  accessPreview: null,
   unreadNotifications: 0,
   unreadChatMessages: 0,
   activeView: 'dashboard',
@@ -334,6 +336,48 @@ document.querySelectorAll('.nav-item').forEach((button) => {
   });
 });
 
+function setupNavigation() {
+  document.querySelectorAll('.nav-group-toggle').forEach((button) => button.addEventListener('click', () => {
+    const group = button.closest('.nav-group'); const collapsed = group.classList.toggle('collapsed');
+    button.setAttribute('aria-expanded', String(!collapsed)); button.querySelector('i').textContent = collapsed ? '+' : '-';
+  }));
+  document.querySelectorAll('.nav-group .nav-item').forEach((button) => {
+    if (button.closest('.nav-item-row')) return;
+    const row = document.createElement('div'); row.className = 'nav-item-row'; button.parentNode.insertBefore(row, button); row.appendChild(button);
+    const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'nav-pin'; pin.dataset.pinView = button.dataset.view; pin.title = `Pin ${button.innerText.trim()}`; pin.setAttribute('aria-label', pin.title); pin.textContent = '+'; row.appendChild(pin);
+  });
+  document.querySelectorAll('[data-pin-view]').forEach((button) => button.addEventListener('click', () => toggleNavFavourite(button.dataset.pinView)));
+  document.querySelector('#navSearchInput')?.addEventListener('input', filterNavigation);
+  renderNavFavourites();
+}
+
+function navFavourites() {
+  try { return JSON.parse(localStorage.getItem(NAV_FAVOURITES_STORAGE_KEY) || '[]'); } catch (error) { return []; }
+}
+
+function toggleNavFavourite(view) {
+  const favourites = navFavourites(); const next = favourites.includes(view) ? favourites.filter((item) => item !== view) : [...favourites, view];
+  localStorage.setItem(NAV_FAVOURITES_STORAGE_KEY, JSON.stringify(next)); renderNavFavourites();
+}
+
+function renderNavFavourites() {
+  const favourites = navFavourites(); const container = document.querySelector('#navFavouriteItems'); const section = document.querySelector('#navFavourites');
+  const sourceButtons = [...document.querySelectorAll('.nav-group .nav-item')];
+  document.querySelectorAll('[data-pin-view]').forEach((button) => { button.textContent = favourites.includes(button.dataset.pinView) ? '-' : '+'; button.classList.toggle('active', favourites.includes(button.dataset.pinView)); });
+  const rows = favourites.map((view) => sourceButtons.find((button) => button.dataset.view === view)).filter((button) => button && !button.hidden);
+  section.hidden = !rows.length;
+  container.innerHTML = rows.map((button) => `<button class="nav-item nav-favourite-item" data-favourite-view="${escapeHtml(button.dataset.view)}"><span class="nav-symbol">${escapeHtml(button.querySelector('.nav-symbol')?.textContent || 'AP')}</span><span>${escapeHtml(button.querySelector('span:nth-child(2)')?.textContent || button.innerText)}</span></button>`).join('');
+  container.querySelectorAll('[data-favourite-view]').forEach((button) => button.addEventListener('click', async () => { await showView(button.dataset.favouriteView); closeMobileNav(); }));
+}
+
+function filterNavigation() {
+  const query = String(document.querySelector('#navSearchInput')?.value || '').trim().toLowerCase();
+  document.querySelectorAll('.nav-group').forEach((group) => {
+    let matches = 0; group.querySelectorAll('.nav-item-row').forEach((row) => { const visible = !query || row.innerText.toLowerCase().includes(query); row.classList.toggle('nav-search-hidden', !visible); if (visible && !row.querySelector('.nav-item')?.hidden) matches += 1; });
+    group.classList.toggle('searching', Boolean(query)); group.hidden = matches === 0;
+  });
+}
+
 document.querySelector('#newOfficerButton').addEventListener('click', () => openOfficerEditor());
 document.querySelector('#bulkOfficerButton').addEventListener('click', () => openBulkOfficerEditor());
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
@@ -342,6 +386,10 @@ document.querySelector('#newTrainingOptionButton').addEventListener('click', () 
 document.querySelector('#newCourseButton').addEventListener('click', () => openCourseEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
+document.querySelector('#accessPreviewForm')?.addEventListener('submit', startAccessPreview);
+document.querySelector('#accessPreviewForm')?.addEventListener('change', updateAccessPreviewEstimate);
+document.querySelector('#resetAccessPreviewForm')?.addEventListener('click', resetAccessPreviewForm);
+document.querySelector('#exitAccessPreviewButton')?.addEventListener('click', exitAccessPreview);
 document.querySelector('#newVacancyButton')?.addEventListener('click', () => openVacancyEditor());
 document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.addEventListener('click', () => switchRecruitmentTab(button.dataset.recruitmentTab)));
 document.querySelector('#recruitmentVacancySearch')?.addEventListener('input', renderRecruitmentVacancies);
@@ -536,7 +584,7 @@ function bootTasks() {
   if (can('VIEW_DOCUMENTS')) tasks.push({ label: 'Loading document access', run: () => apiCached('listDocuments', {}) });
   if (can('VIEW_ANNOUNCEMENTS')) tasks.push({ label: 'Syncing notice board', run: () => apiCached('listAnnouncements', {}) });
   tasks.push({ label: 'Checking shift status', run: () => apiCached('shiftStatus', {}) });
-  tasks.push({ label: 'Checking task queue', run: () => apiCached('tasks', {}) });
+  tasks.push({ label: 'Checking task queue', run: preloadTasks });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Processing calendar reminders', run: () => api('processCalendarReminders', {}) });
   if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
@@ -551,6 +599,18 @@ async function preloadNotifications() {
     updateNotificationBadge();
   }
   return response;
+}
+
+async function preloadTasks() {
+  const response = await apiCached('tasks', {});
+  if (response.ok) updateTaskNavBadge(response.counts?.mine ?? response.myTasks?.length ?? 0);
+  return response;
+}
+
+function updateTaskNavBadge(count) {
+  const value = Math.max(0, Number(count || 0)); const label = value > 99 ? '99+' : String(value);
+  ['#taskNavCount', '#desktopTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; });
+  const navButton = document.querySelector('.nav-item[data-view="tasks"]'); if (navButton) navButton.setAttribute('aria-label', value ? `Tasks, ${value} outstanding` : 'Tasks');
 }
 
 async function preloadMessaging() {
@@ -648,6 +708,9 @@ function updateWorkstationClock() {
 function showLogin() {
   stopOperationsRealtime();
   stopMessagingRealtime();
+  state.accessPreview = null;
+  document.body.classList.remove('access-preview-mode');
+  const previewBanner = document.querySelector('#accessPreviewBanner'); if (previewBanner) previewBanner.hidden = true;
   document.body.classList.remove('is-booting');
   document.body.classList.remove('is-authenticated');
   document.body.classList.remove('is-officer-portal');
@@ -738,9 +801,9 @@ function applyPermissions() {
   document.querySelectorAll('[data-permission]').forEach((node) => {
     node.hidden = !can(node.dataset.permission);
   });
-  document.querySelectorAll('.nav-group').forEach((group) => {
-    group.hidden = !group.querySelector('.nav-item:not([hidden])');
-  });
+  document.querySelectorAll('.nav-item-row').forEach((row) => { row.hidden = Boolean(row.querySelector('.nav-item')?.hidden); });
+  document.querySelectorAll('.nav-group').forEach((group) => { group.hidden = !group.querySelector('.nav-item-row:not([hidden])'); });
+  renderNavFavourites();
 }
 
 async function refreshNotificationBadge() {
@@ -796,6 +859,7 @@ async function showView(view) {
     recruitment: ['Recruitment', 'Vacancies, application forms and candidate review'],
     users: ['Users', 'Sergeant+ login accounts'],
     permissions: ['Permissions', 'Role defaults and individual overrides'],
+    settings: ['Settings', 'Command access preview and system administration'],
     reports: ['Reports', 'Command performance and compliance reporting'],
     handover: ['Command Handover', 'Outstanding operational matters and ownership'],
     audit: ['Audit Log', 'System activity trail'],
@@ -836,6 +900,7 @@ async function showView(view) {
     recruitment: loadRecruitment,
     users: loadUsers,
     permissions: loadPermissions,
+    settings: loadSettings,
     reports: loadReports,
     handover: loadHandover,
     audit: loadAudit,
@@ -1796,6 +1861,7 @@ async function loadTasks() {
   ];
   state.allTasks = response.allTasks || legacyRows;
   state.tasks = response.myTasks || state.allTasks.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee);
+  updateTaskNavBadge(response.counts?.mine ?? state.tasks.length);
   const counts = response.counts || {};
   document.querySelector('#tasksSummary').innerHTML = [
     stat('My Open Tasks', counts.mine || state.tasks.length),
@@ -4704,6 +4770,58 @@ async function loadPermissions() {
   renderUserPermissionsMatrix();
 }
 
+async function loadSettings() {
+  await showViewOnly('settings');
+  if (!state.permissionConfig?.permissions?.length) {
+    const response = await apiCached('permissionsConfig', {});
+    if (!response.ok) { document.querySelector('#accessPreviewResult').innerHTML = emptyState(response.error || 'Could not load access configuration.'); return; }
+    state.permissionConfig = response;
+  }
+  const rankSelect = document.querySelector('#previewRank');
+  if (!rankSelect.options.length) rankSelect.innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
+  renderPreviewChoices('#previewRoles', 'PreviewRoles', SYSTEM_ROLES);
+  renderPreviewChoices('#previewTags', 'PreviewTags', OFFICER_TAGS);
+  renderPreviewChoices('#previewTraining', 'PreviewTraining', TRAINING_STANDARDS);
+  updateAccessPreviewEstimate();
+}
+
+function renderPreviewChoices(selector, name, values) {
+  const container = document.querySelector(selector); if (!container || container.children.length) return;
+  container.innerHTML = values.map((value) => `<label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(value)}"><span>${escapeHtml(value)}</span></label>`).join('');
+}
+
+function accessPreviewSelection() {
+  const form = document.querySelector('#accessPreviewForm'); const data = new FormData(form);
+  const rank = data.get('Rank') || 'Police Constable'; const roles = [...new Set([rankToRole(rank), ...data.getAll('PreviewRoles')])];
+  const permissions = ALL_PERMISSIONS.filter((permission) => roles.some((role) => rolePermissionEnabled(role, permission)));
+  return { rank, roles, tags: data.getAll('PreviewTags'), training: data.getAll('PreviewTraining'), permissions };
+}
+
+function updateAccessPreviewEstimate() {
+  if (!state.permissionConfig?.permissions?.length) return;
+  const selection = accessPreviewSelection(); const accessible = [...document.querySelectorAll('.nav-group .nav-item')].filter((button) => !button.dataset.permission || selection.permissions.includes('FULL_ACCESS') || selection.permissions.includes(button.dataset.permission)).map((button) => button.querySelector('span:nth-child(2)')?.textContent || button.innerText.trim());
+  document.querySelector('#accessPreviewResult').innerHTML = `<div><span>Predicted access</span><strong>${escapeHtml(selection.rank)}</strong><small>${escapeHtml(selection.roles.join(', '))}</small></div><section><h4>${accessible.length} visible modules</h4><p>${escapeHtml(accessible.join(' / '))}</p></section><section><h4>${selection.permissions.length} effective permissions</h4><p>${escapeHtml(selection.permissions.join(' / ') || 'Profile-only access')}</p></section>${selection.tags.length || selection.training.length ? `<section><h4>Content context</h4><p>${escapeHtml([...selection.tags, ...selection.training].join(' / '))}</p></section>` : ''}`;
+}
+
+async function startAccessPreview(event) {
+  event.preventDefault();
+  if (!state.permissions.includes('FULL_ACCESS')) return showInfo('Preview unavailable', '<p>Command full access is required.</p>');
+  state.accessPreview = accessPreviewSelection();
+  document.body.classList.add('access-preview-mode');
+  document.querySelector('#accessPreviewBanner').hidden = false;
+  document.querySelector('#accessPreviewSummary').textContent = `${state.accessPreview.rank} / ${state.accessPreview.roles.join(', ')} / read-only`;
+  applyPermissions();
+  await showView(defaultView());
+}
+
+async function exitAccessPreview() {
+  state.accessPreview = null; document.body.classList.remove('access-preview-mode'); document.querySelector('#accessPreviewBanner').hidden = true; applyPermissions(); await showView('settings');
+}
+
+function resetAccessPreviewForm() {
+  document.querySelector('#accessPreviewForm').reset(); updateAccessPreviewEstimate();
+}
+
 function renderPermissionsMatrix() {
   const config = state.permissionConfig;
   const rows = config.permissions.map((permission) => {
@@ -7345,6 +7463,7 @@ function searchableReferenceCheckboxGroupField(name, label, options, selected = 
 }
 
 async function api(action, data = {}, includeToken = true) {
+  if (state.accessPreview && isPreviewMutation(action)) return { ok: false, error: 'This action is disabled while Command access preview is active.' };
   if (USE_SUPABASE || localStorage.getItem('mo8_auth_provider') === 'supabase') {
     return supabaseApi(action, data, includeToken);
   }
@@ -7361,6 +7480,10 @@ async function api(action, data = {}, includeToken = true) {
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}
+
+function isPreviewMutation(action) {
+  return /^(save|delete|set|add|create|update|request|review|start|end|mark|acknowledge|toggle|bulk|reset|change|process|upload|assign|archive|withdraw|sign|send|invite|leave|close|reopen|transfer|merge|link|record|resolve|submit)/i.test(String(action || ''));
 }
 
 async function supabaseApi(action, data = {}, includeToken = true) {
@@ -7592,7 +7715,9 @@ async function supabaseApi(action, data = {}, includeToken = true) {
         error: `${action} has not been migrated to Supabase yet.`,
       };
     }
-    return await handlers[action](data);
+    const result = await handlers[action](data);
+    if (result?.ok && isPreviewMutation(action) && !state.accessPreview) window.setTimeout(async () => { invalidateCache('tasks'); await preloadTasks(); }, 150);
+    return result;
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
   }
@@ -11984,7 +12109,13 @@ async function supabaseVisibleDocuments() {
       .createSignedUrl(row.storage_path, 60 * 60);
     return supabaseDocument(Object.assign({}, row, { signed_url: signed?.signedUrl || '' }));
   }));
-  return { ok: true, rows };
+  const visibleRows = state.accessPreview ? rows.filter((document) => {
+    const requiredRole = String(document.RequiredRole || '').trim();
+    const roleAllowed = !requiredRole || state.accessPreview.roles.includes(requiredRole) || rankAtLeast(state.accessPreview.rank, requiredRole);
+    const requiredTags = splitTags(document.RequiredTags || '');
+    return roleAllowed && (!requiredTags.length || requiredTags.some((tag) => state.accessPreview.tags.includes(tag)));
+  }) : rows;
+  return { ok: true, rows: visibleRows };
 }
 
 async function supabaseVisibleAnnouncements() {
@@ -12142,6 +12273,12 @@ function rankToRole(rank = '') {
   if (rank === 'Inspector') return 'Inspector';
   if (rank === 'Sergeant') return 'Sergeant';
   return 'Constable';
+}
+
+function rankAtLeast(rank, requiredRank) {
+  const aliases = { Constable: 'Police Constable', 'Police Sergeant': 'Sergeant' };
+  const currentIndex = OFFICER_RANKS.indexOf(aliases[rank] || rank); const requiredIndex = OFFICER_RANKS.indexOf(aliases[requiredRank] || requiredRank);
+  return currentIndex >= 0 && requiredIndex >= 0 && currentIndex >= requiredIndex;
 }
 
 function idForSupabase(prefix) {
@@ -12698,7 +12835,8 @@ function invalidateCache(action = '') {
 }
 
 function can(permission) {
-  return state.permissions.includes('FULL_ACCESS') || state.permissions.includes(permission);
+  const permissions = state.accessPreview?.permissions || state.permissions;
+  return permissions.includes('FULL_ACCESS') || permissions.includes(permission);
 }
 
 function canManageCourse(course = {}) {
@@ -12743,4 +12881,5 @@ function escapeHtml(value) {
 
 updateWorkstationClock();
 window.setInterval(updateWorkstationClock, 1000);
+setupNavigation();
 boot();

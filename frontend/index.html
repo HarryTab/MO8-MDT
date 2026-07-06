@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-06-2">
+    <link rel="stylesheet" href="styles.css?v=2026-07-06-4">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -31,53 +31,53 @@
 
       <section class="terminal-window">
         <aside class="module-dock">
-          <div class="dock-label">Modules</div>
+          <div class="dock-label"><span class="dock-mark">MO8</span><div><strong>Personnel Hub</strong><small>Secure workspace</small></div></div>
           <button class="mobile-menu-button" id="mobileMenuButton" type="button" aria-controls="nav" aria-expanded="false">
             <span>Menu</span>
             <strong id="mobileMenuLabel">Dashboard</strong>
           </button>
           <nav class="nav" id="nav" hidden>
-            <section class="nav-group">
-              <span>Home</span>
-              <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD">Dashboard</button>
-              <button class="nav-item" data-view="inbox">Inbox</button>
-              <button class="nav-item" data-view="messaging">Chat <span class="nav-unread" id="chatNavUnread" hidden></span></button>
-              <button class="nav-item" data-view="myProfile">My Profile</button>
-              <button class="nav-item" data-view="shift">Shift</button>
+            <div class="nav-tools"><label><span>Find a page</span><input id="navSearchInput" type="search" placeholder="Search modules" autocomplete="off"></label><button class="nav-item nav-search-link" data-view="globalSearch"><span class="nav-symbol">SR</span><span>Search all records</span></button></div>
+            <section class="nav-favourites" id="navFavourites" hidden><div class="nav-group-heading"><span>Favourites</span></div><div id="navFavouriteItems" class="nav-group-items"></div></section>
+            <section class="nav-group" data-nav-group="home">
+              <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Home</span><i>−</i></button><div class="nav-group-items">
+                <button class="nav-item active" data-view="dashboard" data-permission="VIEW_DASHBOARD"><span class="nav-symbol">DB</span><span>Dashboard</span></button>
+                <button class="nav-item" data-view="inbox"><span class="nav-symbol">IN</span><span>Inbox</span></button>
+                <button class="nav-item" data-view="messaging"><span class="nav-symbol">CH</span><span>Chat</span><span class="nav-unread" id="chatNavUnread" hidden></span></button>
+                <button class="nav-item" data-view="myProfile"><span class="nav-symbol">ME</span><span>My Profile</span></button>
+                <button class="nav-item" data-view="tasks"><span class="nav-symbol">TK</span><span>Tasks</span><span class="nav-count-badge" id="taskNavCount" hidden>0</span></button>
+                <button class="nav-item" data-view="calendar"><span class="nav-symbol">CA</span><span>Calendar</span></button>
+              </div>
             </section>
-            <section class="nav-group">
-              <span>Workspace</span>
-              <button class="nav-item" data-view="globalSearch">Search</button>
-              <button class="nav-item" data-view="calendar">Calendar</button>
+            <section class="nav-group" data-nav-group="personnel">
+              <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Personnel</span><i>−</i></button><div class="nav-group-items">
+                <button class="nav-item" data-view="shift"><span class="nav-symbol">SH</span><span>Shift Log</span></button>
+                <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS"><span class="nav-symbol">SV</span><span>Supervisor</span></button>
+                <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS"><span class="nav-symbol">OF</span><span>Officers</span></button>
+                <button class="nav-item" data-view="development" data-permission="VIEW_TASKS"><span class="nav-symbol">DV</span><span>Development</span></button>
+                <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG"><span class="nav-symbol">RK</span><span>Rank Log</span></button>
+                <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE"><span class="nav-symbol">DS</span><span>Discipline</span></button>
+                <button class="nav-item" data-view="loa" data-permission="VIEW_LOA"><span class="nav-symbol">LO</span><span>Leave</span></button>
+                <button class="nav-item" data-view="handover" data-permission="VIEW_TASKS"><span class="nav-symbol">HO</span><span>Handover</span></button>
+              </div>
             </section>
-            <section class="nav-group">
-              <span>People</span>
-              <button class="nav-item" data-view="tasks">Tasks</button>
-              <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS">Supervisor</button>
-              <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS">Officers</button>
-              <button class="nav-item" data-view="development" data-permission="VIEW_TASKS">Development</button>
-              <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG">Rank Log</button>
+            <section class="nav-group" data-nav-group="learning">
+              <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Learning & Knowledge</span><i>−</i></button><div class="nav-group-items">
+                <button class="nav-item" data-view="courses" data-permission="VIEW_COURSES"><span class="nav-symbol">CO</span><span>Courses</span></button>
+                <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING"><span class="nav-symbol">TR</span><span>Training</span></button>
+                <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS"><span class="nav-symbol">DO</span><span>Documents</span></button>
+              </div>
             </section>
-            <section class="nav-group">
-              <span>Records</span>
-              <button class="nav-item" data-view="courses" data-permission="VIEW_COURSES">Courses</button>
-              <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING">Training</button>
-              <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE">Discipline</button>
-              <button class="nav-item" data-view="loa" data-permission="VIEW_LOA">LOA</button>
-            </section>
-            <section class="nav-group">
-              <span>Knowledge</span>
-              <button class="nav-item" data-view="documents" data-permission="VIEW_DOCUMENTS">Documents</button>
-              <button class="nav-item" data-view="announcements" data-permission="VIEW_ANNOUNCEMENTS">Notice Board</button>
-              <button class="nav-item" data-view="recruitment">Recruitment</button>
-            </section>
-            <section class="nav-group">
-              <span>Admin</span>
-              <button class="nav-item" data-view="users" data-permission="MANAGE_USERS">Users</button>
-              <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS">Permissions</button>
-              <button class="nav-item" data-view="reports" data-permission="VIEW_TASKS">Reports</button>
-              <button class="nav-item" data-view="handover" data-permission="VIEW_TASKS">Handover</button>
-              <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG">Audit</button>
+            <section class="nav-group" data-nav-group="management">
+              <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Management</span><i>−</i></button><div class="nav-group-items">
+                <button class="nav-item" data-view="announcements" data-permission="VIEW_ANNOUNCEMENTS"><span class="nav-symbol">NB</span><span>Notice Board</span></button>
+                <button class="nav-item" data-view="recruitment"><span class="nav-symbol">RE</span><span>Recruitment</span></button>
+                <button class="nav-item" data-view="reports" data-permission="VIEW_TASKS"><span class="nav-symbol">RP</span><span>Reports</span></button>
+                <button class="nav-item" data-view="users" data-permission="MANAGE_USERS"><span class="nav-symbol">US</span><span>Users</span></button>
+                <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS"><span class="nav-symbol">PM</span><span>Permissions</span></button>
+                <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">AU</span><span>Audit</span></button>
+                <button class="nav-item" data-view="settings" data-permission="FULL_ACCESS"><span class="nav-symbol">SE</span><span>Settings</span></button>
+              </div>
             </section>
           </nav>
         </aside>
@@ -100,6 +100,7 @@
               <button class="ghost" id="logoutButton">Logout</button>
             </div>
         </header>
+          <aside class="access-preview-banner" id="accessPreviewBanner" hidden><div><strong>Access preview active</strong><span id="accessPreviewSummary">Read-only simulated account</span></div><button type="button" id="exitAccessPreviewButton">Exit preview</button></aside>
 
           <section class="login-console workstation-login" id="loginView">
             <section class="workstation-lock" id="workstationLock">
@@ -156,7 +157,7 @@
                 <button class="desktop-app app-documents" data-launch-personnel-app="documents" data-permission="VIEW_DOCUMENTS" type="button"><span class="app-icon">DOC</span><strong>Documents</strong><small>Policies and guidance</small></button>
                 <button class="desktop-app app-calendar" data-launch-personnel-app="calendar" type="button"><span class="app-icon">CAL</span><strong>Calendar</strong><small>Courses, LOA and events</small></button>
                 <button class="desktop-app app-training" data-launch-personnel-app="courses" data-permission="VIEW_COURSES" type="button"><span class="app-icon">TR</span><strong>Training</strong><small>Courses and bookings</small></button>
-                <button class="desktop-app app-tasks" data-launch-personnel-app="tasks" type="button"><span class="app-icon">TK</span><strong>My Tasks</strong><small>Actions and approvals</small></button>
+              <button class="desktop-app app-tasks" data-launch-personnel-app="tasks" type="button"><span class="app-icon">TK</span><strong>My Tasks</strong><small>Actions and approvals</small><i class="desktop-app-badge" id="desktopTaskCount" hidden></i></button>
                 <a class="desktop-app app-careers" href="careers/"><span class="app-icon">JOB</span><strong>Careers</strong><small>Public recruitment site</small></a>
               </div>
               <footer class="desktop-taskbar"><button class="taskbar-home" id="desktopHomeButton" type="button" aria-label="MO8 workstation menu"><span>MO8</span></button><div class="taskbar-pinned"><button type="button" data-launch-personnel-app="dashboard">Personnel</button><button type="button" id="taskbarCadButton">CAD</button><button type="button" data-launch-personnel-app="messaging">Chat</button></div><div class="taskbar-session"><span id="desktopSessionUser">Officer</span><button type="button" id="desktopSignOutButton">Sign out</button><time id="desktopClock">00:00</time></div></footer>
@@ -520,6 +521,24 @@
             <div id="userPermissionsMatrix" class="matrix-block"></div>
           </section>
 
+          <section class="data-view settings-view" id="settingsView" hidden>
+            <div class="section-head"><div><h2>Settings & Administration</h2><p>Command tools for reviewing access, navigation and system behaviour.</p></div></div>
+            <section class="settings-layout">
+              <aside class="settings-menu"><button class="active" type="button">Access preview</button><span>Additional system settings can be added here without extending the main navigation.</span></aside>
+              <main class="settings-workspace">
+                <div class="settings-workspace-head"><span>Command tool</span><h3>View MDT as...</h3><p>Build a simulated officer profile to review visible modules and effective permissions. Preview mode is read-only and never changes the selected officer or your account.</p></div>
+                <form id="accessPreviewForm" class="access-preview-form">
+                  <label>Rank<select id="previewRank" name="Rank"></select></label>
+                  <fieldset><legend>System roles</legend><div id="previewRoles" class="preview-choice-grid"></div></fieldset>
+                  <fieldset><legend>Officer tags / sub-roles</legend><div id="previewTags" class="preview-choice-grid"></div></fieldset>
+                  <fieldset><legend>Training and capabilities</legend><div id="previewTraining" class="preview-choice-grid"></div></fieldset>
+                  <div class="access-preview-actions"><button type="submit">Start read-only preview</button><button type="button" class="ghost" id="resetAccessPreviewForm">Reset</button></div>
+                </form>
+                <section id="accessPreviewResult" class="access-preview-result"><p>Select a combination to see its predicted access.</p></section>
+              </main>
+            </section>
+          </section>
+
           <section class="data-view" id="auditView" hidden>
             <div class="section-head">
               <h2>Audit Log</h2>
@@ -774,6 +793,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-06-3"></script>
+    <script src="app.js?v=2026-07-06-4"></script>
   </body>
 </html>
