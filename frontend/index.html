@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-06-9">
+    <link rel="stylesheet" href="styles.css?v=2026-07-06-10">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -228,9 +228,11 @@
               <button class="ghost" id="saveSearchViewButton">Save current view</button>
             </div>
             <div class="filter-row operations-search-bar">
-              <input id="globalSearchInput" placeholder="Search officers, CADs, people, vehicles, cases, documents and deployments">
+              <input id="globalSearchInput" type="search" placeholder="Search names, callsigns, references, registrations, offences or keywords" autocomplete="off">
+              <select id="globalSearchType"><option value="">All record types</option></select>
               <select id="savedViewSelect"><option value="">Saved views</option></select>
             </div>
+            <div class="global-search-summary" id="globalSearchSummary">Enter at least two characters to search the complete MDT.</div>
             <div id="globalSearchResults" class="operations-results"></div>
           </section>
 
@@ -806,6 +808,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-06-9"></script>
+    <script src="app.js?v=2026-07-06-10"></script>
   </body>
 </html>

@@ -422,6 +422,7 @@ document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShif
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
+document.querySelector('#globalSearchType')?.addEventListener('change', renderGlobalSearchResults);
 document.querySelector('#savedViewSelect')?.addEventListener('change', applySavedView);
 document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
 document.querySelector('#calendarDatePicker')?.addEventListener('change', (event) => state.calendarInstance?.gotoDate(event.target.value));
@@ -1409,19 +1410,52 @@ async function loadGlobalSearch() {
 async function runGlobalSearch() {
   const query = document.querySelector('#globalSearchInput')?.value.trim() || '';
   const container = document.querySelector('#globalSearchResults');
+  const summary = document.querySelector('#globalSearchSummary');
   if (!container) return;
+  if (query.length < 2) {
+    state.operations.search = [];
+    if (summary) summary.textContent = 'Enter at least two characters to search the complete MDT.';
+    container.innerHTML = emptyState('Search officers, operational records, documents, tasks, legislation and personnel activity.');
+    updateGlobalSearchTypes([]);
+    return;
+  }
+  const requestId = (runGlobalSearch.requestId || 0) + 1;
+  runGlobalSearch.requestId = requestId;
   container.innerHTML = loadingBlock('Searching the MDT...');
+  if (summary) summary.textContent = `Searching all accessible records for "${query}"...`;
   const response = await api('globalSearch', { Query: query });
+  if (requestId !== runGlobalSearch.requestId) return;
   if (!response.ok) return renderError(container, response.error);
   state.operations.search = response.rows || [];
-  const grouped = Object.groupBy ? Object.groupBy(state.operations.search, (row) => row.Type) : state.operations.search.reduce((result, row) => {
+  updateGlobalSearchTypes(state.operations.search);
+  renderGlobalSearchResults();
+}
+
+function updateGlobalSearchTypes(rows) {
+  const select = document.querySelector('#globalSearchType');
+  if (!select) return;
+  const selected = select.value;
+  const types = [...new Set((rows || []).map((row) => row.Type).filter(Boolean))].sort();
+  select.innerHTML = '<option value="">All record types</option>' + types.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join('');
+  select.value = types.includes(selected) ? selected : '';
+}
+
+function renderGlobalSearchResults() {
+  const container = document.querySelector('#globalSearchResults');
+  const summary = document.querySelector('#globalSearchSummary');
+  if (!container) return;
+  const query = document.querySelector('#globalSearchInput')?.value.trim() || '';
+  const typeFilter = document.querySelector('#globalSearchType')?.value || '';
+  const visibleRows = (state.operations.search || []).filter((row) => !typeFilter || row.Type === typeFilter);
+  const grouped = Object.groupBy ? Object.groupBy(visibleRows, (row) => row.Type) : visibleRows.reduce((result, row) => {
     (result[row.Type] ||= []).push(row); return result;
   }, {});
-  container.innerHTML = state.operations.search.length ? Object.entries(grouped).map(([type, rows]) => `
-    <section class="search-result-group"><h3>${escapeHtml(type)}</h3><div class="search-result-list">${rows.map((row) => `
+  if (summary) summary.innerHTML = `<strong>${visibleRows.length}</strong> result${visibleRows.length === 1 ? '' : 's'}${typeFilter ? ` in ${escapeHtml(typeFilter)}` : ''} for <span>${escapeHtml(query)}</span>`;
+  container.innerHTML = visibleRows.length ? Object.entries(grouped).map(([type, rows]) => `
+    <section class="search-result-group"><h3>${escapeHtml(type)} <span>${rows.length}</span></h3><div class="search-result-list">${rows.map((row) => `
       <article class="search-result" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}${row.OfficerID ? ` data-open-officer="${escapeHtml(row.OfficerID)}"` : ''}${row.OperationsTarget ? ` data-open-ops-search="${escapeHtml(row.OperationsTarget)}"` : ''}>
         <strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Detail || '')}</p><span>${escapeHtml(row.Meta || '')}</span>
-      </article>`).join('')}</div></section>`).join('') : emptyState(query ? 'No matching records found.' : 'Enter a search term or select a saved view.');
+      </article>`).join('')}</div></section>`).join('') : emptyState(query ? 'No matching accessible records found.' : 'Enter a search term or select a saved view.');
 }
 
 async function runOpsCommandSearch(query) {
@@ -5755,6 +5789,7 @@ async function handleDocumentClick(event) {
     await enterOperationsHub();
     if (type === 'Incident') { const record = operationalIncidentById(id); if (record) { switchOpsWorkspace('live'); renderOpsIncidentWorkspace(record); } }
     else if (type === 'Case') { const record = (state.operationsHub.operations || []).find((row) => row.OperationID === id); if (record) { switchOpsWorkspace('casework'); renderOpsCaseWorkspace(record); } }
+    else if (type === 'Reference') { switchOpsWorkspace('reference'); const input = document.querySelector('#opsReferenceSearch'); if (input) input.value = id || ''; renderOpsReference(); }
     else if (type === 'Deployments') switchOpsWorkspace('deployments');
     else if (type === 'Briefings') switchOpsWorkspace('intel');
     else { switchOpsWorkspace('intel'); renderOpsRelationshipView(type, id); }
@@ -8309,9 +8344,17 @@ async function supabaseOpenChatAttachment(data) {
 
 async function supabaseGlobalSearch(data) {
   const query = String(data.Query || '').trim().toLowerCase();
-  if (!query) return { ok: true, rows: [] };
-  const [officers, documents, courses, announcements, incidents, people, vehicles, cases, deployments] = await Promise.all([supabaseAll('officers'), supabaseVisibleDocuments(), supabaseAll('training_courses'), supabaseVisibleAnnouncements(), supabaseOptionalAll('operational_incidents'), supabaseOptionalAll('operational_persons'), supabaseOptionalAll('operational_vehicles'), supabaseOptionalAll('operational_operations'), supabaseOptionalAll('operational_deployments')]);
+  if (query.length < 2) return { ok: true, rows: [] };
+  const [officers, documents, courses, announcements, incidents, people, vehicles, cases, deployments, tasks, offences, powers, loa, aips, shifts, evidence] = await Promise.all([
+    supabaseAll('officers'), supabaseVisibleDocuments(), supabaseAll('training_courses'), supabaseVisibleAnnouncements(),
+    supabaseOptionalAll('operational_incidents'), supabaseOptionalAll('operational_persons'), supabaseOptionalAll('operational_vehicles'),
+    supabaseOptionalAll('operational_operations'), supabaseOptionalAll('operational_deployments'), supabaseOptionalAll('mdt_tasks'),
+    supabaseOptionalAll('operational_offences'), supabaseOptionalAll('operational_powers'), supabaseOptionalAll('loa_requests'),
+    supabaseOptionalAll('activity_improvement_notices'), supabaseOptionalAll('shift_logs'), supabaseOptionalAll('operational_incident_attachments'),
+  ]);
   const matches = (values) => values.some((value) => String(value || '').toLowerCase().includes(query));
+  const officerName = (id) => officers.find((row) => row.officer_id === id)?.roblox_username || id || 'Officer';
+  const incidentReference = (id) => incidents.find((row) => row.incident_id === id)?.incident_number || id || 'CAD';
   return { ok: true, rows: [
     ...officers.filter((row) => matches([row.roblox_username, row.callsign, row.rank, row.tags?.join(' ')])).map((row) => ({ Type: 'Officers', Title: row.roblox_username, Detail: `${row.rank} / ${row.callsign || 'No callsign'}`, Meta: row.status, OfficerID: row.officer_id })),
     ...(documents.rows || []).filter((row) => matches([row.Title, row.Category, row.FileName])).map((row) => ({ Type: 'Documents', Title: row.Title, Detail: row.Category, Meta: row.FileName, View: 'documents' })),
@@ -8322,7 +8365,14 @@ async function supabaseGlobalSearch(data) {
     ...vehicles.filter((row) => matches([row.registration, row.make, row.model, row.colour])).map((row) => ({ Type: 'Vehicles', Title: row.registration, Detail: [row.colour, row.make, row.model].filter(Boolean).join(' '), Meta: row.status, OperationsTarget: `Vehicle:${row.vehicle_id}` })),
     ...cases.filter((row) => matches([row.reference, row.name, row.summary, row.objectives, row.case_type])).map((row) => ({ Type: 'Casework', Title: `${row.reference} / ${row.name}`, Detail: row.summary || row.objectives, Meta: row.status, OperationsTarget: `Case:${row.operation_id}` })),
     ...deployments.filter((row) => matches([row.title, row.deployment_type, row.location, row.briefing])).map((row) => ({ Type: 'Deployments', Title: row.title, Detail: `${formatDisplayDateTime(row.starts_at)} / ${row.location || 'TBC'}`, Meta: row.status, OperationsTarget: 'Deployments' })),
-  ].slice(0, 100) };
+    ...tasks.filter((row) => matches([row.title, row.details, row.category, row.priority, row.status, officerName(row.assigned_officer_id)])).map((row) => ({ Type: 'Tasks', Title: row.title, Detail: `${officerName(row.assigned_officer_id)} / ${row.category}`, Meta: `${row.priority} / ${row.status}`, View: 'tasks' })),
+    ...offences.filter((row) => matches([row.title, row.code, row.category, row.description])).map((row) => ({ Type: 'Offences', Title: row.title, Detail: `${row.code} / ${row.category}`, Meta: row.active === false ? 'Inactive' : 'Current', OperationsTarget: `Reference:${row.title}` })),
+    ...powers.filter((row) => matches([row.title, row.code, row.category, row.definition, row.legal_test, row.legislation_source, row.section_reference])).map((row) => ({ Type: 'Police Powers', Title: row.title, Detail: `${row.code} / ${row.section_reference || row.category}`, Meta: row.legislation_source, OperationsTarget: `Reference:${row.title}` })),
+    ...loa.filter((row) => matches([officerName(row.officer_id), row.reason, row.status, row.decision_reason])).map((row) => ({ Type: 'Leave', Title: `${officerName(row.officer_id)} / ${row.status}`, Detail: `${formatDisplayDate(row.start_date)} - ${formatDisplayDate(row.end_date)}`, Meta: row.reason, View: 'loa' })),
+    ...aips.filter((row) => matches([row.reference, officerName(row.officer_id), row.reason, row.status, row.review_outcome])).map((row) => ({ Type: 'AIPs', Title: `${row.reference} / ${officerName(row.officer_id)}`, Detail: row.reason, Meta: row.status, View: 'development' })),
+    ...shifts.filter((row) => matches([row.roblox_username, row.callsign, row.rank, row.summary, row.status, row.operational_status])).map((row) => ({ Type: 'Shifts', Title: `${row.roblox_username || officerName(row.officer_id)} / ${formatDisplayDateTime(row.started_at)}`, Detail: row.summary || row.operational_status || row.status, Meta: row.callsign, View: 'shift' })),
+    ...evidence.filter((row) => matches([row.title, row.file_name, row.file_type, incidentReference(row.incident_id)])).map((row) => ({ Type: 'Evidence', Title: row.title || row.file_name, Detail: `${incidentReference(row.incident_id)} / ${row.file_name}`, Meta: row.file_type, OperationsTarget: `Incident:${row.incident_id}` })),
+  ].slice(0, 250) };
 }
 
 async function supabaseSavedViews() {
