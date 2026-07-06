@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-06-1">
+    <link rel="stylesheet" href="styles.css?v=2026-07-06-2">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -312,9 +312,18 @@
             </div>
             <div class="segmented-control task-scope-control" role="group" aria-label="Task view"><button class="active" data-task-scope="mine">My Tasks</button><button data-task-scope="all">All Available Tasks</button></div>
             <div id="tasksSummary" class="stat-row"></div>
-            <div class="table-wrap">
-              <table id="tasksTable"></table>
+            <div class="task-filter-bar">
+              <label class="task-search">Search<input id="taskSearchFilter" type="search" placeholder="Officer, task, reference or keyword"></label>
+              <label>Type<select id="taskTypeFilter"><option value="">All types</option></select></label>
+              <label>Priority<select id="taskPriorityFilter"><option value="">All priorities</option><option>Critical</option><option>High</option><option>Normal</option><option>Low</option></select></label>
+              <label>Status<select id="taskStatusFilter"><option value="">All statuses</option></select></label>
+              <label>Due<select id="taskDueFilter"><option value="">Any date</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Next 7 days</option><option value="none">No due date</option></select></label>
+              <label>Sort<select id="taskSortFilter"><option value="priority">Priority</option><option value="due">Due date</option><option value="newest">Newest</option><option value="officer">Officer</option></select></label>
+              <button class="ghost" id="clearTaskFilters" type="button">Clear</button>
             </div>
+            <div id="tasksFilterSummary" class="task-filter-summary"></div>
+            <div id="tasksBoard" class="task-board"></div>
+            <table id="tasksTable" hidden></table>
           </section>
 
           <section class="data-view" id="supervisorView" hidden>
@@ -765,6 +774,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-06-1"></script>
+    <script src="app.js?v=2026-07-06-2"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-1';
+const APP_VERSION = '2026-07-06-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -385,6 +385,8 @@ document.querySelector('#opsNewCaseButton')?.addEventListener('click', () => ope
 document.querySelector('#opsNewDeploymentButton')?.addEventListener('click', () => openOpsDeploymentEditor());
 document.querySelector('#newMdtTaskButton')?.addEventListener('click', () => openMdtTaskEditor());
 document.querySelectorAll('[data-task-scope]').forEach((button) => button.addEventListener('click', () => { state.taskScope = button.dataset.taskScope; renderTaskView(); }));
+['taskSearchFilter', 'taskTypeFilter', 'taskPriorityFilter', 'taskStatusFilter', 'taskDueFilter', 'taskSortFilter'].forEach((id) => document.querySelector(`#${id}`)?.addEventListener(id === 'taskSearchFilter' ? 'input' : 'change', renderTaskView));
+document.querySelector('#clearTaskFilters')?.addEventListener('click', () => { ['taskSearchFilter', 'taskTypeFilter', 'taskPriorityFilter', 'taskStatusFilter', 'taskDueFilter'].forEach((id) => { const input = document.querySelector(`#${id}`); if (input) input.value = ''; }); const sort = document.querySelector('#taskSortFilter'); if (sort) sort.value = 'priority'; renderTaskView(); });
 document.querySelector('#opsNewOffenceButton')?.addEventListener('click', () => openOpsOffenceEditor());
 document.querySelector('#opsControllerButton')?.addEventListener('click', openOpsControllerSessionEditor);
 document.querySelector('#opsControlSessionButton')?.addEventListener('click', openOpsControllerSessionEditor);
@@ -1621,7 +1623,8 @@ function openAipSignatureEditor(aipId, role) {
 }
 
 function openAipReviewEditor(row) {
-  openEditor(`Review ${row.Reference || 'AIP'}`, [hiddenField('AipID', row.AipID), selectField('Outcome', 'Review outcome', ['Requirements Met', 'Partial Improvement', 'No Improvement', 'Extended', 'Withdrawn'], 'Requirements Met'), field('Comments', 'Review findings and supporting activity', 'textarea', false), field('NewReviewEndDate', 'New review date (extended only)', 'date', false)], (values) => api('reviewAip', values), { successMessage: 'AIP review outcome recorded.', onSuccess: async () => { invalidateCache('tasks'); invalidateCache('developmentRecords'); await loadDevelopment(); } });
+  const early = row.ReviewEndDate && new Date(row.ReviewEndDate) > new Date();
+  openEditor(`Review ${row.Reference || 'AIP'}`, [{ html: `<section class="task-brief wide"><span>${early ? 'Early review' : 'Scheduled review'}</span><h3>${escapeHtml(row.Officer || 'Activity Improvement Notice')}</h3><p>${early ? `The scheduled review date is ${escapeHtml(formatDisplayDate(row.ReviewEndDate))}. You may record an outcome now, but the audit history will identify that it was completed early.` : 'Review the activity completed during the AIP period and record a supported outcome.'}</p></section>` }, hiddenField('AipID', row.AipID), hiddenField('EarlyReview', early ? 'TRUE' : 'FALSE'), selectField('Outcome', 'Review outcome', ['Requirements Met', 'Partial Improvement', 'No Improvement', 'Extended', 'Withdrawn'], 'Requirements Met'), field('Comments', 'Review findings and supporting activity', 'textarea', false), field('NewReviewEndDate', 'New review date (extended only)', 'date', false)], (values) => api('reviewAip', values), { successMessage: 'AIP review outcome recorded.', onSuccess: async () => { invalidateCache('tasks'); invalidateCache('developmentRecords'); await loadDevelopment(); } });
 }
 
 function setupSignatureCanvas(canvas, clearButton) {
@@ -1768,7 +1771,8 @@ async function loadTasks() {
   const response = await apiCached('tasks', {});
   if (!response.ok) {
     document.querySelector('#tasksSummary').innerHTML = '';
-    return renderTable('#tasksTable', [], ['Error'], { emptyMessage: response.error || 'Could not load tasks.' });
+    document.querySelector('#tasksBoard').innerHTML = `<p class="empty">${escapeHtml(response.error || 'Could not load tasks.')}</p>`;
+    return;
   }
   const legacyRows = [
     ...(response.pendingLoa || []),
@@ -1801,11 +1805,69 @@ async function loadTasks() {
 
 function renderTaskView() {
   document.querySelectorAll('[data-task-scope]').forEach((button) => button.classList.toggle('active', button.dataset.taskScope === state.taskScope));
-  const rows = state.taskScope === 'all' ? state.allTasks : state.tasks;
-  renderTable('#tasksTable', rows, ['Priority', 'TaskType', 'Officer', 'Rank', 'Supervisor', 'Subject', 'Status', 'EndDate', 'Reason'], {
-    rowAction: (row) => `${row.IsMine || row.MySupervisee || row.AssignedToMe ? 'class="my-task"' : ''} ${taskOpenAttr(row)}`,
-    actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>${String(row.TaskType).includes('Amendment') ? 'Complete amendments' : String(row.TaskType).includes('Review') ? 'Review and sign off' : 'Open'}</button>`,
+  const sourceRows = state.taskScope === 'all' ? state.allTasks : state.tasks;
+  updateTaskFilterOptions(sourceRows);
+  const query = String(document.querySelector('#taskSearchFilter')?.value || '').trim().toLowerCase();
+  const type = document.querySelector('#taskTypeFilter')?.value || '';
+  const priority = document.querySelector('#taskPriorityFilter')?.value || '';
+  const status = document.querySelector('#taskStatusFilter')?.value || '';
+  const due = document.querySelector('#taskDueFilter')?.value || '';
+  const sort = document.querySelector('#taskSortFilter')?.value || 'priority';
+  const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); const week = new Date(today); week.setDate(week.getDate() + 7);
+  const rows = sourceRows.filter((row) => {
+    const searchable = [row.TaskType, row.Officer, row.Rank, row.Subject, row.Reason, row.Status, row.Supervisor, row.IncidentNumber, row.Reference].join(' ').toLowerCase();
+    if (query && !searchable.includes(query)) return false;
+    if (type && row.TaskType !== type) return false;
+    if (priority && taskPriority(row) !== priority) return false;
+    if (status && row.Status !== status) return false;
+    const date = row.EndDate ? new Date(row.EndDate) : null; const day = date && !Number.isNaN(date.getTime()) ? new Date(date.getFullYear(), date.getMonth(), date.getDate()) : null;
+    if (due === 'none' && day) return false; if (due === 'overdue' && (!day || day >= today)) return false; if (due === 'today' && (!day || day.getTime() !== today.getTime())) return false; if (due === 'week' && (!day || day < today || day > week)) return false;
+    return true;
+  }).sort((a, b) => {
+    if (sort === 'due') return taskDateValue(a) - taskDateValue(b);
+    if (sort === 'newest') return new Date(b.CreatedAt || b.RequestedAt || 0) - new Date(a.CreatedAt || a.RequestedAt || 0);
+    if (sort === 'officer') return String(a.Officer || '').localeCompare(String(b.Officer || ''));
+    return taskPriorityRank(taskPriority(a)) - taskPriorityRank(taskPriority(b)) || taskDateValue(a) - taskDateValue(b);
   });
+  const board = document.querySelector('#tasksBoard');
+  document.querySelector('#tasksFilterSummary').textContent = `${rows.length} of ${sourceRows.length} task${sourceRows.length === 1 ? '' : 's'} shown`;
+  board.innerHTML = rows.length ? rows.map(taskCard).join('') : '<div class="task-empty-state"><strong>No matching tasks</strong><p>Adjust the filters or switch task queues.</p></div>';
+}
+
+function updateTaskFilterOptions(rows) {
+  const update = (selector, values, fallback) => { const select = document.querySelector(selector); if (!select) return; const selected = select.value; select.innerHTML = `<option value="">${fallback}</option>${[...new Set(values.filter(Boolean))].sort().map((value) => `<option${value === selected ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}`; };
+  update('#taskTypeFilter', rows.map((row) => row.TaskType), 'All types');
+  update('#taskStatusFilter', rows.map((row) => row.Status), 'All statuses');
+}
+
+function taskPriority(row) {
+  if (row.Priority) return row.Priority;
+  if (String(row.Status).toLowerCase().includes('overdue') || String(row.TaskType).includes('Amendment')) return 'Critical';
+  if (String(row.TaskType).includes('Review') || String(row.TaskType).includes('Signature')) return 'High';
+  return 'Normal';
+}
+
+function taskPriorityRank(priority) { return ({ Critical: 0, High: 1, Normal: 2, Low: 3 })[priority] ?? 2; }
+function taskDateValue(row) { const value = row.EndDate ? new Date(row.EndDate).getTime() : Number.MAX_SAFE_INTEGER; return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value; }
+
+function taskDueLabel(row) {
+  if (!row.EndDate) return { label: 'No due date', className: 'none' };
+  const due = new Date(row.EndDate); if (Number.isNaN(due.getTime())) return { label: 'No due date', className: 'none' };
+  const today = new Date(); today.setHours(0,0,0,0); const day = new Date(due); day.setHours(0,0,0,0); const difference = Math.round((day - today) / 86400000);
+  if (difference < 0) return { label: `${Math.abs(difference)}d overdue`, className: 'overdue' };
+  if (difference === 0) return { label: 'Due today', className: 'today' };
+  if (difference === 1) return { label: 'Due tomorrow', className: 'soon' };
+  return { label: `Due ${formatDisplayDate(row.EndDate)}`, className: difference <= 7 ? 'soon' : 'future' };
+}
+
+function taskCard(row) {
+  const priority = taskPriority(row); const due = taskDueLabel(row); const mine = row.IsMine || row.MySupervisee || row.AssignedToMe;
+  const buttonLabel = String(row.TaskType).includes('Amendment') ? 'Complete amendments' : String(row.TaskType).includes('Review') ? 'Review' : String(row.TaskType).includes('Signature') ? 'Review and sign' : 'Open task';
+  return `<article class="task-card priority-${escapeHtml(priority.toLowerCase())}${mine ? ' is-mine' : ''}">
+    <div class="task-card-priority"><span>${escapeHtml(priority)}</span><small>${mine ? 'My task' : 'Available'}</small></div>
+    <div class="task-card-main"><div class="task-card-meta"><span>${escapeHtml(row.TaskType || 'Task')}</span><span>${escapeHtml(row.Status || 'Open')}</span><span class="task-due ${escapeHtml(due.className)}">${escapeHtml(due.label)}</span></div><h3>${escapeHtml(row.Subject || row.TaskType || 'Assigned task')}</h3><p>${escapeHtml(row.Reason || 'No additional instructions recorded.')}</p><div class="task-card-officer"><strong>${escapeHtml(row.Officer || 'General task')}</strong>${row.Rank ? `<span>${escapeHtml(row.Rank)}</span>` : ''}${row.Supervisor ? `<small>Supervisor: ${escapeHtml(row.Supervisor)}</small>` : ''}</div></div>
+    <div class="task-card-action"><button ${taskOpenAttr(row)}>${escapeHtml(buttonLabel)}</button></div>
+  </article>`;
 }
 
 function taskOpenAttr(row) {
@@ -4673,6 +4735,7 @@ function renderOfficerProfile(data) {
         <button data-add-checkin="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Check-in</button>
         <button data-add-plan="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Add goal</button>
         <button data-add-officer-note="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Add note</button>
+        <button data-add-aip="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS">Issue AIP</button>
       </div>
     </div>
 
@@ -5853,12 +5916,14 @@ async function handleDocumentClick(event) {
   }
   const openAip = event.target.closest('[data-open-aip]');
   if (openAip) { await openAipDetails(openAip.dataset.openAip); return; }
+  const addAip = event.target.closest('[data-add-aip]');
+  if (addAip) { await openAipEditor({ OfficerID: addAip.dataset.addAip }); return; }
   const signAip = event.target.closest('[data-sign-aip]');
   if (signAip) { if (elements.infoDialog.open) elements.infoDialog.close(); openAipSignatureEditor(signAip.dataset.signAip, signAip.dataset.signRole); return; }
   const acknowledgeAip = event.target.closest('[data-acknowledge-aip]');
   if (acknowledgeAip) { openEditor('Acknowledge Activity Improvement Notice', [hiddenField('AipID', acknowledgeAip.dataset.acknowledgeAip), field('Response', 'Optional officer response', 'textarea', true)], (values) => api('acknowledgeAip', values), { successMessage: 'Receipt acknowledged. This does not indicate agreement.', onSuccess: () => openAipDetails(acknowledgeAip.dataset.acknowledgeAip) }); return; }
   const reviewAip = event.target.closest('[data-review-aip]');
-  if (reviewAip) { const row = state.operations.aips.find((item) => item.AipID === reviewAip.dataset.reviewAip) || state.tasks.find((item) => item.AipID === reviewAip.dataset.reviewAip) || { AipID: reviewAip.dataset.reviewAip }; if (elements.infoDialog.open) elements.infoDialog.close(); openAipReviewEditor(row); return; }
+  if (reviewAip) { const response = await api('getAip', { AipID: reviewAip.dataset.reviewAip }); const row = response.ok ? response.aip : { AipID: reviewAip.dataset.reviewAip }; if (elements.infoDialog.open) elements.infoDialog.close(); openAipReviewEditor(row); return; }
   const copyAipLink = event.target.closest('[data-copy-aip-link]');
   if (copyAipLink) { const response = await api('createAipSigningLink', { AipID: copyAipLink.dataset.copyAipLink, SignatureRole: copyAipLink.dataset.signRole }); if (!response.ok) return showInfo('Link unavailable', `<p>${escapeHtml(response.error)}</p>`); await navigator.clipboard.writeText(response.url); showInfo('Secure link copied', `<p>The single-use ${escapeHtml(copyAipLink.dataset.signRole)} link has been copied. It expires after seven days or immediately after signing.</p>`); return; }
   const downloadAip = event.target.closest('[data-download-aip]');
@@ -8317,7 +8382,7 @@ async function supabaseGetAip(data) {
   const pendingSignatureRole = row.line_manager_user_id === state.user?.UserID && !signedRoles.has('Line Manager') ? 'Line Manager' : row.authorising_manager_user_id === state.user?.UserID && !signedRoles.has('Manager Authorisation') ? 'Manager Authorisation' : '';
   const currentOfficer = officers.find((item) => item.member_id === state.user?.MemberID);
   const pendingSigningRoles = ['Line Manager', 'Manager Authorisation'].filter((role) => !signedRoles.has(role));
-  return { ok: true, aip, pendingSignatureRole, pendingSigningRoles, canCreateLinks: can('VIEW_TASKS') && row.status === 'Awaiting Signatures', canAcknowledge: currentOfficer?.officer_id === row.officer_id && !row.officer_acknowledged_at && ['Issued', 'Under Review', 'Extended', 'Closed'].includes(row.status), canReview: row.line_manager_user_id === state.user?.UserID && ['Issued', 'Under Review', 'Extended'].includes(row.status) && new Date(row.review_end_date) <= new Date(), canWithdraw: can('VIEW_TASKS') && !['Closed', 'Withdrawn'].includes(row.status) };
+  return { ok: true, aip, pendingSignatureRole, pendingSigningRoles, canCreateLinks: can('VIEW_TASKS') && row.status === 'Awaiting Signatures', canAcknowledge: currentOfficer?.officer_id === row.officer_id && !row.officer_acknowledged_at && ['Issued', 'Under Review', 'Extended', 'Closed'].includes(row.status), canReview: (row.line_manager_user_id === state.user?.UserID || can('VIEW_TASKS')) && ['Issued', 'Under Review', 'Extended'].includes(row.status), canWithdraw: can('VIEW_TASKS') && !['Closed', 'Withdrawn'].includes(row.status) };
 }
 
 async function supabaseSignAip(data) {
@@ -8358,9 +8423,10 @@ async function supabaseReviewAip(data) {
   if (!row || (row.line_manager_user_id !== me.user.UserID && !can('VIEW_TASKS'))) return { ok: false, error: 'You are not authorised to review this AIP.' };
   if (data.Outcome === 'Extended' && !data.NewReviewEndDate) return { ok: false, error: 'Choose a new review date when extending an AIP.' };
   const status = data.Outcome === 'Extended' ? 'Extended' : data.Outcome === 'Withdrawn' ? 'Withdrawn' : 'Closed';
-  const update = { review_outcome: data.Outcome, review_comments: data.Comments, reviewed_at: new Date().toISOString(), reviewed_by: me.user.UserID, status, updated_at: new Date().toISOString() }; if (data.Outcome === 'Extended') update.review_end_date = data.NewReviewEndDate;
+  const reviewComments = truthy(data.EarlyReview) ? `[EARLY REVIEW - scheduled for ${formatDisplayDate(row.review_end_date)}]\n${data.Comments}` : data.Comments;
+  const update = { review_outcome: data.Outcome, review_comments: reviewComments, reviewed_at: new Date().toISOString(), reviewed_by: me.user.UserID, status, updated_at: new Date().toISOString() }; if (data.Outcome === 'Extended') update.review_end_date = data.NewReviewEndDate;
   const { error } = await supabaseClient.from('activity_improvement_notices').update(update).eq('aip_id', row.aip_id); if (error) return { ok: false, error: error.message };
-  const officer = await supabaseById('officers', 'officer_id', row.officer_id); await supabaseNotify(officer?.member_id, `AIP review: ${data.Outcome}`, `${row.reference}: ${data.Comments}`, me.user.UserID); return { ok: true };
+  const officer = await supabaseById('officers', 'officer_id', row.officer_id); await supabaseNotify(officer?.member_id, `AIP review: ${data.Outcome}`, `${row.reference}: ${reviewComments}`, me.user.UserID); await supabaseAudit(me.user.UserID, 'REVIEW_AIP', 'Activity Improvement Notice', row.aip_id, { outcome: data.Outcome, earlyReview: truthy(data.EarlyReview), scheduledReviewDate: row.review_end_date }); return { ok: true };
 }
 
 async function supabaseWithdrawAip(data) {
