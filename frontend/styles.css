@@ -4186,3 +4186,22 @@ body.is-authenticated.operations-mode .operations-hub button.ghost {
     padding: 0;
   }
 }
+
+/* Activity Improvement Notices */
+.aip-record-detail { display: grid; gap: 18px; color: #172b3d; }
+.aip-status-line { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; background: #edf3f8; border-left: 4px solid #245b86; }
+.aip-status-line span { font-weight: 800; color: #245b86; }
+.aip-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.aip-warning { padding: 14px 16px; color: #563b00; background: #fff4d6; border: 1px solid #e9c66b; }
+.aip-signature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.aip-signature-list article { display: grid; gap: 4px; padding: 13px; background: #f5f7f9; border: 1px solid #d9e0e6; }
+.cid-signature-field canvas, .aip-external-signature canvas { display: block; width: 100%; height: 150px; background: #fff; border: 1px solid #aebbc6; touch-action: none; }
+.aip-signing-portal { position: fixed; inset: 0; z-index: 5000; min-height: 100dvh; overflow: auto; padding: 40px 18px; color: #182b3b; background: linear-gradient(145deg, #071827, #16496d); }
+.aip-signing-card { width: min(820px, 100%); margin: 0 auto; background: #f7f9fb; border: 1px solid rgba(255,255,255,.35); box-shadow: 0 20px 60px rgba(0,0,0,.28); }
+.aip-signing-brand { display: flex; align-items: center; gap: 14px; padding: 20px 26px; color: #fff; background: #0c2942; }
+.aip-signing-brand > span { display: grid; place-items: center; width: 48px; height: 48px; font-weight: 900; background: #255f8a; border: 2px solid #d4ab3d; border-radius: 5px; }
+.aip-signing-brand div { display: grid; gap: 3px; }.aip-signing-brand small { color: #b9cad7; }
+.aip-signing-content { padding: 32px; }.aip-signing-head span { color: #35688e; font-weight: 800; }.aip-signing-head h1 { margin: 5px 0 8px; font-size: 30px; }
+.aip-signing-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 24px 0; background: #cfd9e1; }.aip-signing-summary div { padding: 14px; background: #fff; }.aip-signing-summary dt { color: #657786; font-size: 12px; font-weight: 700; text-transform: uppercase; }.aip-signing-summary dd { margin: 5px 0 0; font-weight: 700; }
+.aip-signing-content section { padding: 20px 0; border-top: 1px solid #d8e0e6; }.aip-signing-content section h2 { margin: 12px 0 5px; font-size: 16px; }.aip-external-signature { display: grid; gap: 12px; }.aip-signing-result { padding: 60px 20px; text-align: center; }.aip-signing-result span { color: #28754b; font-weight: 800; }.aip-signing-result.error span { color: #a12c2c; }
+@media (max-width: 640px) { .aip-signing-portal { padding: 0; }.aip-signing-card { min-height: 100dvh; }.aip-signing-content { padding: 22px 18px; }.aip-signing-summary, .aip-facts, .aip-signature-list { grid-template-columns: 1fr; }.aip-status-line { align-items: flex-start; flex-direction: column; gap: 5px; } }

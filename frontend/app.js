@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-05-3';
+const APP_VERSION = '2026-07-06-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -157,7 +157,7 @@ const state = {
   selectedCourseId: '',
   dashboardInteraction: null,
   calendarInstance: null,
-  operations: { actions: [], search: [], savedViews: [], calendar: [], probation: [], reviews: [], restrictions: [], handovers: [] },
+  operations: { actions: [], search: [], savedViews: [], calendar: [], probation: [], reviews: [], restrictions: [], aips: [], handovers: [] },
 };
 
 const elements = {
@@ -364,6 +364,7 @@ document.querySelector('#calendarTodayButton')?.addEventListener('click', () => 
 document.querySelector('#newCalendarEventButton')?.addEventListener('click', () => openCalendarEventEditor());
 document.querySelector('#developmentSearch')?.addEventListener('input', renderDevelopmentTables);
 document.querySelector('#newProbationButton')?.addEventListener('click', () => openProbationEditor());
+document.querySelector('#newAipButton')?.addEventListener('click', () => openAipEditor());
 document.querySelector('#newReviewButton')?.addEventListener('click', () => openPerformanceReviewEditor());
 document.querySelector('#newRestrictionButton')?.addEventListener('click', () => openRestrictionEditor());
 document.querySelector('#newHandoverButton')?.addEventListener('click', () => openHandoverEditor());
@@ -420,6 +421,8 @@ document.querySelector('#opsUnitStatusSelect')?.addEventListener('change', async
 });
 
 async function boot() {
+  const aipSigningToken = new URLSearchParams(location.search).get('aip-sign');
+  if (aipSigningToken) return showAipSigningPortal(aipSigningToken);
   clearCacheForNewVersion();
   if (!API_URL || API_URL.includes('YOUR_APPS_SCRIPT')) {
     elements.loginStatus.textContent = 'Set API_URL in frontend/app.js before logging in.';
@@ -458,6 +461,24 @@ async function boot() {
     return;
   }
   await initializeSession();
+}
+
+async function showAipSigningPortal(token) {
+  document.body.className = 'aip-signing-mode';
+  document.querySelector('.terminal-shell').hidden = true;
+  const portal = document.querySelector('#aipSigningPortal'); const content = document.querySelector('#aipSigningContent');
+  portal.hidden = false;
+  const { data, error } = await supabaseClient.rpc('get_aip_signing_request', { signing_token: token });
+  if (error || !data?.ok) { content.innerHTML = `<div class="aip-signing-result error"><h1>Link unavailable</h1><p>${escapeHtml(data?.error || error?.message || 'This secure signing request could not be opened.')}</p></div>`; return; }
+  content.innerHTML = `<div class="aip-signing-head"><span>${escapeHtml(data.reference)}</span><h1>Review and sign</h1><p>You are signing as <strong>${escapeHtml(data.role)}</strong>.</p></div><dl class="aip-signing-summary"><div><dt>Officer</dt><dd>${escapeHtml(data.officer)}</dd></div><div><dt>Review period</dt><dd>${escapeHtml(formatDisplayDate(data.issueDate))} to ${escapeHtml(formatDisplayDate(data.reviewEndDate))}</dd></div></dl><section><h2>Reason</h2><p>${escapeHtml(data.reason)}</p><h2>Expected standards</h2><p>${escapeHtml(data.expectedStandards)}</p><h2>Support</h2><p>${escapeHtml(data.supportGuidance)}</p></section><section class="aip-external-signature"><label>Authorised signer<input value="${escapeHtml(data.signer)}" readonly></label><canvas id="externalAipSignature" aria-label="Draw your signature"></canvas><div class="row-actions"><button type="button" class="ghost" id="clearExternalAipSignature">Clear</button><button type="button" id="submitExternalAipSignature">Sign document</button></div><p class="form-status" id="externalAipStatus"></p></section>`;
+  const canvas = document.querySelector('#externalAipSignature'); setupSignatureCanvas(canvas, document.querySelector('#clearExternalAipSignature'));
+  document.querySelector('#submitExternalAipSignature').addEventListener('click', async () => {
+    const status = document.querySelector('#externalAipStatus'); if (!canvas.dataset.signed) { status.textContent = 'Please draw your signature first.'; return; }
+    status.textContent = 'Signing securely...';
+    const { data: result, error: signingError } = await supabaseClient.rpc('sign_aip_with_token', { signing_token: token, drawn_signature: canvas.toDataURL('image/png') });
+    if (signingError || !result?.ok) { status.textContent = result?.error || signingError?.message || 'Signing failed.'; return; }
+    content.innerHTML = `<div class="aip-signing-result"><span>Signature recorded</span><h1>${escapeHtml(result.reference)}</h1><p>Your signature has been securely added. This link can no longer be used.</p><a href="${escapeHtml(location.pathname)}">Return to MO8 workstation</a></div>`;
+  });
 }
 
 async function initializeSession() {
@@ -1489,10 +1510,12 @@ async function loadDevelopment() {
   state.operations.probation = response.probation || [];
   state.operations.reviews = response.reviews || [];
   state.operations.restrictions = response.restrictions || [];
+  state.operations.aips = response.aips || [];
   document.querySelector('#developmentSummary').innerHTML = [
     stat('Active Probation', state.operations.probation.filter((row) => row.Status === 'Active').length),
     stat('Reviews Due', state.operations.reviews.filter((row) => row.NextReviewDate && new Date(row.NextReviewDate) <= new Date()).length),
     stat('Active Restrictions', state.operations.restrictions.filter((row) => row.Status === 'Active').length),
+    stat('Active AIPs', state.operations.aips.filter((row) => !['Closed', 'Withdrawn'].includes(row.Status)).length),
   ].join('');
   renderDevelopmentTables();
 }
@@ -1503,6 +1526,7 @@ function renderDevelopmentTables() {
   renderTable('#probationTable', filter(state.operations.probation), ['Officer', 'Rank', 'Stage', 'Status', 'Progress', 'TargetDate', 'Reviewer'], { actions: (row) => `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` });
   renderTable('#performanceReviewsTable', filter(state.operations.reviews), ['Officer', 'ReviewDate', 'Rating', 'Reviewer', 'NextReviewDate', 'Objectives'], { actions: (row) => `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` });
   renderTable('#restrictionsTable', filter(state.operations.restrictions), ['Officer', 'RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` });
+  renderTable('#aipTable', filter(state.operations.aips), ['Reference', 'Officer', 'Rank', 'Status', 'IssueDate', 'ReviewEndDate', 'LineManager', 'AuthorisingManager', 'SignaturesLabel'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button>` });
 }
 
 function officerRecordField(selected = '') {
@@ -1542,6 +1566,75 @@ async function openRestrictionEditor(record = {}) {
     customSelectField('RestrictionType', 'CustomRestrictionType', 'Restriction', ['No Driving', 'Modified Duties', 'Training Suspended', 'Operational Restriction', 'Temporary Attachment', 'Other'], record.RestrictionType || 'Modified Duties'),
     field('Details', 'Details', 'textarea', true, record.Details || ''), field('StartsOn', 'Starts on', 'date', false, dateInputValue(record.StartsOn) || new Date().toISOString().slice(0, 10)), field('EndsOn', 'Ends on', 'date', false, dateInputValue(record.EndsOn)), selectField('Status', 'Status', ['Active', 'Expired', 'Removed'], record.Status || 'Active'),
   ], async (values) => { if (values.RestrictionType === 'Custom') values.RestrictionType = values.CustomRestrictionType; return api('saveRestriction', values); }, operationsSaveOptions('Restriction saved.', loadDevelopment));
+}
+
+async function openAipEditor(record = {}) {
+  await ensureOfficerRecords();
+  const managers = await loadSupervisorOptions();
+  const issueDate = dateInputValue(record.IssueDate) || new Date().toISOString().slice(0, 10);
+  const suggestedReview = new Date(`${issueDate}T12:00:00`);
+  suggestedReview.setDate(suggestedReview.getDate() + 14);
+  openEditor(record.AipID ? `Update ${record.Reference}` : 'Issue Activity Improvement Notice', [
+    hiddenField('AipID', record.AipID || ''), officerRecordField(record.OfficerID),
+    supervisorSelectField('LineManagerUserID', 'Line manager', managers, record.LineManagerUserID || state.user?.UserID || ''),
+    supervisorSelectField('AuthorisingManagerUserID', 'Manager authorisation', managers, record.AuthorisingManagerUserID || ''),
+    field('IssueDate', 'Issue date', 'date', false, issueDate),
+    field('ReviewEndDate', 'Review end date', 'date', false, dateInputValue(record.ReviewEndDate) || suggestedReview.toISOString().slice(0, 10)),
+    field('RequiredHours', 'Standard activity requirement (hours)', 'number', false, record.RequiredHours ?? 6),
+    field('AdjustedRequiredHours', 'Adjusted requirement after LOA (optional)', 'number', false, record.AdjustedRequiredHours ?? ''),
+    field('Reason', 'Reason for AIP', 'textarea', false, record.Reason || 'Failure to complete the required activity quota.'),
+    field('ExpectedStandards', 'Expected standards', 'textarea', true, record.ExpectedStandards || 'Meet or exceed the required recorded activity; ensure all activity is accurately recorded and submitted; remain actively engaged in duties aligned with the officer role.'),
+    field('SupportGuidance', 'Support and guidance', 'textarea', true, record.SupportGuidance || 'Regular performance reviews; guidance on meeting activity expectations; feedback on recorded activity.'),
+    field('Consequences', 'Consequences of non-compliance', 'textarea', true, record.Consequences || 'Further management or disciplinary action may be considered if the required improvement is not demonstrated.'),
+  ], async (values) => {
+    if (!values.LineManagerUserID || !values.AuthorisingManagerUserID) return { ok: false, error: 'Select both a line manager and an authorising manager.' };
+    if (values.LineManagerUserID === values.AuthorisingManagerUserID) return { ok: false, error: 'The line manager and authorising manager must be different officers.' };
+    if (new Date(values.ReviewEndDate) < new Date(values.IssueDate)) return { ok: false, error: 'The review date cannot be before the issue date.' };
+    return api('saveAip', values);
+  }, { successMessage: 'AIP created and signature tasks issued.', onSuccess: async (response) => { invalidateCache('developmentRecords'); invalidateCache('tasks'); await loadDevelopment(); if (response.AipID) await openAipDetails(response.AipID); } });
+}
+
+async function openAipDetails(aipId) {
+  const response = await api('getAip', { AipID: aipId });
+  if (!response.ok) return showInfo('AIP unavailable', `<p>${escapeHtml(response.error || 'The notice could not be loaded.')}</p>`);
+  const row = response.aip;
+  const canSign = response.pendingSignatureRole;
+  const signatures = (row.Signatures || []).map((signature) => `<article><strong>${escapeHtml(signature.Role)}</strong><span>${escapeHtml(`${signature.Rank} ${signature.Name}`.trim())}</span><small>Signed ${escapeHtml(formatDisplayDateTime(signature.SignedAt))} via ${escapeHtml(signature.SignedVia)}</small></article>`).join('');
+  const loaWarning = row.LoaSnapshot?.length ? `<div class="aip-warning"><strong>LOA context</strong><p>${row.LoaSnapshot.map((loa) => `${escapeHtml(formatDisplayDate(loa.start_date))} to ${escapeHtml(formatDisplayDate(loa.end_date))} / ${escapeHtml(loa.status)}`).join('<br>')}</p></div>` : '';
+  showInfo(`${row.Reference} / ${row.Officer}`, `<div class="aip-record-detail">
+    <div class="aip-status-line"><span>${escapeHtml(row.Status)}</span><strong>Review ${escapeHtml(formatDisplayDate(row.ReviewEndDate))}</strong></div>
+    ${loaWarning}<section><h3>Reason and expectations</h3><p>${escapeHtml(row.Reason)}</p><p>${escapeHtml(row.ExpectedStandards)}</p></section>
+    <section class="aip-facts">${detailCard('Line manager', row.LineManager)}${detailCard('Manager authorisation', row.AuthorisingManager)}${detailCard('Required activity', `${row.AdjustedRequiredHours || row.RequiredHours} hours`)}${detailCard('Activity at issue', `${row.ActivitySnapshot?.hours || 0}h across ${row.ActivitySnapshot?.shifts || 0} shifts`)}</section>
+    <section><h3>Signatures</h3><div class="aip-signature-list">${signatures || '<p class="empty">No signatures recorded yet.</p>'}</div></section>
+    <div class="row-actions">${canSign ? `<button data-sign-aip="${escapeHtml(row.AipID)}" data-sign-role="${escapeHtml(canSign)}">Review and sign</button>` : ''}${response.canAcknowledge ? `<button data-acknowledge-aip="${escapeHtml(row.AipID)}">Acknowledge receipt</button>` : ''}${response.canCreateLinks ? (response.pendingSigningRoles || []).map((role) => `<button class="ghost" data-copy-aip-link="${escapeHtml(row.AipID)}" data-sign-role="${escapeHtml(role)}">Copy ${escapeHtml(role)} link</button>`).join('') : ''}<button class="ghost" data-download-aip="${escapeHtml(row.AipID)}">Download PDF</button>${response.canReview ? `<button data-review-aip="${escapeHtml(row.AipID)}">Record review outcome</button>` : ''}${response.canWithdraw ? `<button class="danger" data-withdraw-aip="${escapeHtml(row.AipID)}">Withdraw</button>` : ''}</div>
+  </div>`);
+}
+
+function openAipSignatureEditor(aipId, role) {
+  openEditor(`Sign AIP / ${role}`, [hiddenField('AipID', aipId), hiddenField('SignatureRole', role), { html: '<section class="cid-signature-field wide"><div><h3>Authorising signature</h3><p>I confirm that I have reviewed this Activity Improvement Notice and authorise it in the capacity shown.</p></div><canvas id="aipSignatureCanvas" aria-label="Draw your signature"></canvas><button type="button" class="ghost" data-clear-aip-signature>Clear signature</button><label><input type="checkbox" name="DeclarationAccepted" value="Accepted" required> I confirm this is my signature.</label></section>' }], async (values) => {
+    const canvas = document.querySelector('#aipSignatureCanvas');
+    if (!canvas?.dataset.signed) return { ok: false, error: 'Draw your signature before signing.' };
+    values.SignatureData = canvas.toDataURL('image/png');
+    return api('signAip', values);
+  }, { persistDraft: false, successMessage: 'AIP signed.', onSuccess: async () => { invalidateCache('tasks'); invalidateCache('developmentRecords'); await loadTasks(); } });
+  setupSignatureCanvas(document.querySelector('#aipSignatureCanvas'), document.querySelector('[data-clear-aip-signature]'));
+}
+
+function openAipReviewEditor(row) {
+  openEditor(`Review ${row.Reference || 'AIP'}`, [hiddenField('AipID', row.AipID), selectField('Outcome', 'Review outcome', ['Requirements Met', 'Partial Improvement', 'No Improvement', 'Extended', 'Withdrawn'], 'Requirements Met'), field('Comments', 'Review findings and supporting activity', 'textarea', false), field('NewReviewEndDate', 'New review date (extended only)', 'date', false)], (values) => api('reviewAip', values), { successMessage: 'AIP review outcome recorded.', onSuccess: async () => { invalidateCache('tasks'); invalidateCache('developmentRecords'); await loadDevelopment(); } });
+}
+
+function setupSignatureCanvas(canvas, clearButton) {
+  if (!canvas) return;
+  canvas.width = 700; canvas.height = 180;
+  const context = canvas.getContext('2d'); context.lineWidth = 3; context.lineCap = 'round'; context.strokeStyle = '#102c48';
+  let drawing = false;
+  const point = (event) => { const rect = canvas.getBoundingClientRect(); const touch = event.touches?.[0] || event; return { x: (touch.clientX - rect.left) * canvas.width / rect.width, y: (touch.clientY - rect.top) * canvas.height / rect.height }; };
+  const start = (event) => { drawing = true; const p = point(event); context.beginPath(); context.moveTo(p.x, p.y); event.preventDefault(); };
+  const move = (event) => { if (!drawing) return; const p = point(event); context.lineTo(p.x, p.y); context.stroke(); canvas.dataset.signed = 'true'; event.preventDefault(); };
+  const end = () => { drawing = false; };
+  canvas.addEventListener('pointerdown', start); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', end); canvas.addEventListener('pointerleave', end);
+  clearButton?.addEventListener('click', () => { context.clearRect(0, 0, canvas.width, canvas.height); delete canvas.dataset.signed; });
 }
 
 async function loadReports() {
@@ -1664,6 +1757,7 @@ async function loadMyProfile() {
     ${profileTable('My Probation / Competency', response.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'])}
     ${profileTable('My Performance Reviews', response.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'])}
     ${profileTable('My Temporary Restrictions', response.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'])}
+    ${profileTable('My Activity Improvement Notices', response.aips || [], ['Reference', 'Status', 'IssueDate', 'ReviewEndDate', 'Reason', 'ReviewOutcome'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button>` })}
     ${profileTable('My Supervisor Check-ins', response.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
     ${profileTable('My Shift Activity', response.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
   `;
@@ -1715,6 +1809,7 @@ function renderTaskView() {
 }
 
 function taskOpenAttr(row) {
+  if (row.TaskType === 'AIP Signature' || row.TaskType === 'AIP Review') return `data-open-aip="${escapeHtml(row.AipID)}"`;
   if (row.TaskType === 'Account Request') return `data-open-account-request="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Retrospective Shift') return `data-open-retrospective-shift="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Probation Review') return `data-edit-probation="${escapeHtml(row.ProbationID)}"`;
@@ -2453,6 +2548,35 @@ function downloadBlob(blob, fileName) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function downloadAipPdf(aipId) {
+  const response = await api('getAip', { AipID: aipId });
+  if (!response.ok) return showInfo('PDF unavailable', `<p>${escapeHtml(response.error)}</p>`);
+  if (!window.PDFLib) return showInfo('PDF unavailable', '<p>The PDF generator did not load. Refresh and try again.</p>');
+  const row = response.aip; const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const pdf = await PDFDocument.create(); const regular = await pdf.embedFont(StandardFonts.Helvetica); const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const navy = rgb(0.06, 0.17, 0.28); const muted = rgb(0.36, 0.42, 0.48); const line = rgb(0.82, 0.85, 0.88); const margin = 48; const pageWidth = 595; const pageHeight = 842;
+  let page; let y;
+  const addPage = () => { page = pdf.addPage([pageWidth, pageHeight]); y = pageHeight - 84; page.drawRectangle({ x: 0, y: pageHeight - 56, width: pageWidth, height: 56, color: navy }); page.drawText('MET OPERATIONS 8', { x: margin, y: pageHeight - 35, size: 12, font: bold, color: rgb(1,1,1) }); page.drawText('RESTRICTED - MANAGEMENT DOCUMENT', { x: 342, y: pageHeight - 34, size: 8, font: regular, color: rgb(1,1,1) }); page.drawText(row.Reference, { x: margin, y: 28, size: 8, font: regular, color: muted }); page.drawText(`Page ${pdf.getPageCount()}`, { x: 500, y: 28, size: 8, font: regular, color: muted }); };
+  const ensure = (height = 70) => { if (y - height < 52) addPage(); };
+  const linesFor = (value, width, size = 10) => { const words = String(value || '').replace(/\s+/g, ' ').trim().split(' '); const lines = []; let current = ''; for (const word of words) { const candidate = current ? `${current} ${word}` : word; if (regular.widthOfTextAtSize(candidate, size) <= width) current = candidate; else { if (current) lines.push(current); current = word; } } if (current) lines.push(current); return lines.length ? lines : ['Not recorded']; };
+  const heading = (text) => { ensure(38); page.drawText(text.toUpperCase(), { x: margin, y, size: 10, font: bold, color: navy }); y -= 9; page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1, color: line }); y -= 18; };
+  const paragraph = (text) => { const lines = linesFor(text, pageWidth - margin * 2); ensure(lines.length * 14 + 12); for (const item of lines) { page.drawText(item, { x: margin, y, size: 10, font: regular, color: navy }); y -= 14; } y -= 10; };
+  const facts = (items) => { for (let index = 0; index < items.length; index += 2) { ensure(42); items.slice(index, index + 2).forEach((item, offset) => { const x = margin + offset * 250; page.drawText(item[0], { x, y, size: 8, font: bold, color: muted }); page.drawText(String(item[1] || 'Not recorded'), { x, y: y - 16, size: 10, font: regular, color: navy }); }); y -= 42; } };
+  addPage(); page.drawText('ACTIVITY IMPROVEMENT NOTICE', { x: margin, y, size: 23, font: bold, color: navy }); y -= 22; page.drawText('Formal activity support and review record', { x: margin, y, size: 10, font: regular, color: muted }); y -= 34;
+  heading('Officer details'); facts([['Officer', `${row.Rank} ${row.Officer}`], ['Status', row.Status], ['Issue date', formatDisplayDate(row.IssueDate)], ['Review end date', formatDisplayDate(row.ReviewEndDate)], ['Line manager', row.LineManager], ['Manager authorisation', row.AuthorisingManager]]);
+  heading('Reason for notice'); paragraph(row.Reason);
+  heading('Expected standards'); paragraph(row.ExpectedStandards); facts([['Standard requirement', `${row.RequiredHours} hours`], ['Adjusted requirement', row.AdjustedRequiredHours ? `${row.AdjustedRequiredHours} hours` : 'No adjustment recorded']]);
+  heading('Activity and LOA context at issue'); facts([['Recorded shifts (previous 30 days)', row.ActivitySnapshot?.shifts || 0], ['Recorded hours (previous 30 days)', row.ActivitySnapshot?.hours || 0]]); paragraph(row.LoaSnapshot?.length ? row.LoaSnapshot.map((loa) => `Approved LOA: ${formatDisplayDate(loa.start_date)} to ${formatDisplayDate(loa.end_date)}`).join('; ') : 'No approved LOA was identified during the relevant period.');
+  heading('Support and guidance'); paragraph(row.SupportGuidance); heading('Consequences of non-compliance'); paragraph(row.Consequences);
+  addPage(); page.drawText('AUTHORISATION AND REVIEW', { x: margin, y, size: 21, font: bold, color: navy }); y -= 36;
+  heading('Management signatures');
+  for (const role of ['Line Manager', 'Manager Authorisation']) { const signature = row.Signatures.find((item) => item.Role === role); ensure(132); page.drawText(role, { x: margin, y, size: 10, font: bold, color: navy }); y -= 18; page.drawText(signature ? `${signature.Rank} ${signature.Name}` : 'Awaiting signature', { x: margin, y, size: 10, font: regular, color: muted }); if (signature?.SignatureData) { try { const image = await pdf.embedPng(signature.SignatureData); const scale = Math.min(1, 210 / image.width, 58 / image.height); page.drawImage(image, { x: margin, y: y - 67, width: image.width * scale, height: image.height * scale }); } catch (error) {} } page.drawText(signature ? `Signed ${formatDisplayDateTime(signature.SignedAt)} via ${signature.SignedVia}` : 'Not yet signed', { x: 320, y: y - 40, size: 8, font: regular, color: muted }); y -= 92; page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1, color: line }); y -= 22; }
+  heading('Officer acknowledgement'); paragraph(row.OfficerAcknowledgedAt ? `Acknowledged ${formatDisplayDateTime(row.OfficerAcknowledgedAt)}. ${row.OfficerResponse}` : 'Officer acknowledgement has not yet been recorded. Acknowledgement confirms receipt and does not necessarily indicate agreement.');
+  heading('Final review outcome'); facts([['Outcome', row.ReviewOutcome || 'Pending'], ['Reviewed', row.ReviewedAt ? formatDisplayDateTime(row.ReviewedAt) : 'Pending']]); paragraph(row.ReviewComments || 'To be completed by the line manager at the end of the review period.');
+  pdf.setTitle(`${row.Reference} Activity Improvement Notice`); pdf.setAuthor('Met Operations 8'); pdf.setSubject('Activity Improvement Notice');
+  const bytes = await pdf.save(); downloadBlob(new Blob([bytes], { type: 'application/pdf' }), `${row.Reference}-${safeStorageFileName(row.Officer)}.pdf`);
 }
 
 function formatFileSize(bytes) {
@@ -4610,6 +4734,7 @@ function renderOfficerProfile(data) {
       ${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` : '' })}
       ${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` : '' })}
       ${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` : '' })}
+      ${profileTable('Activity Improvement Notices', data.aips || [], ['Reference', 'Status', 'IssueDate', 'ReviewEndDate', 'Reason', 'ReviewOutcome'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button>` })}
       ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
       ${profileTimeline(data.timeline || [])}
       ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
@@ -5726,6 +5851,20 @@ async function handleDocumentClick(event) {
     if (record) openProbationEditor(record);
     return;
   }
+  const openAip = event.target.closest('[data-open-aip]');
+  if (openAip) { await openAipDetails(openAip.dataset.openAip); return; }
+  const signAip = event.target.closest('[data-sign-aip]');
+  if (signAip) { if (elements.infoDialog.open) elements.infoDialog.close(); openAipSignatureEditor(signAip.dataset.signAip, signAip.dataset.signRole); return; }
+  const acknowledgeAip = event.target.closest('[data-acknowledge-aip]');
+  if (acknowledgeAip) { openEditor('Acknowledge Activity Improvement Notice', [hiddenField('AipID', acknowledgeAip.dataset.acknowledgeAip), field('Response', 'Optional officer response', 'textarea', true)], (values) => api('acknowledgeAip', values), { successMessage: 'Receipt acknowledged. This does not indicate agreement.', onSuccess: () => openAipDetails(acknowledgeAip.dataset.acknowledgeAip) }); return; }
+  const reviewAip = event.target.closest('[data-review-aip]');
+  if (reviewAip) { const row = state.operations.aips.find((item) => item.AipID === reviewAip.dataset.reviewAip) || state.tasks.find((item) => item.AipID === reviewAip.dataset.reviewAip) || { AipID: reviewAip.dataset.reviewAip }; if (elements.infoDialog.open) elements.infoDialog.close(); openAipReviewEditor(row); return; }
+  const copyAipLink = event.target.closest('[data-copy-aip-link]');
+  if (copyAipLink) { const response = await api('createAipSigningLink', { AipID: copyAipLink.dataset.copyAipLink, SignatureRole: copyAipLink.dataset.signRole }); if (!response.ok) return showInfo('Link unavailable', `<p>${escapeHtml(response.error)}</p>`); await navigator.clipboard.writeText(response.url); showInfo('Secure link copied', `<p>The single-use ${escapeHtml(copyAipLink.dataset.signRole)} link has been copied. It expires after seven days or immediately after signing.</p>`); return; }
+  const downloadAip = event.target.closest('[data-download-aip]');
+  if (downloadAip) { await downloadAipPdf(downloadAip.dataset.downloadAip); return; }
+  const withdrawAip = event.target.closest('[data-withdraw-aip]');
+  if (withdrawAip) { openEditor('Withdraw Activity Improvement Notice', [hiddenField('AipID', withdrawAip.dataset.withdrawAip), field('Reason', 'Reason for withdrawal', 'textarea', false)], (values) => api('withdrawAip', values), { successMessage: 'AIP withdrawn and archived.', onSuccess: loadDevelopment }); return; }
   const deleteProbation = event.target.closest('[data-delete-probation]');
   if (deleteProbation) {
     await confirmDelete('Delete this probation record?', 'deleteProbation', { ProbationID: deleteProbation.dataset.deleteProbation }, reloadDevelopmentContext);
@@ -7154,6 +7293,13 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       setCalendarRsvp: supabaseSetCalendarRsvp,
       processCalendarReminders: supabaseProcessCalendarReminders,
       developmentRecords: supabaseDevelopmentRecords,
+      saveAip: supabaseSaveAip,
+      getAip: supabaseGetAip,
+      signAip: supabaseSignAip,
+      acknowledgeAip: supabaseAcknowledgeAip,
+      createAipSigningLink: supabaseCreateAipSigningLink,
+      reviewAip: supabaseReviewAip,
+      withdrawAip: supabaseWithdrawAip,
       saveProbation: supabaseSaveProbation,
       deleteProbation: (payload) => supabaseDeleteOperationsRecord('probation_records', 'probation_id', payload.ProbationID),
       savePerformanceReview: supabaseSavePerformanceReview,
@@ -7349,7 +7495,7 @@ async function supabaseMyProfile() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers, probation, performanceReviews, restrictions, officerNotes] = await Promise.all([
+  const [training, matrix, discipline, loa, shifts, rankChanges, notifications, documents, announcements, profiles, officers, probation, performanceReviews, restrictions, officerNotes, aips, aipSignatures] = await Promise.all([
     officer ? supabaseRows('training_records', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('training_matrix', 'officer_id', officer.officer_id) : [],
     officer ? supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id) : [],
@@ -7365,6 +7511,8 @@ async function supabaseMyProfile() {
     officer ? supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date') : [],
     officer ? supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id) : [],
     officer ? supabaseOptionalRows('officer_notes', 'officer_id', officer.officer_id, 'created_at') : [],
+    officer ? supabaseOptionalRows('activity_improvement_notices', 'officer_id', officer.officer_id, 'created_at') : [],
+    supabaseOptionalAll('aip_signatures'),
   ]);
   return {
     ok: true,
@@ -7381,6 +7529,7 @@ async function supabaseMyProfile() {
     probation: probation.map((row) => ({ ProbationID: row.probation_id, OfficerID: row.officer_id, Stage: row.stage, Status: row.status, Progress: row.progress, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
     performanceReviews: performanceReviews.map((row) => ({ ReviewID: row.review_id, OfficerID: row.officer_id, ReviewDate: row.review_date, PeriodStart: row.period_start, PeriodEnd: row.period_end, Rating: row.rating, ActivitySummary: row.activity_summary, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
     restrictions: restrictions.map((row) => ({ RestrictionID: row.restriction_id, OfficerID: row.officer_id, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    aips: aips.map((row) => mapAip(row, officers, profiles, aipSignatures)),
     officerNotes: officerNotes.map((row) => supabaseOfficerNote(row, profiles)),
     shifts: shifts.map(supabaseShift),
     shiftStatus: await supabaseShiftStatus(),
@@ -8093,14 +8242,132 @@ function calendarAudienceSummary(event, officers) {
 }
 
 async function supabaseDevelopmentRecords() {
-  const [officers, profiles, probation, reviews, restrictions] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('probation_records'), supabaseOptionalAll('performance_reviews'), supabaseOptionalAll('officer_restrictions')]);
+  const [officers, profiles, probation, reviews, restrictions, aips, signatures] = await Promise.all([supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('probation_records'), supabaseOptionalAll('performance_reviews'), supabaseOptionalAll('officer_restrictions'), supabaseOptionalAll('activity_improvement_notices'), supabaseOptionalAll('aip_signatures')]);
   const officer = (id) => officers.find((row) => row.officer_id === id) || {};
   const profile = (id) => profiles.find((row) => row.user_id === id) || {};
   return { ok: true, officers: officers.map(supabaseOfficer),
     probation: probation.map((row) => ({ ProbationID: row.probation_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, Rank: officer(row.officer_id).rank, Stage: row.stage, Status: row.status, StartDate: row.start_date, TargetDate: row.target_date, Progress: row.progress, Requirements: row.requirements, Notes: row.notes, Reviewer: profile(row.reviewer_user_id).roblox_username || '', ReviewerUserID: row.reviewer_user_id })),
     reviews: reviews.map((row) => ({ ReviewID: row.review_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, ReviewDate: row.review_date, PeriodStart: row.period_start, PeriodEnd: row.period_end, Rating: row.rating, ActivitySummary: row.activity_summary, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date, Reviewer: profile(row.reviewer_user_id).roblox_username || '' })),
     restrictions: restrictions.map((row) => ({ RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer(row.officer_id).roblox_username, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    aips: aips.map((row) => mapAip(row, officers, profiles, signatures)),
   };
+}
+
+function mapAip(row, officers, profiles, signatures = []) {
+  const officer = officers.find((item) => item.officer_id === row.officer_id) || {};
+  const lineManager = profiles.find((item) => item.user_id === row.line_manager_user_id) || {};
+  const authoriser = profiles.find((item) => item.user_id === row.authorising_manager_user_id) || {};
+  const signed = signatures.filter((item) => item.aip_id === row.aip_id && Number(item.version) === Number(row.version));
+  return {
+    AipID: row.aip_id, Reference: row.reference, OfficerID: row.officer_id,
+    Officer: officer.roblox_username || row.officer_id, Rank: officer.rank || '', OfficerMemberID: officer.member_id || '',
+    CreatedBy: row.created_by, LineManagerUserID: row.line_manager_user_id,
+    LineManager: `${lineManager.rank || ''} ${lineManager.roblox_username || ''}`.trim(),
+    AuthorisingManagerUserID: row.authorising_manager_user_id,
+    AuthorisingManager: `${authoriser.rank || ''} ${authoriser.roblox_username || ''}`.trim(),
+    Status: row.status, IssueDate: row.issue_date, ReviewEndDate: row.review_end_date, Reason: row.reason,
+    RequiredHours: row.required_hours, AdjustedRequiredHours: row.adjusted_required_hours,
+    ExpectedStandards: row.expected_standards, SupportGuidance: row.support_guidance, Consequences: row.consequences,
+    ActivitySnapshot: row.activity_snapshot || {}, LoaSnapshot: row.loa_snapshot || [],
+    OfficerResponse: row.officer_response || '', OfficerAcknowledgedAt: row.officer_acknowledged_at,
+    ReviewOutcome: row.review_outcome || '', ReviewComments: row.review_comments || '', ReviewedAt: row.reviewed_at,
+    Version: row.version,
+    Signatures: signed.map((item) => ({ Role: item.signature_role, UserID: item.signer_user_id, Name: item.signer_name, Rank: item.signer_rank, SignatureData: item.signature_data, SignedAt: item.signed_at, SignedVia: item.signed_via })),
+    SignatureCount: signed.length, SignaturesLabel: `${signed.length}/2`,
+  };
+}
+
+async function supabaseSaveAip(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to issue an AIP.' };
+  const officer = await supabaseById('officers', 'officer_id', data.OfficerID);
+  if (!officer) return { ok: false, error: 'Select a valid officer.' };
+  const [shifts, loa] = await Promise.all([supabaseRows('shift_logs', 'officer_id', officer.officer_id, 'started_at'), supabaseRows('loa_requests', 'officer_id', officer.officer_id)]);
+  const issue = new Date(`${data.IssueDate}T23:59:59`); const since = new Date(issue); since.setDate(since.getDate() - 30);
+  const recentShifts = shifts.filter((row) => new Date(row.started_at) >= since && new Date(row.started_at) <= issue);
+  const activityMs = recentShifts.reduce((sum, row) => sum + Math.max(0, new Date(row.ended_at || issue) - new Date(row.started_at)), 0);
+  const loaSnapshot = loa.filter((row) => row.status === 'Approved' && new Date(row.end_date) >= since && new Date(row.start_date) <= new Date(`${data.ReviewEndDate}T23:59:59`));
+  const record = { officer_id: officer.officer_id, line_manager_user_id: data.LineManagerUserID, authorising_manager_user_id: data.AuthorisingManagerUserID, issue_date: data.IssueDate, review_end_date: data.ReviewEndDate, reason: data.Reason, required_hours: Number(data.RequiredHours || 6), adjusted_required_hours: data.AdjustedRequiredHours === '' ? null : Number(data.AdjustedRequiredHours), expected_standards: data.ExpectedStandards || '', support_guidance: data.SupportGuidance || '', consequences: data.Consequences || '', activity_snapshot: { periodStart: since.toISOString(), periodEnd: issue.toISOString(), shifts: recentShifts.length, hours: Number((activityMs / 3600000).toFixed(2)) }, loa_snapshot: loaSnapshot, updated_at: new Date().toISOString() };
+  let saved;
+  if (data.AipID) {
+    const existing = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID);
+    if (existing?.status !== 'Draft' && existing?.status !== 'Awaiting Signatures') return { ok: false, error: 'Issued AIPs cannot be edited. Withdraw or complete the existing notice.' };
+    const existingSignatures = await supabaseOptionalRows('aip_signatures', 'aip_id', data.AipID);
+    if (existingSignatures.some((item) => Number(item.version) === Number(existing.version))) {
+      record.version = Number(existing.version) + 1;
+      record.status = 'Awaiting Signatures';
+      await supabaseClient.from('aip_signing_links').update({ revoked_at: new Date().toISOString() }).eq('aip_id', data.AipID).is('used_at', null);
+    }
+    const { data: updated, error } = await supabaseClient.from('activity_improvement_notices').update(record).eq('aip_id', data.AipID).select().maybeSingle(); if (error) return { ok: false, error: error.message }; saved = updated;
+  } else {
+    const { data: inserted, error } = await supabaseClient.from('activity_improvement_notices').insert({ ...record, created_by: me.user.UserID, status: 'Awaiting Signatures' }).select().maybeSingle(); if (error) return { ok: false, error: error.message }; saved = inserted;
+  }
+  const managers = await Promise.all([supabaseById('profiles', 'user_id', data.LineManagerUserID), supabaseById('profiles', 'user_id', data.AuthorisingManagerUserID)]);
+  for (const manager of managers.filter(Boolean)) await supabaseNotify(manager.member_id, 'AIP awaiting your signature', `${saved.reference}: ${officer.rank} ${officer.roblox_username}. Review date: ${formatDisplayDate(data.ReviewEndDate)}.`, me.user.UserID);
+  await supabaseNotify(officer.member_id, 'Activity Improvement Notice being prepared', `${saved.reference} has been created and is awaiting management signatures. Review date: ${formatDisplayDate(data.ReviewEndDate)}.`, me.user.UserID);
+  await supabaseAudit(me.user.UserID, data.AipID ? 'UPDATE_AIP' : 'CREATE_AIP', 'Activity Improvement Notice', saved.aip_id, { reference: saved.reference, officer: officer.roblox_username });
+  return { ok: true, AipID: saved.aip_id, warning: loaSnapshot.length ? 'The officer has approved LOA during or shortly before this review period. Confirm the adjusted activity requirement.' : '' };
+}
+
+async function supabaseGetAip(data) {
+  const [row, officers, profiles, signatures] = await Promise.all([supabaseById('activity_improvement_notices', 'aip_id', data.AipID), supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalRows('aip_signatures', 'aip_id', data.AipID)]);
+  if (!row) return { ok: false, error: 'AIP not found or you do not have access.' };
+  const aip = mapAip(row, officers, profiles, signatures);
+  const signedRoles = new Set(aip.Signatures.map((item) => item.Role));
+  const pendingSignatureRole = row.line_manager_user_id === state.user?.UserID && !signedRoles.has('Line Manager') ? 'Line Manager' : row.authorising_manager_user_id === state.user?.UserID && !signedRoles.has('Manager Authorisation') ? 'Manager Authorisation' : '';
+  const currentOfficer = officers.find((item) => item.member_id === state.user?.MemberID);
+  const pendingSigningRoles = ['Line Manager', 'Manager Authorisation'].filter((role) => !signedRoles.has(role));
+  return { ok: true, aip, pendingSignatureRole, pendingSigningRoles, canCreateLinks: can('VIEW_TASKS') && row.status === 'Awaiting Signatures', canAcknowledge: currentOfficer?.officer_id === row.officer_id && !row.officer_acknowledged_at && ['Issued', 'Under Review', 'Extended', 'Closed'].includes(row.status), canReview: row.line_manager_user_id === state.user?.UserID && ['Issued', 'Under Review', 'Extended'].includes(row.status) && new Date(row.review_end_date) <= new Date(), canWithdraw: can('VIEW_TASKS') && !['Closed', 'Withdrawn'].includes(row.status) };
+}
+
+async function supabaseSignAip(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const row = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID); if (!row) return { ok: false, error: 'AIP not found.' };
+  const expected = data.SignatureRole === 'Line Manager' ? row.line_manager_user_id : row.authorising_manager_user_id;
+  if (expected !== me.user.UserID) return { ok: false, error: 'This signature is assigned to another officer.' };
+  const { error } = await supabaseClient.from('aip_signatures').insert({ aip_id: row.aip_id, signature_role: data.SignatureRole, signer_user_id: me.user.UserID, signer_name: me.user.RobloxUsername, signer_rank: me.user.Rank, signature_data: data.SignatureData, signed_via: 'MDT', version: row.version });
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.rpc('refresh_aip_status', { target_aip_id: row.aip_id });
+  const officer = await supabaseById('officers', 'officer_id', row.officer_id); const signatures = await supabaseOptionalRows('aip_signatures', 'aip_id', row.aip_id);
+  if (signatures.filter((item) => Number(item.version) === Number(row.version)).length >= 2) await supabaseNotify(officer?.member_id, 'Activity Improvement Notice issued', `${row.reference} is now issued. Your activity will be reviewed on ${formatDisplayDate(row.review_end_date)}.`, me.user.UserID);
+  return { ok: true };
+}
+
+async function supabaseAcknowledgeAip(data) {
+  const { data: result, error } = await supabaseClient.rpc('acknowledge_aip', { target_aip_id: data.AipID, officer_response_text: data.Response || '' });
+  return error ? { ok: false, error: error.message } : result;
+}
+
+async function supabaseCreateAipSigningLink(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const row = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID); if (!row) return { ok: false, error: 'AIP not found.' };
+  const signatures = await supabaseOptionalRows('aip_signatures', 'aip_id', row.aip_id); const signed = new Set(signatures.filter((item) => Number(item.version) === Number(row.version)).map((item) => item.signature_role));
+  const role = data.SignatureRole;
+  if (!['Line Manager', 'Manager Authorisation'].includes(role)) return { ok: false, error: 'Choose the signature role for this link.' };
+  if (signed.has(role)) return { ok: false, error: `${role} has already signed this AIP.` };
+  if (!role) return { ok: false, error: 'Both required signatures have already been completed.' };
+  const signerUserId = role === 'Line Manager' ? row.line_manager_user_id : row.authorising_manager_user_id;
+  await supabaseClient.from('aip_signing_links').update({ revoked_at: new Date().toISOString() }).eq('aip_id', row.aip_id).eq('signature_role', role).is('used_at', null);
+  const { data: link, error } = await supabaseClient.from('aip_signing_links').insert({ aip_id: row.aip_id, signature_role: role, signer_user_id: signerUserId, created_by: me.user.UserID }).select().maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, url: `${location.origin}${location.pathname}?aip-sign=${encodeURIComponent(link.token)}` };
+}
+
+async function supabaseReviewAip(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me; const row = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID);
+  if (!row || (row.line_manager_user_id !== me.user.UserID && !can('VIEW_TASKS'))) return { ok: false, error: 'You are not authorised to review this AIP.' };
+  if (data.Outcome === 'Extended' && !data.NewReviewEndDate) return { ok: false, error: 'Choose a new review date when extending an AIP.' };
+  const status = data.Outcome === 'Extended' ? 'Extended' : data.Outcome === 'Withdrawn' ? 'Withdrawn' : 'Closed';
+  const update = { review_outcome: data.Outcome, review_comments: data.Comments, reviewed_at: new Date().toISOString(), reviewed_by: me.user.UserID, status, updated_at: new Date().toISOString() }; if (data.Outcome === 'Extended') update.review_end_date = data.NewReviewEndDate;
+  const { error } = await supabaseClient.from('activity_improvement_notices').update(update).eq('aip_id', row.aip_id); if (error) return { ok: false, error: error.message };
+  const officer = await supabaseById('officers', 'officer_id', row.officer_id); await supabaseNotify(officer?.member_id, `AIP review: ${data.Outcome}`, `${row.reference}: ${data.Comments}`, me.user.UserID); return { ok: true };
+}
+
+async function supabaseWithdrawAip(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const row = await supabaseById('activity_improvement_notices', 'aip_id', data.AipID); if (!row) return { ok: false, error: 'AIP not found.' };
+  const { error } = await supabaseClient.from('activity_improvement_notices').update({ status: 'Withdrawn', withdrawn_reason: data.Reason, withdrawn_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('aip_id', row.aip_id); if (error) return { ok: false, error: error.message };
+  const officer = await supabaseById('officers', 'officer_id', row.officer_id); await supabaseNotify(officer?.member_id, 'Activity Improvement Notice withdrawn', `${row.reference}: ${data.Reason}`, me.user.UserID); return { ok: true };
 }
 
 async function supabaseSaveProbation(data) {
@@ -8188,7 +8455,7 @@ async function supabaseGetOfficerProfile(data) {
   const { data: officer, error } = await supabaseClient.from('officers').select('*').eq('officer_id', data.OfficerID).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!officer) return { ok: false, error: 'Officer not found.' };
-  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers, probation, performanceReviews, restrictions, officerNotes, operationalActions, operationalIncidents, operationalOffences, operationalAttendance, operationalUnitMembers, caseActions, cases] = await Promise.all([
+  const [training, matrix, discipline, loa, transfers, supervisorRequests, appeals, checkins, plans, shifts, ranks, profiles, officers, probation, performanceReviews, restrictions, officerNotes, aips, aipSignatures, operationalActions, operationalIncidents, operationalOffences, operationalAttendance, operationalUnitMembers, caseActions, cases] = await Promise.all([
     supabaseRows('training_records', 'officer_id', officer.officer_id),
     supabaseRows('training_matrix', 'officer_id', officer.officer_id),
     supabaseRows('disciplinary_actions', 'officer_id', officer.officer_id),
@@ -8206,6 +8473,8 @@ async function supabaseGetOfficerProfile(data) {
     supabaseOptionalRows('performance_reviews', 'officer_id', officer.officer_id, 'review_date'),
     supabaseOptionalRows('officer_restrictions', 'officer_id', officer.officer_id),
     supabaseOptionalRows('officer_notes', 'officer_id', officer.officer_id, 'created_at'),
+    supabaseOptionalRows('activity_improvement_notices', 'officer_id', officer.officer_id, 'created_at'),
+    supabaseOptionalAll('aip_signatures'),
     supabaseOptionalRows('operational_officer_actions', 'officer_id', officer.officer_id, 'occurred_at'),
     supabaseOptionalAll('operational_incidents'),
     supabaseOptionalAll('operational_offences'),
@@ -8246,6 +8515,7 @@ async function supabaseGetOfficerProfile(data) {
     probation: probation.map((row) => ({ Stage: row.stage, Status: row.status, Progress: `${row.progress}%`, StartDate: row.start_date, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes })),
     performanceReviews: performanceReviews.map((row) => ({ ReviewDate: row.review_date, Rating: row.rating, Strengths: row.strengths, Improvements: row.improvements, Objectives: row.objectives, NextReviewDate: row.next_review_date })),
     restrictions: restrictions.map((row) => ({ RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, Status: row.status })),
+    aips: aips.map((row) => mapAip(row, officers, profiles, aipSignatures)),
     officerNotes: officerNotes.map((row) => supabaseOfficerNote(row, profiles)),
     operationalActions: actionRows,
     operationalStats,
@@ -8842,7 +9112,7 @@ async function supabaseReviewAppeal(data) {
 }
 
 async function supabaseTasks() {
-  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows, genericTaskRows, caseActionRows, operationRows, operationalOfficerActions, operationalUnitMembers, recruitmentApplications, recruitmentVacancies] = await Promise.all([
+  const [officers, loa, transfers, supervisorRequests, appeals, profiles, courses, courseBookings, probation, performance, restrictions, accountRequestRows, retrospectiveRows, shifts, trainingRecords, cadReviews, cadIncidents, afterActionRows, actionReviewRows, genericTaskRows, caseActionRows, operationRows, operationalOfficerActions, operationalUnitMembers, recruitmentApplications, recruitmentVacancies, aips, aipSignatures] = await Promise.all([
     supabaseAll('officers'),
     supabaseAll('loa_requests'),
     supabaseAll('transfer_requests'),
@@ -8869,6 +9139,8 @@ async function supabaseTasks() {
     supabaseOptionalAll('operational_unit_members'),
     supabaseOptionalAll('recruitment_applications'),
     supabaseOptionalAll('recruitment_vacancies'),
+    supabaseOptionalAll('activity_improvement_notices'),
+    supabaseOptionalAll('aip_signatures'),
   ]);
   const currentProfile = (profiles || []).find((profile) => profile.user_id === state.user?.UserID) || {};
   const currentOfficer = (officers || []).find((officer) => officer.member_id === currentProfile.member_id) || {};
@@ -8958,6 +9230,15 @@ async function supabaseTasks() {
     const days = Math.ceil((new Date(row.expiry_date) - new Date()) / 86400000);
     return { TaskType: 'Training Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.standard} ${days < 0 ? 'expired' : 'expires soon'}`, Reason: `Expiry: ${formatDisplayDate(row.expiry_date)}`, Status: days < 0 ? 'Expired' : 'Due Soon', EndDate: row.expiry_date, MySupervisee: true };
   });
+  const aipTasks = (aips || []).flatMap((row) => {
+    const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
+    const signed = new Set((aipSignatures || []).filter((item) => item.aip_id === row.aip_id && Number(item.version) === Number(row.version)).map((item) => item.signature_role));
+    const tasks = [];
+    if (row.status === 'Awaiting Signatures' && row.line_manager_user_id === state.user?.UserID && !signed.has('Line Manager')) tasks.push({ TaskType: 'AIP Signature', AipID: row.aip_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Subject: `${row.reference} / Line Manager signature`, Reason: row.reason, Status: 'Awaiting Signature', EndDate: row.review_end_date, IsMine: true, AssignedToMe: true, Priority: 'High' });
+    if (row.status === 'Awaiting Signatures' && row.authorising_manager_user_id === state.user?.UserID && !signed.has('Manager Authorisation')) tasks.push({ TaskType: 'AIP Signature', AipID: row.aip_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Subject: `${row.reference} / Manager authorisation`, Reason: row.reason, Status: 'Awaiting Signature', EndDate: row.review_end_date, IsMine: true, AssignedToMe: true, Priority: 'High' });
+    if (['Issued', 'Under Review', 'Extended'].includes(row.status) && row.line_manager_user_id === state.user?.UserID && new Date(row.review_end_date) <= new Date()) tasks.push({ TaskType: 'AIP Review', AipID: row.aip_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Subject: `${row.reference} / Activity review due`, Reason: row.reason, Status: 'Review Due', EndDate: row.review_end_date, IsMine: true, AssignedToMe: true, Priority: 'Critical' });
+    return tasks;
+  });
   const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
   const retrospectiveShifts = (retrospectiveRows || []).filter((row) => row.status === 'Pending').map((row) => {
     const task = decorate(row, 'Retrospective Shift');
@@ -8987,7 +9268,7 @@ async function supabaseTasks() {
   const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
   const recruitmentReviews = (recruitmentApplications || []).filter((row) => row.internal_member_id !== currentProfile.member_id && ['Submitted', 'Under Review'].includes(row.status)).map((row) => ({ TaskType: 'Recruitment Application', ApplicationID: row.application_id, Officer: row.roblox_username, Subject: (recruitmentVacancies || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, Reason: 'Application awaiting an authorised recruitment decision.', Status: row.status, EndDate: row.updated_at || row.submitted_at, Priority: 'Normal', IsMine: row.reviewer_user_id === state.user?.UserID, AssignedToMe: true }));
   const authorisedQueue = can('VIEW_TASKS') ? [...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews] : [];
-  const all = prioritizeTasks([...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...assignedTasks, ...caseworkTasks, ...recruitmentReviews, ...incidentAmendments, ...actionAmendments]);
+  const all = prioritizeTasks([...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...aipTasks, ...assignedTasks, ...caseworkTasks, ...recruitmentReviews, ...incidentAmendments, ...actionAmendments]);
   const mine = all.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee || row.RelevantSupervisor);
   const available = can('VIEW_TASKS') ? all : mine;
   const dueSoon = mine.filter((row) => row.EndDate && new Date(row.EndDate) <= new Date(Date.now() + 7 * 86400000)).length;
