@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-7';
+const APP_VERSION = '2026-07-06-8';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -623,7 +623,7 @@ async function preloadTasks() {
 
 function updateTaskNavBadge(count) {
   const value = Math.max(0, Number(count || 0)); const label = value > 99 ? '99+' : String(value);
-  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; if (value > 0) pulseBadge(badge, value); });
+  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount', '#homeTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; if (value > 0) pulseBadge(badge, value); });
   const navButton = document.querySelector('.nav-item[data-view="tasks"]'); if (navButton) navButton.setAttribute('aria-label', value ? `Tasks, ${value} outstanding` : 'Tasks');
 }
 
@@ -2023,14 +2023,21 @@ function taskOpenAttr(row) {
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
 }
 
-function openMdtTaskEditor(task = {}) {
+async function openMdtTaskEditor(task = {}) {
   if (task.TaskID && !can('VIEW_TASKS')) {
     openEditor('Update my task', [hiddenField('TaskID', task.TaskID), selectField('Status', 'Status', ['Open', 'In Progress', 'Blocked', 'Completed'], task.Status || 'Open')], async (values) => api('saveMdtTask', values), { successMessage: 'Task updated.', onSuccess: async () => { invalidateCache('tasks'); await loadTasks(); } });
     elements.editorFields.insertAdjacentHTML('afterbegin', `<section class="task-brief"><span>${escapeHtml(task.Category || 'Assigned task')}</span><h3>${escapeHtml(task.Subject || task.Title || '')}</h3><p>${escapeHtml(task.Reason || task.Details || '')}</p>${task.EndDate ? `<small>Due ${escapeHtml(formatDisplayDateTime(task.EndDate))}</small>` : ''}</section>`);
     return;
   }
-  const officers = (state.officers || []).map((row) => ({ value: `${row.OfficerID} | ${row.RobloxUsername}`, label: `${row.Rank} / ${row.Callsign || 'No callsign'}` }));
-  openEditor(task.TaskID ? 'Update assigned task' : 'Assign task', [hiddenField('TaskID', task.TaskID || ''), field('Title', 'Task title', 'text', false, task.Subject || task.Title || ''), field('Details', 'Instructions', 'textarea', true, task.Reason || task.Details || ''), selectField('Category', 'Category', ['General', 'Operational', 'Development', 'Training', 'Casework', 'Administration'], task.Category || 'General'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], task.Priority || 'Normal'), selectField('Status', 'Status', ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled'], task.Status || 'Open'), datalistField('AssignedOfficerReference', 'Assigned officer', officers, task.OfficerID ? `${task.OfficerID} | ${task.Officer}` : '', true), field('DueAt', 'Due date', 'datetime-local', false, localDateTimeValue(task.EndDate || task.DueAt))], async (values) => api('saveMdtTask', values), { successMessage: 'Task saved.', onSuccess: async () => { invalidateCache('tasks'); await loadTasks(); } });
+  await ensureOfficerRecords();
+  const officers = (state.officers || []).filter((row) => row.Status !== 'Archived').map((row) => ({ UserID: row.OfficerID, RobloxUsername: row.RobloxUsername, Rank: row.Rank, Meta: row.Callsign || 'No callsign' }));
+  openEditor(task.TaskID ? 'Update assigned task' : 'Assign task', [
+    hiddenField('TaskID', task.TaskID || ''), field('Title', 'Task title', 'text', false, task.Subject || task.Title || ''), field('Details', 'Instructions', 'textarea', true, task.Reason || task.Details || ''),
+    selectField('Category', 'Category', ['General', 'Operational', 'Development', 'Training', 'Casework', 'Administration'], task.Category || 'General'), selectField('Priority', 'Priority', ['Critical', 'High', 'Normal', 'Low'], task.Priority || 'Normal'), selectField('Status', 'Status', ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled'], task.Status || 'Open'),
+    searchableReferenceCheckboxGroupField('AssignedOfficerIDs', task.TaskID ? 'Assigned officer' : 'Assign to officers', officers, task.OfficerID || '', 'Search username, rank or callsign'),
+    { html: `<p class="field-guidance wide">${task.TaskID ? 'An existing task can be reassigned to one officer.' : 'A separate linked task will be created for every selected officer.'}</p>` },
+    field('DueAt', 'Due date', 'datetime-local', false, localDateTimeValue(task.EndDate || task.DueAt)),
+  ], async (values) => api('saveMdtTask', values), { successMessage: task.TaskID ? 'Task saved.' : 'Tasks assigned.', onSuccess: async () => { invalidateCache('tasks'); await loadTasks(); } });
 }
 
 async function loadSupervisor() {
@@ -9640,7 +9647,9 @@ async function supabaseSaveMdtTask(data) {
   const me = await supabaseCurrentProfile(); if (!me.ok) return me;
   const existing = data.TaskID ? await supabaseById('mdt_tasks', 'task_id', data.TaskID) : null;
   if (!existing && !can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to assign tasks.' };
-  if (!existing && (!data.Title || !referenceId(data.AssignedOfficerReference))) return { ok: false, error: 'Task title and assigned officer are required.' };
+  const assignedOfficerIds = splitTags(data.AssignedOfficerIDs || '');
+  if (!existing && (!data.Title || !assignedOfficerIds.length)) return { ok: false, error: 'Task title and at least one selected officer are required.' };
+  if (existing && assignedOfficerIds.length > 1) return { ok: false, error: 'An existing task can only be assigned to one officer. Create a new task to assign multiple officers.' };
   const status = data.Status || existing?.status || 'Open';
   const record = can('VIEW_TASKS') ? {
     title: data.Title || existing?.title,
@@ -9648,7 +9657,7 @@ async function supabaseSaveMdtTask(data) {
     category: data.Category || existing?.category || 'General',
     priority: data.Priority || existing?.priority || 'Normal',
     status,
-    assigned_officer_id: referenceId(data.AssignedOfficerReference) || existing?.assigned_officer_id,
+    assigned_officer_id: assignedOfficerIds[0] || existing?.assigned_officer_id,
     source_type: existing?.source_type || '',
     source_id: existing?.source_id || '',
     due_at: data.DueAt || existing?.due_at || null,
@@ -9656,14 +9665,16 @@ async function supabaseSaveMdtTask(data) {
     created_by: existing?.created_by || me.user.UserID,
     updated_at: new Date().toISOString(),
   } : { status, completed_at: status === 'Completed' ? new Date().toISOString() : null, updated_at: new Date().toISOString() };
-  const query = existing ? supabaseClient.from('mdt_tasks').update(record).eq('task_id', data.TaskID) : supabaseClient.from('mdt_tasks').insert(record);
+  const records = existing ? null : assignedOfficerIds.map((officerId) => ({ ...record, assigned_officer_id: officerId }));
+  const query = existing ? supabaseClient.from('mdt_tasks').update(record).eq('task_id', data.TaskID) : supabaseClient.from('mdt_tasks').insert(records);
   const { error } = await query;
   if (error) return { ok: false, error: error.message };
-  if (!existing || record.assigned_officer_id !== existing.assigned_officer_id) {
-    const officer = await supabaseById('officers', 'officer_id', record.assigned_officer_id);
+  const notifyIds = existing ? (record.assigned_officer_id !== existing.assigned_officer_id ? [record.assigned_officer_id] : []) : assignedOfficerIds;
+  for (const officerId of notifyIds) {
+    const officer = await supabaseById('officers', 'officer_id', officerId);
     if (officer) await supabaseNotify(officer.member_id, 'New task assigned', notificationDetails([detailLine('Task', record.title), detailLine('Category', record.category), detailLine('Priority', record.priority), detailLine('Due', record.due_at ? formatDisplayDateTime(record.due_at) : 'No deadline'), detailLine('Assigned by', me.user.RobloxUsername)]), me.user.UserID);
   }
-  return { ok: true };
+  return { ok: true, createdCount: existing ? 0 : records.length };
 }
 
 async function supabaseResolveGeneratedTask(data) {
