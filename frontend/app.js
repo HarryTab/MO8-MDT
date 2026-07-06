@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-5';
+const APP_VERSION = '2026-07-06-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -68,6 +68,7 @@ const SESSION_STORAGE_KEY = 'mo8_session_auth';
 const VERSION_STORAGE_KEY = 'mo8_app_version';
 const DASHBOARD_LAYOUT_STORAGE_KEY = 'mo8_dashboard_layout';
 const NAV_FAVOURITES_STORAGE_KEY = 'mo8_nav_favourites';
+const NAV_COLLAPSED_STORAGE_KEY = 'mo8_nav_collapsed';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -337,6 +338,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
 });
 
 function setupNavigation() {
+  setDesktopNavigationCollapsed(localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === 'true');
   document.querySelectorAll('.nav-group-toggle').forEach((button) => button.addEventListener('click', () => {
     const group = button.closest('.nav-group'); const collapsed = group.classList.toggle('collapsed');
     button.setAttribute('aria-expanded', String(!collapsed)); button.querySelector('i').textContent = collapsed ? '+' : '-';
@@ -349,6 +351,17 @@ function setupNavigation() {
   document.querySelectorAll('[data-pin-view]').forEach((button) => button.addEventListener('click', () => toggleNavFavourite(button.dataset.pinView)));
   document.querySelector('#navSearchInput')?.addEventListener('input', filterNavigation);
   renderNavFavourites();
+}
+
+function toggleDesktopNavigation() {
+  setDesktopNavigationCollapsed(!document.body.classList.contains('nav-collapsed'));
+}
+
+function setDesktopNavigationCollapsed(collapsed) {
+  document.body.classList.toggle('nav-collapsed', collapsed); localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, String(collapsed));
+  const button = document.querySelector('#collapseNavigationButton'); if (!button) return;
+  button.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation'); button.title = button.getAttribute('aria-label');
+  const label = button.querySelector('span'); const icon = button.querySelector('i'); if (label) label.textContent = collapsed ? 'Expand' : 'Collapse'; if (icon) icon.textContent = collapsed ? '>' : '<';
 }
 
 function navFavourites() {
@@ -390,6 +403,7 @@ document.querySelector('#accessPreviewForm')?.addEventListener('submit', startAc
 document.querySelector('#accessPreviewForm')?.addEventListener('change', updateAccessPreviewEstimate);
 document.querySelector('#resetAccessPreviewForm')?.addEventListener('click', resetAccessPreviewForm);
 document.querySelector('#exitAccessPreviewButton')?.addEventListener('click', exitAccessPreview);
+document.querySelector('#collapseNavigationButton')?.addEventListener('click', toggleDesktopNavigation);
 document.querySelector('#newVacancyButton')?.addEventListener('click', () => openVacancyEditor());
 document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.addEventListener('click', () => switchRecruitmentTab(button.dataset.recruitmentTab)));
 document.querySelector('#recruitmentVacancySearch')?.addEventListener('input', renderRecruitmentVacancies);
@@ -609,7 +623,7 @@ async function preloadTasks() {
 
 function updateTaskNavBadge(count) {
   const value = Math.max(0, Number(count || 0)); const label = value > 99 ? '99+' : String(value);
-  ['#taskNavCount', '#desktopTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; });
+  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; });
   const navButton = document.querySelector('.nav-item[data-view="tasks"]'); if (navButton) navButton.setAttribute('aria-label', value ? `Tasks, ${value} outstanding` : 'Tasks');
 }
 
@@ -975,6 +989,10 @@ function renderViewLoading(view) {
     document.querySelector('#userPermissionsMatrix').innerHTML = '';
     return;
   }
+  if (view === 'settings') {
+    document.querySelector('#accessPreviewResult').innerHTML = loadingBlock('Loading access configuration...');
+    return;
+  }
   const messages = {
     myProfile: 'Loading officer profile...',
     shift: 'Loading shift activity...',
@@ -1033,6 +1051,7 @@ function loaderActionForView(view) {
     recruitment: 'recruitmentHub',
     users: 'listUsers',
     permissions: 'permissionsConfig',
+    settings: 'accessPreviewConfig',
     reports: 'commandReports',
     handover: 'listHandovers',
     audit: 'auditLog',
@@ -4777,7 +4796,7 @@ async function loadPermissions() {
 async function loadSettings() {
   await showViewOnly('settings');
   if (!state.permissionConfig?.permissions?.length) {
-    const response = await apiCached('permissionsConfig', {});
+    const response = await apiCached('accessPreviewConfig', {});
     if (!response.ok) { document.querySelector('#accessPreviewResult').innerHTML = emptyState(response.error || 'Could not load access configuration.'); return; }
     state.permissionConfig = response;
   }
@@ -7639,6 +7658,7 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       deleteUser: supabaseDeleteUser,
       bulkUpdateOfficers: supabaseBulkUpdateOfficers,
       permissionsConfig: supabasePermissionsConfig,
+      accessPreviewConfig: supabaseAccessPreviewConfig,
       setRolePermission: supabaseSetRolePermission,
       setUserPermission: supabaseSetUserPermission,
       resetUserPassword: supabaseResetUserPassword,
@@ -10071,6 +10091,18 @@ async function supabasePermissionsConfig() {
     users: (users || []).map(supabaseUser),
     rolePermissions: (rolePermissions || []).map((row) => ({ Role: row.role, Permission: row.permission, Allowed: row.allowed ? 'TRUE' : 'FALSE' })),
     userPermissions: (userPermissions || []).map((row) => ({ UserID: row.user_id, Permission: row.permission, Allowed: row.allowed, UpdatedBy: row.updated_by || '', UpdatedAt: row.updated_at || '' })),
+    defaultPermissions: {},
+  };
+}
+
+async function supabaseAccessPreviewConfig() {
+  const rolePermissions = await supabaseAll('permissions');
+  return {
+    ok: true,
+    roles: SYSTEM_ROLES,
+    permissions: ALL_PERMISSIONS,
+    rolePermissions: rolePermissions.map((row) => ({ Role: row.role, Permission: row.permission, Allowed: row.allowed ? 'TRUE' : 'FALSE' })),
+    userPermissions: [],
     defaultPermissions: {},
   };
 }
