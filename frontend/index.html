@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-06-10">
+    <link rel="stylesheet" href="styles.css?v=2026-07-06-11">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -48,6 +48,7 @@
                 <button class="nav-item" data-view="myProfile"><span class="nav-symbol">ME</span><span>My Profile</span></button>
                 <button class="nav-item" data-view="tasks"><span class="nav-symbol">TK</span><span>Tasks</span><span class="nav-count-badge" id="taskNavCount" hidden>0</span></button>
                 <button class="nav-item" data-view="calendar"><span class="nav-symbol">CA</span><span>Calendar</span></button>
+                <button class="nav-item" data-view="timeline"><span class="nav-symbol">TL</span><span>Timeline</span></button>
               </div>
             </section>
             <section class="nav-group" data-nav-group="personnel">
@@ -77,6 +78,7 @@
                 <button class="nav-item" data-view="users" data-permission="MANAGE_USERS"><span class="nav-symbol">US</span><span>Users</span></button>
                 <button class="nav-item" data-view="permissions" data-permission="MANAGE_PERMISSIONS"><span class="nav-symbol">PM</span><span>Permissions</span></button>
                 <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">AU</span><span>Audit</span></button>
+                <button class="nav-item" data-view="dataQuality" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">DQ</span><span>Data Quality</span></button>
                 <button class="nav-item" data-view="settings" data-permission="FULL_ACCESS"><span class="nav-symbol">SE</span><span>Settings</span></button>
               </div>
             </section>
@@ -234,6 +236,20 @@
             </div>
             <div class="global-search-summary" id="globalSearchSummary">Enter at least two characters to search the complete MDT.</div>
             <div id="globalSearchResults" class="operations-results"></div>
+          </section>
+
+          <section class="data-view" id="timelineView" hidden>
+            <div class="section-head"><div><h2>Activity Timeline</h2><p>One chronological view across accessible Personnel and Operations records.</p></div><button class="ghost" id="refreshTimelineButton">Refresh</button></div>
+            <div class="timeline-toolbar"><input id="timelineSearch" type="search" placeholder="Search officer, CAD, reference or activity"><select id="timelineType"><option value="">All activity types</option></select><input id="timelineFrom" type="date" aria-label="Timeline from date"><input id="timelineTo" type="date" aria-label="Timeline to date"></div>
+            <div class="timeline-overview" id="timelineOverview"></div>
+            <div class="unified-timeline" id="timelineResults"></div>
+          </section>
+
+          <section class="data-view" id="dataQualityView" hidden>
+            <div class="section-head"><div><h2>Data Quality Centre</h2><p>Exceptions and incomplete records requiring Command attention.</p></div><button class="ghost" id="refreshDataQualityButton">Run checks</button></div>
+            <div class="quality-summary" id="dataQualitySummary"></div>
+            <div class="quality-toolbar"><select id="dataQualitySeverity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Warning</option><option>Information</option></select><select id="dataQualityArea"><option value="">All areas</option></select></div>
+            <div class="quality-centre-list" id="dataQualityResults"></div>
           </section>
 
           <section class="data-view" id="calendarView" hidden>
@@ -808,6 +824,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-06-10"></script>
+    <script src="app.js?v=2026-07-06-11"></script>
   </body>
 </html>

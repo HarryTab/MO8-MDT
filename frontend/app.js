@@ -423,6 +423,14 @@ document.querySelector('#shiftStartFilter').addEventListener('change', loadShift
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
 document.querySelector('#globalSearchType')?.addEventListener('change', renderGlobalSearchResults);
+document.querySelector('#timelineSearch')?.addEventListener('input', debounce(renderUnifiedTimeline, 120));
+document.querySelector('#timelineType')?.addEventListener('change', renderUnifiedTimeline);
+document.querySelector('#timelineFrom')?.addEventListener('change', renderUnifiedTimeline);
+document.querySelector('#timelineTo')?.addEventListener('change', renderUnifiedTimeline);
+document.querySelector('#refreshTimelineButton')?.addEventListener('click', async () => { invalidateCache('systemTimeline'); await loadTimeline(); });
+document.querySelector('#dataQualitySeverity')?.addEventListener('change', renderDataQualityCentre);
+document.querySelector('#dataQualityArea')?.addEventListener('change', renderDataQualityCentre);
+document.querySelector('#refreshDataQualityButton')?.addEventListener('click', async () => { invalidateCache('dataQualityCentre'); await loadDataQualityCentre(); });
 document.querySelector('#savedViewSelect')?.addEventListener('change', applySavedView);
 document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
 document.querySelector('#calendarDatePicker')?.addEventListener('change', (event) => state.calendarInstance?.gotoDate(event.target.value));
@@ -879,6 +887,7 @@ async function showView(view) {
     inbox: ['Inbox', 'Your actions, notices and assigned work'],
     messaging: ['Chat', 'Direct messages, team conversations and formal communications'],
     globalSearch: ['Search', 'Search across the MDT and open saved views'],
+    timeline: ['Activity Timeline', 'Chronological activity across Personnel and Operations'],
     calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
     shift: ['Shift Log', 'Duty status and team activity'],
@@ -901,6 +910,7 @@ async function showView(view) {
     reports: ['Reports', 'Command performance and compliance reporting'],
     handover: ['Command Handover', 'Outstanding operational matters and ownership'],
     audit: ['Audit Log', 'System activity trail'],
+    dataQuality: ['Data Quality', 'Incomplete, inconsistent and overdue records'],
   };
 
   state.activeView = view;
@@ -920,6 +930,7 @@ async function showView(view) {
     inbox: loadInbox,
     messaging: loadMessaging,
     globalSearch: loadGlobalSearch,
+    timeline: loadTimeline,
     calendar: loadCalendar,
     myProfile: loadMyProfile,
     shift: loadShift,
@@ -942,6 +953,7 @@ async function showView(view) {
     reports: loadReports,
     handover: loadHandover,
     audit: loadAudit,
+    dataQuality: loadDataQualityCentre,
   };
 
   await loaders[view]();
@@ -1064,6 +1076,7 @@ function loaderActionForView(view) {
     inbox: 'personalInbox',
     messaging: 'messagingHub',
     globalSearch: 'savedViews',
+    timeline: 'systemTimeline',
     calendar: 'operationalCalendar',
     myProfile: 'myProfile',
     shift: 'teamShifts',
@@ -1085,6 +1098,7 @@ function loaderActionForView(view) {
     reports: 'commandReports',
     handover: 'listHandovers',
     audit: 'auditLog',
+    dataQuality: 'dataQualityCentre',
   };
   return actions[view] || view;
 }
@@ -1482,6 +1496,65 @@ function openSavedViewEditor() {
   openEditor('Save search view', [field('Name', 'View name'), field('Query', 'Search query', 'text', false, document.querySelector('#globalSearchInput').value)], async (values) => api('saveSavedView', values), {
     successMessage: 'Saved view created.', onSuccess: async () => { invalidateCache('savedViews'); await loadGlobalSearch(); },
   });
+}
+
+async function loadTimeline() {
+  await showViewOnly('timeline');
+  const container = document.querySelector('#timelineResults');
+  if (container) container.innerHTML = loadingBlock('Building the activity timeline...');
+  const response = await apiCached('systemTimeline', {});
+  if (!response.ok) return renderError(container, response.error);
+  state.systemTimeline = response.rows || [];
+  const typeSelect = document.querySelector('#timelineType');
+  const currentType = typeSelect?.value || '';
+  const types = [...new Set(state.systemTimeline.map((row) => row.Type).filter(Boolean))].sort();
+  if (typeSelect) { typeSelect.innerHTML = '<option value="">All activity types</option>' + types.map((type) => `<option>${escapeHtml(type)}</option>`).join(''); typeSelect.value = types.includes(currentType) ? currentType : ''; }
+  renderUnifiedTimeline();
+}
+
+function renderUnifiedTimeline() {
+  const container = document.querySelector('#timelineResults');
+  const overview = document.querySelector('#timelineOverview');
+  if (!container) return;
+  const query = String(document.querySelector('#timelineSearch')?.value || '').trim().toLowerCase();
+  const type = document.querySelector('#timelineType')?.value || '';
+  const from = document.querySelector('#timelineFrom')?.value ? new Date(`${document.querySelector('#timelineFrom').value}T00:00:00`).getTime() : 0;
+  const to = document.querySelector('#timelineTo')?.value ? new Date(`${document.querySelector('#timelineTo').value}T23:59:59`).getTime() : Number.MAX_SAFE_INTEGER;
+  const rows = (state.systemTimeline || []).filter((row) => {
+    const at = new Date(row.Date).getTime();
+    return (!type || row.Type === type) && (!query || [row.Type, row.Title, row.Detail, row.Reference, row.Actor].some((value) => String(value || '').toLowerCase().includes(query))) && at >= from && at <= to;
+  });
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayCount = rows.filter((row) => new Date(row.Date).getTime() >= today.getTime()).length;
+  const operationalCount = rows.filter((row) => row.Area === 'Operations').length;
+  if (overview) overview.innerHTML = `<div><strong>${rows.length}</strong><span>Visible events</span></div><div><strong>${todayCount}</strong><span>Today</span></div><div><strong>${operationalCount}</strong><span>Operational</span></div><div><strong>${new Set(rows.map((row) => row.Type)).size}</strong><span>Activity types</span></div>`;
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="unified-timeline-item severity-${escapeHtml(String(row.Severity || 'information').toLowerCase())}" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}${row.OfficerID ? ` data-open-officer="${escapeHtml(row.OfficerID)}"` : ''}${row.OperationsTarget ? ` data-open-ops-search="${escapeHtml(row.OperationsTarget)}"` : ''}><time>${escapeHtml(formatDisplayDateTime(row.Date))}</time><i></i><div><span>${escapeHtml(row.Area || 'System')} / ${escapeHtml(row.Type || 'Activity')}</span><strong>${escapeHtml(row.Title || 'Recorded activity')}</strong><p>${escapeHtml(row.Detail || '')}</p><small>${escapeHtml([row.Reference, row.Actor].filter(Boolean).join(' / '))}</small></div></article>`).join('') : emptyState('No timeline activity matches these filters.');
+}
+
+async function loadDataQualityCentre() {
+  await showViewOnly('dataQuality');
+  const container = document.querySelector('#dataQualityResults');
+  if (container) container.innerHTML = loadingBlock('Running data-quality checks...');
+  const response = await apiCached('dataQualityCentre', {});
+  if (!response.ok) return renderError(container, response.error);
+  state.dataQuality = response;
+  const areaSelect = document.querySelector('#dataQualityArea');
+  const currentArea = areaSelect?.value || '';
+  const areas = [...new Set((response.rows || []).map((row) => row.Area).filter(Boolean))].sort();
+  if (areaSelect) { areaSelect.innerHTML = '<option value="">All areas</option>' + areas.map((area) => `<option>${escapeHtml(area)}</option>`).join(''); areaSelect.value = areas.includes(currentArea) ? currentArea : ''; }
+  renderDataQualityCentre();
+}
+
+function renderDataQualityCentre() {
+  const response = state.dataQuality || { rows: [] };
+  const severity = document.querySelector('#dataQualitySeverity')?.value || '';
+  const area = document.querySelector('#dataQualityArea')?.value || '';
+  const rows = (response.rows || []).filter((row) => (!severity || row.Severity === severity) && (!area || row.Area === area));
+  const summary = document.querySelector('#dataQualitySummary');
+  if (summary) summary.innerHTML = `<div><strong>${response.score ?? 100}%</strong><span>Record health</span></div><div class="quality-critical"><strong>${response.critical || 0}</strong><span>Critical</span></div><div><strong>${response.actionable || 0}</strong><span>Actionable issues</span></div><div><strong>${response.checked || 0}</strong><span>Records checked</span></div>`;
+  const container = document.querySelector('#dataQualityResults');
+  if (!container) return;
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="quality-centre-item severity-${escapeHtml(String(row.Severity || 'information').toLowerCase())}" ${row.View ? `data-view-link="${escapeHtml(row.View)}"` : ''}${row.OfficerID ? ` data-open-officer="${escapeHtml(row.OfficerID)}"` : ''}${row.OperationsTarget ? ` data-open-ops-search="${escapeHtml(row.OperationsTarget)}"` : ''}><div class="quality-severity">${escapeHtml(row.Severity)}</div><div><span>${escapeHtml(row.Area)} / ${escapeHtml(row.Check)}</span><strong>${escapeHtml(row.Title)}</strong><p>${escapeHtml(row.Detail)}</p><small>${escapeHtml(row.Reference || '')}</small></div><button class="mini ghost" type="button">Review</button></article>`).join('') : emptyState('No data-quality issues match this view.');
 }
 
 async function loadCalendar() {
@@ -7639,6 +7712,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       acknowledgeFormalMessage: supabaseAcknowledgeFormalMessage,
       openChatAttachment: supabaseOpenChatAttachment,
       globalSearch: supabaseGlobalSearch,
+      systemTimeline: supabaseSystemTimeline,
+      dataQualityCentre: supabaseDataQualityCentre,
       savedViews: supabaseSavedViews,
       saveSavedView: supabaseSaveSavedView,
       operationalCalendar: supabaseOperationalCalendar,
@@ -8373,6 +8448,68 @@ async function supabaseGlobalSearch(data) {
     ...shifts.filter((row) => matches([row.roblox_username, row.callsign, row.rank, row.summary, row.status, row.operational_status])).map((row) => ({ Type: 'Shifts', Title: `${row.roblox_username || officerName(row.officer_id)} / ${formatDisplayDateTime(row.started_at)}`, Detail: row.summary || row.operational_status || row.status, Meta: row.callsign, View: 'shift' })),
     ...evidence.filter((row) => matches([row.title, row.file_name, row.file_type, incidentReference(row.incident_id)])).map((row) => ({ Type: 'Evidence', Title: row.title || row.file_name, Detail: `${incidentReference(row.incident_id)} / ${row.file_name}`, Meta: row.file_type, OperationsTarget: `Incident:${row.incident_id}` })),
   ].slice(0, 250) };
+}
+
+async function supabaseSystemTimeline() {
+  const [officers, profiles, ranks, training, discipline, loa, shifts, tasks, aips, incidents, logs, caseUpdates, evidence] = await Promise.all([
+    supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('rank_changes'), supabaseOptionalAll('training_records'),
+    supabaseOptionalAll('disciplinary_actions'), supabaseOptionalAll('loa_requests'), supabaseOptionalAll('shift_logs'),
+    supabaseOptionalAll('mdt_tasks'), supabaseOptionalAll('activity_improvement_notices'), supabaseOptionalAll('operational_incidents'),
+    supabaseOptionalAll('operational_incident_logs'), supabaseOptionalAll('operational_case_updates'), supabaseOptionalAll('operational_incident_attachments'),
+  ]);
+  const officer = (id) => officers.find((row) => row.officer_id === id) || {};
+  const profile = (id) => profiles.find((row) => row.user_id === id) || {};
+  const incident = (id) => incidents.find((row) => row.incident_id === id) || {};
+  const rows = [];
+  const add = (Date, Area, Type, Title, Detail = '', extra = {}) => { if (Date) rows.push({ Date, Area, Type, Title, Detail, Severity: 'Information', ...extra }); };
+  ranks.forEach((row) => add(row.changed_at, 'Personnel', 'Rank Change', `${officer(row.officer_id).roblox_username || 'Officer'}: ${row.previous_rank || 'Unrecorded'} to ${row.new_rank}`, row.reason || '', { OfficerID: row.officer_id, Actor: profile(row.changed_by).roblox_username || '', Reference: row.change_id }));
+  training.forEach((row) => add(row.updated_at || row.date_completed, 'Personnel', 'Training', `${officer(row.officer_id).roblox_username || 'Officer'} / ${row.standard}`, `${row.status}${row.notes ? ` / ${row.notes}` : ''}`, { OfficerID: row.officer_id, Reference: row.training_id }));
+  discipline.forEach((row) => add(row.issued_at, 'Personnel', 'Discipline', `${officer(row.officer_id).roblox_username || 'Officer'} / ${row.type}`, row.summary, { OfficerID: row.officer_id, Actor: profile(row.issued_by).roblox_username || '', Reference: row.action_id, Severity: 'High' }));
+  loa.forEach((row) => add(row.reviewed_at || row.created_at || row.start_date, 'Personnel', 'Leave', `${officer(row.officer_id).roblox_username || 'Officer'} / ${row.status}`, `${formatDisplayDate(row.start_date)} - ${formatDisplayDate(row.end_date)}${row.reason ? ` / ${row.reason}` : ''}`, { OfficerID: row.officer_id, View: 'loa', Reference: row.request_id, Actor: profile(row.reviewed_by).roblox_username || '' }));
+  shifts.forEach((row) => add(row.ended_at || row.started_at, 'Personnel', 'Shift', `${row.roblox_username || officer(row.officer_id).roblox_username || 'Officer'} / ${row.status}`, row.summary || `${row.callsign || 'No callsign'} / ${row.operational_status || ''}`, { OfficerID: row.officer_id, View: 'shift', Reference: row.shift_id }));
+  tasks.forEach((row) => add(row.updated_at || row.created_at, 'Personnel', 'Task', row.title, `${officer(row.assigned_officer_id).roblox_username || 'Unassigned'} / ${row.status} / ${row.details || ''}`, { View: 'tasks', OfficerID: row.assigned_officer_id, Reference: row.task_id, Severity: row.priority === 'Critical' ? 'Critical' : row.priority === 'High' ? 'High' : 'Information' }));
+  aips.forEach((row) => add(row.reviewed_at || row.updated_at || row.created_at, 'Personnel', 'AIP', `${row.reference} / ${officer(row.officer_id).roblox_username || 'Officer'}`, `${row.status} / ${row.reason}`, { OfficerID: row.officer_id, View: 'development', Reference: row.aip_id, Severity: ['No Improvement', 'Partial Improvement'].includes(row.review_outcome) ? 'High' : 'Warning' }));
+  incidents.forEach((row) => add(row.closed_at || row.updated_at || row.created_at, 'Operations', 'CAD', `${row.incident_number} / ${row.title}`, `${row.status} / ${row.location || 'No location'} / ${row.outcome || row.closure_code || ''}`, { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number, Actor: profile(row.created_by).roblox_username || '', Severity: row.priority === 'Immediate' ? 'Critical' : row.priority === 'Priority' ? 'High' : 'Information' }));
+  logs.forEach((row) => { const cad = incident(row.incident_id); add(row.created_at, 'Operations', 'CAD Log', `${cad.incident_number || row.incident_id} / ${row.entry_type}`, row.body || '', { OperationsTarget: `Incident:${row.incident_id}`, Reference: cad.incident_number || row.incident_id, Actor: profile(row.created_by).roblox_username || '' }); });
+  caseUpdates.forEach((row) => add(row.created_at, 'Operations', 'Case Update', row.update_type || 'Case update', row.body || '', { OperationsTarget: `Case:${row.operation_id}`, Reference: row.operation_id, Actor: profile(row.created_by).roblox_username || '' }));
+  evidence.forEach((row) => { const cad = incident(row.incident_id); add(row.created_at, 'Operations', 'Evidence', row.title || row.file_name, `${cad.incident_number || row.incident_id} / ${row.file_type || 'File'}`, { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id, Actor: profile(row.uploaded_by).roblox_username || '' }); });
+  return { ok: true, rows: rows.sort((a, b) => String(b.Date).localeCompare(String(a.Date))).slice(0, 750) };
+}
+
+async function supabaseDataQualityCentre() {
+  if (!can('VIEW_AUDIT_LOG') && !can('FULL_ACCESS')) return { ok: false, error: 'You do not have permission to review system data quality.' };
+  const [officers, profiles, tasks, loa, aips, incidents, entities, people, vehicles, evidence, documents, cases] = await Promise.all([
+    supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('mdt_tasks'), supabaseOptionalAll('loa_requests'),
+    supabaseOptionalAll('activity_improvement_notices'), supabaseOptionalAll('operational_incidents'), supabaseOptionalAll('operational_incident_entities'),
+    supabaseOptionalAll('operational_persons'), supabaseOptionalAll('operational_vehicles'), supabaseOptionalAll('operational_incident_attachments'),
+    supabaseOptionalAll('documents'), supabaseOptionalAll('operational_operations'),
+  ]);
+  const rows = [];
+  const issue = (Severity, Area, Check, Title, Detail, extra = {}) => rows.push({ Severity, Area, Check, Title, Detail, ...extra });
+  const now = Date.now();
+  const activeOfficers = officers.filter((row) => row.status !== 'Archived');
+  activeOfficers.filter((row) => !row.supervisor_user_id).forEach((row) => issue('High', 'Personnel', 'Supervisor assignment', row.roblox_username, 'Active officer has no supervisor assigned.', { OfficerID: row.officer_id, Reference: row.callsign }));
+  const duplicateValues = (values) => values.filter(Boolean).filter((value, index, all) => all.indexOf(value) !== index);
+  const duplicateCallsigns = new Set(duplicateValues(activeOfficers.map((row) => String(row.callsign || '').trim().toLowerCase())));
+  activeOfficers.filter((row) => duplicateCallsigns.has(String(row.callsign || '').trim().toLowerCase())).forEach((row) => issue('High', 'Personnel', 'Duplicate callsign', row.roblox_username, `Callsign ${row.callsign} is assigned to more than one active officer.`, { OfficerID: row.officer_id, Reference: row.callsign }));
+  profiles.filter((row) => row.status !== 'Archived' && !officers.some((officerRow) => officerRow.member_id === row.member_id)).forEach((row) => issue('Warning', 'Accounts', 'Unlinked account', row.roblox_username, 'Active user account has no linked officer record.', { View: 'users', Reference: row.user_id }));
+  tasks.filter((row) => row.due_at && new Date(row.due_at).getTime() < now && !['Completed', 'Cancelled'].includes(row.status)).forEach((row) => issue(row.priority === 'Critical' ? 'Critical' : 'High', 'Tasks', 'Overdue task', row.title, `${row.status} / due ${formatDisplayDateTime(row.due_at)}`, { View: 'tasks', OfficerID: row.assigned_officer_id, Reference: row.task_id }));
+  loa.filter((row) => !row.start_date || !row.end_date || new Date(row.end_date) < new Date(row.start_date)).forEach((row) => issue('Critical', 'Personnel', 'Invalid leave dates', officers.find((item) => item.officer_id === row.officer_id)?.roblox_username || row.request_id, 'Leave record has missing or invalid dates.', { View: 'loa', OfficerID: row.officer_id, Reference: row.request_id }));
+  aips.filter((row) => row.review_end_date && new Date(`${row.review_end_date}T23:59:59`).getTime() < now && !['Closed', 'Withdrawn'].includes(row.status)).forEach((row) => issue('Critical', 'Personnel', 'Overdue AIP review', row.reference, `${officers.find((item) => item.officer_id === row.officer_id)?.roblox_username || 'Officer'} / review due ${formatDisplayDate(row.review_end_date)}`, { View: 'development', OfficerID: row.officer_id, Reference: row.aip_id }));
+  incidents.filter((row) => ['Resolved', 'Cancelled'].includes(row.status) && !row.outcome && !row.closure_code).forEach((row) => issue('High', 'Operations', 'Missing CAD outcome', `${row.incident_number} / ${row.title}`, 'Closed CAD has no outcome or closure code recorded.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
+  incidents.filter((row) => !['Resolved', 'Cancelled'].includes(row.status) && now - new Date(row.updated_at || row.created_at).getTime() > 24 * 60 * 60 * 1000).forEach((row) => issue('Warning', 'Operations', 'Stale open CAD', `${row.incident_number} / ${row.title}`, 'Open CAD has not been updated for more than 24 hours.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
+  incidents.filter((row) => !entities.some((item) => item.incident_id === row.incident_id)).forEach((row) => issue('Warning', 'Operations', 'No linked intelligence', `${row.incident_number} / ${row.title}`, 'CAD has no person or vehicle linked.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.incident_number }));
+  vehicles.filter((row) => !row.make || !row.model || !row.colour).forEach((row) => issue('Warning', 'Intelligence', 'Incomplete vehicle', row.registration, 'Vehicle is missing make, model or colour.', { OperationsTarget: `Vehicle:${row.vehicle_id}`, Reference: row.vehicle_id }));
+  people.filter((row) => !entities.some((item) => item.person_id === row.person_id)).forEach((row) => issue('Warning', 'Intelligence', 'Unlinked person', row.display_name, 'Person record is not linked to any CAD.', { OperationsTarget: `Person:${row.person_id}`, Reference: row.person_id }));
+  evidence.filter((row) => !row.title || !row.file_name || !row.storage_path).forEach((row) => issue('Critical', 'Evidence', 'Incomplete evidence metadata', row.title || row.file_name || row.attachment_id, 'Evidence is missing a title, filename or storage reference.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id }));
+  documents.filter((row) => !row.storage_path && !row.url && !row.drive_url).forEach((row) => issue('High', 'Documents', 'Unavailable document', row.title || row.document_id, 'Document has no uploaded file or external link.', { View: 'documents', Reference: row.document_id }));
+  cases.filter((row) => !row.archived_at && !row.summary && !row.objectives).forEach((row) => issue('Warning', 'Casework', 'Incomplete case', `${row.reference} / ${row.name}`, 'Active case has no summary or objectives.', { OperationsTarget: `Case:${row.operation_id}`, Reference: row.reference }));
+  const checked = activeOfficers.length + profiles.length + tasks.length + loa.length + aips.length + incidents.length + people.length + vehicles.length + evidence.length + documents.length + cases.length;
+  const critical = rows.filter((row) => row.Severity === 'Critical').length;
+  const weighted = rows.reduce((sum, row) => sum + ({ Critical: 4, High: 3, Warning: 1, Information: 0 }[row.Severity] || 0), 0);
+  const score = checked ? Math.max(0, Math.round(100 - (weighted / checked) * 15)) : 100;
+  const order = { Critical: 0, High: 1, Warning: 2, Information: 3 };
+  return { ok: true, rows: rows.sort((a, b) => order[a.Severity] - order[b.Severity] || a.Area.localeCompare(b.Area)).slice(0, 500), score, critical, actionable: rows.length, checked };
 }
 
 async function supabaseSavedViews() {
