@@ -304,6 +304,12 @@ document.querySelector('#enterOperationsHub')?.addEventListener('click', enterOp
 document.querySelector('#taskbarCadButton')?.addEventListener('click', enterOperationsHub);
 document.querySelector('#desktopHomeButton')?.addEventListener('click', showHubSelector);
 document.querySelector('#desktopSignOutButton')?.addEventListener('click', () => elements.logoutButton.click());
+document.querySelector('#systemTaskbarHome')?.addEventListener('click', showHubSelector);
+document.querySelector('#systemTaskbarCad')?.addEventListener('click', enterOperationsHub);
+document.querySelectorAll('[data-system-view]').forEach((button) => button.addEventListener('click', async () => {
+  if (state.activeHub !== 'personnel') await enterPersonnelHub();
+  await showView(button.dataset.systemView || defaultView());
+}));
 document.querySelector('#unlockWorkstationButton')?.addEventListener('click', showWorkstationSignin);
 document.querySelector('#signinBackButton')?.addEventListener('click', showWorkstationLock);
 document.querySelectorAll('[data-launch-personnel-app]').forEach((button) => button.addEventListener('click', async () => {
@@ -623,7 +629,7 @@ async function preloadTasks() {
 
 function updateTaskNavBadge(count) {
   const value = Math.max(0, Number(count || 0)); const label = value > 99 ? '99+' : String(value);
-  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount', '#homeTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; if (value > 0) pulseBadge(badge, value); });
+  ['#taskNavCount', '#desktopTaskCount', '#dockTaskCount', '#mobileTaskCount', '#homeTaskCount', '#systemTaskCount'].forEach((selector) => { const badge = document.querySelector(selector); if (!badge) return; badge.hidden = value === 0; badge.textContent = label; if (value > 0) pulseBadge(badge, value); });
   const navButton = document.querySelector('.nav-item[data-view="tasks"]'); if (navButton) navButton.setAttribute('aria-label', value ? `Tasks, ${value} outstanding` : 'Tasks');
 }
 
@@ -722,9 +728,11 @@ function updateWorkstationClock() {
   const lockTime = document.querySelector('#lockScreenTime');
   const lockDate = document.querySelector('#lockScreenDate');
   const desktopClock = document.querySelector('#desktopClock');
+  const systemTaskbarClock = document.querySelector('#systemTaskbarClock');
   if (lockTime) lockTime.textContent = time;
   if (lockDate) lockDate.textContent = date;
   if (desktopClock) { desktopClock.textContent = time; desktopClock.dateTime = now.toISOString(); }
+  if (systemTaskbarClock) { systemTaskbarClock.textContent = time; systemTaskbarClock.dateTime = now.toISOString(); }
 }
 
 function showLogin() {
@@ -781,8 +789,10 @@ function showHubSelector() {
   const desktopName = state.user.RobloxUsername || 'Officer';
   const welcome = document.querySelector('#desktopWelcome');
   const sessionUser = document.querySelector('#desktopSessionUser');
+  const systemTaskbarUser = document.querySelector('#systemTaskbarUser');
   if (welcome) welcome.textContent = desktopName;
   if (sessionUser) sessionUser.textContent = `${desktopName} / ${state.user.Rank || state.user.Role || 'Officer'}`;
+  if (systemTaskbarUser) systemTaskbarUser.textContent = desktopName;
   updateWorkstationClock();
   updateChatBadge();
   applyPermissions();

@@ -65,7 +65,7 @@ body.hub-select-mode .system-bar, body.hub-select-mode .topbar { display: none; 
 body.hub-select-mode .module-dock { display: none !important; }
 body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display: block; width: 100%; height: 100dvh; min-height: 100dvh; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
 .hub-select { width: 100%; height: 100dvh; min-height: 100dvh; padding: 0; overflow: hidden; background: transparent; border: 0; border-radius: 0; }
-.desktop-wallpaper { position: relative; display: grid; grid-template-rows: auto auto 1fr 50px; width: 100%; min-height: 100dvh; color: #fff; background: linear-gradient(135deg, rgba(7, 24, 40, .9), rgba(15, 61, 92, .76)), radial-gradient(circle at 76% 20%, rgba(83, 164, 211, .34), transparent 30%), linear-gradient(145deg, #092038, #1c6189 60%, #081a2b); }
+.desktop-wallpaper { position: relative; display: grid; grid-template-rows: auto auto minmax(0, 1fr) minmax(58px, auto); width: 100%; height: 100dvh; min-height: 100dvh; color: #fff; background: linear-gradient(135deg, rgba(7, 24, 40, .9), rgba(15, 61, 92, .76)), radial-gradient(circle at 76% 20%, rgba(83, 164, 211, .34), transparent 30%), linear-gradient(145deg, #092038, #1c6189 60%, #081a2b); }
 .desktop-wallpaper::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px); background-size: 44px 44px; }
 .desktop-heading { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 25px 30px; }
 .desktop-brand { display: flex; align-items: center; gap: 12px; }
@@ -92,7 +92,7 @@ body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display
 .app-tasks .app-icon { background: #39717a; }
 .app-careers .app-icon { background: #445a72; }
 .desktop-app-badge { position: absolute; top: 12px; right: 22px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; color: #fff; background: #c33d45; border: 2px solid #18334b; border-radius: 9px; font-size: 9px; font-style: normal; }
-.desktop-taskbar { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; min-height: 50px; padding: 5px 10px; background: rgba(5, 16, 28, .88); border-top: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(18px); }
+.desktop-taskbar { position: relative; z-index: 2; display: grid; grid-template-columns: auto 1fr auto; align-items: center; width: 100%; min-height: 58px; margin: 0; padding: 7px 12px max(8px, env(safe-area-inset-bottom)); box-sizing: border-box; background: rgba(5, 16, 28, .92); border-top: 1px solid rgba(255,255,255,.12); border-radius: 0; backdrop-filter: blur(18px); }
 .desktop-taskbar button { min-height: 36px; color: #dbe9f2; background: transparent; border-color: transparent; border-radius: 4px; }
 .desktop-taskbar button:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.1); }
 .taskbar-home { width: 45px; padding: 0; }
@@ -103,6 +103,24 @@ body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display
 .taskbar-session time { min-width: 46px; padding: 0 6px; text-align: right; font-size: 12px; }
 
 body.is-authenticated:not(.hub-select-mode):not(.operations-mode) #hubSwitchButton { color: #173b58; background: #e9f1f6; border-color: #a9bfce; }
+
+/* Shared authenticated taskbar */
+.system-taskbar { display: none; }
+body.is-authenticated:not(.hub-select-mode):not(.is-booting) .system-taskbar { position: fixed; z-index: 120; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; min-height: 54px; padding: 6px 12px max(7px, env(safe-area-inset-bottom)); color: #d8e5ed; background: rgba(8, 25, 39, .96); border-top: 1px solid #324c5f; box-sizing: border-box; backdrop-filter: blur(16px); }
+body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { padding-bottom: calc(54px + env(safe-area-inset-bottom)); }
+.system-taskbar button { min-height: 38px; padding: 3px 9px; color: #d8e5ed; background: transparent; border: 1px solid transparent; border-radius: 4px; box-shadow: none; }
+.system-taskbar button:hover, .system-taskbar button:focus-visible { color: #fff; background: #18384e; border-color: #365a72; }
+.system-taskbar-home { width: 46px; font-size: 10px; font-weight: 950; }
+.system-taskbar-apps { display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0; }
+.system-taskbar-apps button { position: relative; display: flex; align-items: center; gap: 7px; }
+.system-taskbar-icon { display: grid; place-items: center; width: 27px; height: 27px; color: #eaf5fb; background: #255b7c; border-radius: 3px; font-size: 8px; font-weight: 950; }
+.system-taskbar-cad-icon { background: #8b3d42; }
+.system-taskbar-apps small { font-size: 10px; }
+.system-taskbar-tasks b { position: absolute; top: -3px; left: 29px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; color: #fff; background: #cf3038; border: 2px solid #081927; border-radius: 10px; box-sizing: border-box; font-size: 9px; line-height: 1; }
+.system-taskbar-tasks b[hidden] { display: none; }
+.system-taskbar-session { display: flex; align-items: center; gap: 10px; min-width: 120px; justify-content: flex-end; font-size: 10px; }
+.system-taskbar-session span { overflow: hidden; max-width: 130px; color: #a9bfcc; text-overflow: ellipsis; white-space: nowrap; }
+.system-taskbar-session time { min-width: 42px; color: #fff; font-size: 12px; text-align: right; }
 
 @media (max-width: 700px) {
   .workstation-lock { padding: 24px 20px 18px; }
@@ -115,7 +133,7 @@ body.is-authenticated:not(.hub-select-mode):not(.operations-mode) #hubSwitchButt
   .workstation-lock footer span:last-child { display: none; }
   .workstation-signin { align-content: center; padding-bottom: 90px; }
   .workstation-signin footer { right: 18px; bottom: 16px; left: 18px; gap: 8px; flex-direction: column; align-items: center; }
-  .desktop-wallpaper { grid-template-rows: auto auto minmax(0, 1fr) 56px; }
+  .desktop-wallpaper { grid-template-rows: auto auto minmax(0, 1fr) minmax(62px, auto); }
   .desktop-heading { padding: 18px; }
   .desktop-brand > span { width: 42px; height: 42px; }
   .desktop-security { display: none; }
@@ -126,9 +144,18 @@ body.is-authenticated:not(.hub-select-mode):not(.operations-mode) #hubSwitchButt
   .app-icon { width: 49px; height: 49px; }
   .desktop-app small { display: none; }
   .desktop-taskbar { grid-template-columns: auto 1fr auto; }
-  .taskbar-pinned { display: none; }
+  .taskbar-pinned { display: flex; }
+  .taskbar-pinned button:not(.taskbar-profile) { display: none; }
   .taskbar-session > span { display: none; }
   .taskbar-session time { min-width: 42px; }
+  body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
+  body.is-authenticated:not(.hub-select-mode):not(.is-booting) .system-taskbar { min-height: 62px; grid-template-columns: 42px minmax(0, 1fr); padding: 5px 8px max(7px, env(safe-area-inset-bottom)); }
+  .system-taskbar-home { width: 40px; padding: 2px; }
+  .system-taskbar-apps { justify-content: space-around; gap: 1px; }
+  .system-taskbar-apps button { display: grid; justify-items: center; gap: 2px; min-width: 48px; padding: 2px 4px; }
+  .system-taskbar-apps small { font-size: 8px; line-height: 1; }
+  .system-taskbar-session { display: none; }
+  .system-taskbar-tasks b { top: -2px; right: 1px; left: auto; }
 }
 
 @media (max-width: 390px) {
