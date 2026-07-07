@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-06-12">
+    <link rel="stylesheet" href="styles.css?v=2026-07-07-1">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -239,10 +239,14 @@
           </section>
 
           <section class="data-view" id="timelineView" hidden>
-            <div class="section-head"><div><h2>Activity Timeline</h2><p>One chronological view across accessible Personnel and Operations records.</p></div><button class="ghost" id="refreshTimelineButton">Refresh</button></div>
-            <div class="timeline-toolbar"><input id="timelineSearch" type="search" placeholder="Search officer, CAD, reference or activity"><select id="timelineType"><option value="">All activity types</option></select><input id="timelineFrom" type="date" aria-label="Timeline from date"><input id="timelineTo" type="date" aria-label="Timeline to date"></div>
-            <div class="timeline-overview" id="timelineOverview"></div>
-            <div class="unified-timeline" id="timelineResults"></div>
+            <div class="section-head"><div><h2>Activity Timeline</h2><p>Search for a record, then review its complete chronology.</p></div><button class="ghost" id="refreshTimelineButton" hidden>Refresh</button></div>
+            <section class="timeline-finder" id="timelineFinder"><label><span>Find a timeline</span><input id="timelineSearch" type="search" placeholder="Officer, callsign, CAD number, person, vehicle registration or case" autocomplete="off"></label><div id="timelineSubjectResults" class="timeline-subject-results"><p class="empty">Enter at least two characters to find a record.</p></div></section>
+            <section id="timelineWorkspace" hidden>
+              <header class="timeline-selection" id="timelineSelection"></header>
+              <div class="timeline-toolbar"><input id="timelineEventSearch" type="search" placeholder="Filter this timeline"><select id="timelineType"><option value="">All activity types</option></select><input id="timelineFrom" type="date" aria-label="Timeline from date"><input id="timelineTo" type="date" aria-label="Timeline to date"></div>
+              <div class="timeline-overview" id="timelineOverview"></div>
+              <div class="unified-timeline" id="timelineResults"></div>
+            </section>
           </section>
 
           <section class="data-view" id="dataQualityView" hidden>
@@ -824,6 +828,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-06-13"></script>
+    <script src="app.js?v=2026-07-07-1"></script>
   </body>
 </html>

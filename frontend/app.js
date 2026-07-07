@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-06-8';
+const APP_VERSION = '2026-07-07-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -429,11 +429,12 @@ document.querySelector('#shiftStartFilter').addEventListener('change', loadShift
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
 document.querySelector('#globalSearchType')?.addEventListener('change', renderGlobalSearchResults);
-document.querySelector('#timelineSearch')?.addEventListener('input', debounce(renderUnifiedTimeline, 120));
+document.querySelector('#timelineSearch')?.addEventListener('input', debounce(searchTimelineSubjects, 240));
+document.querySelector('#timelineEventSearch')?.addEventListener('input', debounce(renderUnifiedTimeline, 120));
 document.querySelector('#timelineType')?.addEventListener('change', renderUnifiedTimeline);
 document.querySelector('#timelineFrom')?.addEventListener('change', renderUnifiedTimeline);
 document.querySelector('#timelineTo')?.addEventListener('change', renderUnifiedTimeline);
-document.querySelector('#refreshTimelineButton')?.addEventListener('click', async () => { invalidateCache('systemTimeline'); await loadTimeline(); });
+document.querySelector('#refreshTimelineButton')?.addEventListener('click', loadSelectedTimeline);
 document.querySelector('#dataQualitySeverity')?.addEventListener('change', renderDataQualityCentre);
 document.querySelector('#dataQualityArea')?.addEventListener('change', renderDataQualityCentre);
 document.querySelector('#refreshDataQualityButton')?.addEventListener('click', async () => { invalidateCache('dataQualityCentre'); await loadDataQualityCentre(); });
@@ -999,6 +1000,11 @@ function renderViewLoading(view) {
     document.querySelector('#globalSearchResults').innerHTML = loadingBlock('Preparing global search...');
     return;
   }
+  if (view === 'timeline') return;
+  if (view === 'dataQuality') {
+    document.querySelector('#dataQualityResults').innerHTML = loadingBlock('Running data-quality checks...');
+    return;
+  }
   if (view === 'calendar') {
     document.querySelector('#calendarGrid').innerHTML = loadingBlock('Loading operational calendar...');
     return;
@@ -1521,11 +1527,51 @@ function openSavedViewEditor() {
 
 async function loadTimeline() {
   await showViewOnly('timeline');
+  if (state.timelineSubject) {
+    await loadSelectedTimeline();
+    return;
+  }
+  document.querySelector('#timelineFinder').hidden = false;
+  document.querySelector('#timelineWorkspace').hidden = true;
+  document.querySelector('#refreshTimelineButton').hidden = true;
+}
+
+async function searchTimelineSubjects() {
+  const query = String(document.querySelector('#timelineSearch')?.value || '').trim();
+  const container = document.querySelector('#timelineSubjectResults');
+  if (!container) return;
+  if (query.length < 2) { container.innerHTML = '<p class="empty">Enter at least two characters to find a record.</p>'; return; }
+  const requestId = (searchTimelineSubjects.requestId || 0) + 1;
+  searchTimelineSubjects.requestId = requestId;
+  container.innerHTML = loadingBlock('Finding timelines...');
+  const response = await api('timelineSubjects', { Query: query });
+  if (requestId !== searchTimelineSubjects.requestId) return;
+  if (!response.ok) return renderError(container, response.error);
+  state.timelineSubjects = response.rows || [];
+  container.innerHTML = state.timelineSubjects.length ? state.timelineSubjects.map((row, index) => `<button type="button" data-timeline-subject="${index}"><span>${escapeHtml(row.Type)}</span><strong>${escapeHtml(row.Title)}</strong><small>${escapeHtml(row.Subtitle || '')}</small></button>`).join('') : '<p class="empty">No matching timelines were found.</p>';
+}
+
+async function openTimelineSubject(index) {
+  const subject = state.timelineSubjects?.[Number(index)];
+  if (!subject) return;
+  state.timelineSubject = subject;
+  document.querySelector('#timelineFinder').hidden = true;
+  document.querySelector('#timelineWorkspace').hidden = false;
+  document.querySelector('#refreshTimelineButton').hidden = false;
+  await loadSelectedTimeline();
+}
+
+async function loadSelectedTimeline() {
+  const subject = state.timelineSubject;
+  if (!subject) return loadTimeline();
   const container = document.querySelector('#timelineResults');
-  if (container) container.innerHTML = loadingBlock('Building the activity timeline...');
-  const response = await apiCached('systemTimeline', {});
+  container.innerHTML = loadingBlock(`Loading ${subject.Title} timeline...`);
+  const response = await api('entityTimeline', { SubjectType: subject.Type, SubjectID: subject.ID });
   if (!response.ok) return renderError(container, response.error);
   state.systemTimeline = response.rows || [];
+  state.timelineSubject = { ...subject, ...(response.subject || {}) };
+  const selection = document.querySelector('#timelineSelection');
+  selection.innerHTML = `<button class="ghost" type="button" data-close-timeline>Back to search</button><div><span>${escapeHtml(state.timelineSubject.Type)}</span><h3>${escapeHtml(state.timelineSubject.Title)}</h3><p>${escapeHtml(state.timelineSubject.Subtitle || '')}</p></div>${state.timelineSubject.Destination ? `<button type="button" ${timelineDestinationAttribute(state.timelineSubject.Destination)}>Open full record</button>` : ''}`;
   const typeSelect = document.querySelector('#timelineType');
   const currentType = typeSelect?.value || '';
   const types = [...new Set(state.systemTimeline.map((row) => row.Type).filter(Boolean))].sort();
@@ -1533,11 +1579,29 @@ async function loadTimeline() {
   renderUnifiedTimeline();
 }
 
+function timelineDestinationAttribute(destination = '') {
+  const separator = destination.indexOf(':');
+  const type = separator >= 0 ? destination.slice(0, separator) : '';
+  const id = separator >= 0 ? destination.slice(separator + 1) : destination;
+  if (type === 'Officer') return `data-open-officer="${escapeHtml(id)}"`;
+  if (['Incident', 'Case', 'Person', 'Vehicle'].includes(type)) return `data-open-ops-search="${escapeHtml(`${type}:${id}`)}"`;
+  return '';
+}
+
+function closeTimelineSubject() {
+  state.timelineSubject = null;
+  state.systemTimeline = [];
+  document.querySelector('#timelineFinder').hidden = false;
+  document.querySelector('#timelineWorkspace').hidden = true;
+  document.querySelector('#refreshTimelineButton').hidden = true;
+  document.querySelector('#timelineSearch')?.focus();
+}
+
 function renderUnifiedTimeline() {
   const container = document.querySelector('#timelineResults');
   const overview = document.querySelector('#timelineOverview');
   if (!container) return;
-  const query = String(document.querySelector('#timelineSearch')?.value || '').trim().toLowerCase();
+  const query = String(document.querySelector('#timelineEventSearch')?.value || '').trim().toLowerCase();
   const type = document.querySelector('#timelineType')?.value || '';
   const from = document.querySelector('#timelineFrom')?.value ? new Date(`${document.querySelector('#timelineFrom').value}T00:00:00`).getTime() : 0;
   const to = document.querySelector('#timelineTo')?.value ? new Date(`${document.querySelector('#timelineTo').value}T23:59:59`).getTime() : Number.MAX_SAFE_INTEGER;
@@ -5775,6 +5839,9 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
+  const timelineSubject = event.target.closest('[data-timeline-subject]');
+  if (timelineSubject) { await openTimelineSubject(timelineSubject.dataset.timelineSubject); return; }
+  if (event.target.closest('[data-close-timeline]')) { closeTimelineSubject(); return; }
   const searchPreview = event.target.closest('[data-search-preview]');
   if (searchPreview) {
     openGlobalSearchPreview(searchPreview.dataset.searchPreview);
@@ -7746,6 +7813,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       openChatAttachment: supabaseOpenChatAttachment,
       globalSearch: supabaseGlobalSearch,
       systemTimeline: supabaseSystemTimeline,
+      timelineSubjects: supabaseTimelineSubjects,
+      entityTimeline: supabaseEntityTimeline,
       dataQualityCentre: supabaseDataQualityCentre,
       savedViews: supabaseSavedViews,
       saveSavedView: supabaseSaveSavedView,
@@ -8484,6 +8553,103 @@ async function supabaseGlobalSearch(data) {
   ].slice(0, 250) };
 }
 
+async function supabaseTimelineSubjects(data) {
+  const query = String(data.Query || '').trim();
+  if (query.length < 2) return { ok: true, rows: [] };
+  const [officers, incidents, people, vehicles, cases] = await Promise.all([
+    supabaseSearchTable('officers', ['roblox_username', 'callsign', 'rank'], query),
+    supabaseSearchTable('operational_incidents', ['incident_number', 'title', 'location'], query),
+    supabaseSearchTable('operational_persons', ['display_name', 'roblox_username'], query),
+    supabaseSearchTable('operational_vehicles', ['registration', 'make', 'model', 'colour'], query),
+    supabaseSearchTable('operational_operations', ['reference', 'name', 'summary'], query),
+  ]);
+  return { ok: true, rows: [
+    ...officers.map((row) => ({ Type: 'Officer', ID: row.officer_id, Title: row.roblox_username, Subtitle: `${row.rank} / ${row.callsign || 'No callsign'} / ${row.status}`, Destination: `Officer:${row.officer_id}` })),
+    ...incidents.map((row) => ({ Type: 'CAD', ID: row.incident_id, Title: `${row.incident_number} / ${row.title}`, Subtitle: `${row.location || 'No location'} / ${row.status}`, Destination: `Incident:${row.incident_id}` })),
+    ...people.map((row) => ({ Type: 'Person', ID: row.person_id, Title: row.display_name, Subtitle: row.roblox_username || 'Intelligence record', Destination: `Person:${row.person_id}` })),
+    ...vehicles.map((row) => ({ Type: 'Vehicle', ID: row.vehicle_id, Title: row.registration, Subtitle: [row.colour, row.make, row.model, row.status].filter(Boolean).join(' / '), Destination: `Vehicle:${row.vehicle_id}` })),
+    ...cases.map((row) => ({ Type: 'Case', ID: row.operation_id, Title: `${row.reference} / ${row.name}`, Subtitle: `${row.case_type || 'Casework'} / ${row.status}`, Destination: `Case:${row.operation_id}` })),
+  ].slice(0, 50) };
+}
+
+async function supabaseEntityTimeline(data) {
+  const type = String(data.SubjectType || '');
+  const id = String(data.SubjectID || '');
+  if (!id || !['Officer', 'CAD', 'Person', 'Vehicle', 'Case'].includes(type)) return { ok: false, error: 'Choose a valid timeline record.' };
+  const profiles = await supabaseOptionalSelect('profiles', 'user_id,roblox_username');
+  const actor = (userId) => profiles.find((row) => row.user_id === userId)?.roblox_username || '';
+  const events = [];
+  const add = (Date, Area, Type, Title, Detail = '', extra = {}) => { if (Date) events.push({ Date, Area, Type, Title, Detail, Severity: 'Information', ...extra }); };
+  let subject = { Type: type, ID: id, Title: id, Subtitle: '', Destination: `${type}:${id}` };
+
+  if (type === 'Officer') {
+    const officer = await supabaseById('officers', 'officer_id', id);
+    if (!officer) return { ok: false, error: 'Officer record not found.' };
+    subject = { Type: 'Officer', ID: id, Title: officer.roblox_username, Subtitle: `${officer.rank} / ${officer.callsign || 'No callsign'} / ${officer.status}`, Destination: `Officer:${id}` };
+    const [ranks, training, discipline, loa, shifts, tasks, aips, actions] = await Promise.all([
+      supabaseOptionalRows('rank_changes', 'officer_id', id, 'changed_at'), supabaseOptionalRows('training_records', 'officer_id', id, 'updated_at'),
+      supabaseOptionalRows('disciplinary_actions', 'officer_id', id, 'issued_at'), supabaseOptionalRows('loa_requests', 'officer_id', id, 'created_at'),
+      supabaseOptionalRows('shift_logs', 'officer_id', id, 'started_at'), supabaseOptionalRows('mdt_tasks', 'assigned_officer_id', id, 'created_at'),
+      supabaseOptionalRows('activity_improvement_notices', 'officer_id', id, 'created_at'), supabaseOptionalRows('operational_officer_actions', 'officer_id', id, 'occurred_at'),
+    ]);
+    add(officer.created_at, 'Personnel', 'Officer Record', 'Officer added to the MDT', `${officer.rank} / ${officer.callsign || 'No callsign'}`, { OfficerID: id, Reference: id });
+    ranks.forEach((row) => add(row.changed_at, 'Personnel', 'Rank Change', `${row.previous_rank || 'Unrecorded'} to ${row.new_rank}`, row.reason || '', { OfficerID: id, Actor: actor(row.changed_by), Reference: row.change_id }));
+    training.forEach((row) => add(row.updated_at || row.date_completed, 'Personnel', 'Training', row.standard, `${row.status}${row.notes ? ` / ${row.notes}` : ''}`, { OfficerID: id, Reference: row.training_id }));
+    discipline.forEach((row) => add(row.issued_at, 'Personnel', 'Discipline', row.type, row.summary || row.details || '', { OfficerID: id, Actor: actor(row.issued_by), Reference: row.action_id, Severity: 'High' }));
+    loa.forEach((row) => add(row.reviewed_at || row.created_at, 'Personnel', 'Leave', `${row.status} LOA`, `${formatDisplayDate(row.start_date)} - ${formatDisplayDate(row.end_date)} / ${row.reason || ''}`, { OfficerID: id, Actor: actor(row.reviewed_by), Reference: row.request_id }));
+    shifts.forEach((row) => add(row.ended_at || row.started_at, 'Personnel', 'Shift', row.status || 'Shift', row.summary || `${row.callsign || ''} / ${row.operational_status || ''}`, { OfficerID: id, Reference: row.shift_id }));
+    tasks.forEach((row) => add(row.updated_at || row.created_at, 'Personnel', 'Task', row.title, `${row.status} / ${row.details || ''}`, { OfficerID: id, View: 'tasks', Reference: row.task_id, Severity: row.priority === 'Critical' ? 'Critical' : row.priority === 'High' ? 'High' : 'Information' }));
+    aips.filter((row) => !row.archived_at).forEach((row) => add(row.reviewed_at || row.updated_at || row.created_at, 'Personnel', 'AIP', row.reference, `${row.status} / ${row.reason}`, { OfficerID: id, View: 'development', Reference: row.aip_id, Severity: 'Warning' }));
+    actions.forEach((row) => add(row.occurred_at || row.created_at, 'Operations', 'Officer Action', row.action_type, row.notes || row.outcome_report || '', { OfficerID: id, OperationsTarget: `Incident:${row.incident_id}`, Reference: row.action_id }));
+  } else if (type === 'CAD') {
+    const incident = await supabaseById('operational_incidents', 'incident_id', id);
+    if (!incident) return { ok: false, error: 'CAD record not found.' };
+    subject = { Type: 'CAD', ID: id, Title: `${incident.incident_number} / ${incident.title}`, Subtitle: `${incident.location || 'No location'} / ${incident.status}`, Destination: `Incident:${id}` };
+    const [logs, evidence, disposals, powers, actions, reviews] = await Promise.all([
+      supabaseOptionalRows('operational_incident_logs', 'incident_id', id, 'created_at'), supabaseOptionalRows('operational_incident_attachments', 'incident_id', id, 'created_at'),
+      supabaseOptionalRows('operational_disposals', 'incident_id', id, 'issued_at'), supabaseOptionalRows('operational_power_uses', 'incident_id', id, 'occurred_at'),
+      supabaseOptionalRows('operational_officer_actions', 'incident_id', id, 'occurred_at'), supabaseOptionalRows('operational_incident_reviews', 'incident_id', id, 'reviewed_at'),
+    ]);
+    add(incident.created_at, 'Operations', 'CAD Created', `${incident.incident_number} / ${incident.title}`, incident.description || incident.location || '', { OperationsTarget: `Incident:${id}`, Actor: actor(incident.created_by), Reference: incident.incident_number });
+    if (incident.closed_at) add(incident.closed_at, 'Operations', 'CAD Closed', incident.closure_code || incident.outcome || 'Closed', incident.outcome || '', { OperationsTarget: `Incident:${id}`, Reference: incident.incident_number });
+    logs.forEach((row) => add(row.created_at, 'Operations', 'CAD Log', row.entry_type, row.body || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.created_by), Reference: row.log_id }));
+    evidence.forEach((row) => add(row.created_at, 'Operations', 'Evidence', row.title || row.file_name, row.file_type || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.uploaded_by), Reference: row.attachment_id }));
+    disposals.forEach((row) => add(row.issued_at, 'Operations', 'Outcome', row.outcome_type, row.notes || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.issued_by), Reference: row.disposal_id }));
+    powers.forEach((row) => add(row.occurred_at || row.created_at, 'Operations', 'Power Used', row.outcome || 'Power recorded', row.grounds || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.created_by), Reference: row.power_use_id }));
+    actions.forEach((row) => add(row.occurred_at || row.created_at, 'Operations', 'Officer Action', row.action_type, row.notes || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.created_by), Reference: row.action_id }));
+    reviews.forEach((row) => add(row.completed_at || row.created_at, 'Operations', 'Supervisor Review', row.status, row.feedback || '', { OperationsTarget: `Incident:${id}`, Actor: actor(row.reviewer_user_id), Reference: row.review_id }));
+  } else if (type === 'Case') {
+    const record = await supabaseById('operational_operations', 'operation_id', id);
+    if (!record) return { ok: false, error: 'Case record not found.' };
+    subject = { Type: 'Case', ID: id, Title: `${record.reference} / ${record.name}`, Subtitle: `${record.case_type || 'Casework'} / ${record.status}`, Destination: `Case:${id}` };
+    const [updates, actions, links] = await Promise.all([supabaseOptionalRows('operational_case_updates', 'operation_id', id, 'created_at'), supabaseOptionalRows('operational_case_actions', 'operation_id', id, 'created_at'), supabaseOptionalRows('operational_operation_links', 'operation_id', id, 'created_at')]);
+    add(record.created_at, 'Operations', 'Case Created', record.name, record.summary || record.objectives || '', { OperationsTarget: `Case:${id}`, Actor: actor(record.created_by), Reference: record.reference });
+    updates.forEach((row) => add(row.created_at, 'Operations', 'Case Update', row.update_type, row.body || '', { OperationsTarget: `Case:${id}`, Actor: actor(row.created_by), Reference: row.update_id }));
+    actions.forEach((row) => add(row.updated_at || row.created_at, 'Operations', 'Case Action', row.title, `${row.status} / ${row.details || ''}`, { OperationsTarget: `Case:${id}`, Actor: actor(row.created_by), Reference: row.action_id }));
+    links.forEach((row) => add(row.created_at, 'Operations', 'Record Linked', `${row.subject_type} linked`, row.notes || row.relationship || '', { OperationsTarget: `Case:${id}`, Actor: actor(row.created_by), Reference: row.operation_link_id }));
+  } else {
+    const table = type === 'Person' ? 'operational_persons' : 'operational_vehicles';
+    const key = type === 'Person' ? 'person_id' : 'vehicle_id';
+    const record = await supabaseById(table, key, id);
+    if (!record) return { ok: false, error: `${type} record not found.` };
+    subject = type === 'Person'
+      ? { Type: 'Person', ID: id, Title: record.display_name, Subtitle: record.roblox_username || 'Intelligence record', Destination: `Person:${id}` }
+      : { Type: 'Vehicle', ID: id, Title: record.registration, Subtitle: [record.colour, record.make, record.model, record.status].filter(Boolean).join(' / '), Destination: `Vehicle:${id}` };
+    const [links, disposals, powers, markers] = await Promise.all([
+      supabaseOptionalRows('operational_incident_entities', key, id, 'created_at'), supabaseOptionalRows('operational_disposals', key, id, 'issued_at'),
+      supabaseOptionalRows('operational_power_uses', key, id, 'occurred_at'), supabaseOptionalRows('operational_intel_markers', key, id, 'created_at'),
+    ]);
+    const incidentIds = [...new Set(links.map((row) => row.incident_id).filter(Boolean))];
+    const incidents = await supabaseOptionalIn('operational_incidents', 'incident_id', incidentIds);
+    add(record.created_at, 'Intelligence', `${type} Record`, `${subject.Title} added`, record.notes || subject.Subtitle, { OperationsTarget: `${type}:${id}`, Actor: actor(record.created_by), Reference: id });
+    links.forEach((row) => { const cad = incidents.find((item) => item.incident_id === row.incident_id) || {}; add(row.created_at || cad.created_at, 'Operations', 'CAD Link', `${cad.incident_number || row.incident_id} / ${row.involvement_role}`, row.notes || cad.title || '', { OperationsTarget: `Incident:${row.incident_id}`, Actor: actor(row.created_by), Reference: cad.incident_number || row.incident_id }); });
+    disposals.forEach((row) => add(row.issued_at, 'Operations', 'Outcome', row.outcome_type, row.notes || '', { OperationsTarget: `Incident:${row.incident_id}`, Actor: actor(row.issued_by), Reference: row.disposal_id }));
+    powers.forEach((row) => add(row.occurred_at || row.created_at, 'Operations', 'Power Used', row.outcome, row.grounds || '', { OperationsTarget: `Incident:${row.incident_id}`, Actor: actor(row.created_by), Reference: row.power_use_id }));
+    markers.forEach((row) => add(row.created_at, 'Intelligence', 'Warning Marker', row.marker_type, row.details || '', { OperationsTarget: `${type}:${id}`, Actor: actor(row.created_by), Reference: row.marker_id, Severity: row.severity === 'Critical' ? 'Critical' : 'High' }));
+  }
+  return { ok: true, subject, rows: events.sort((a, b) => String(b.Date).localeCompare(String(a.Date))).slice(0, 500) };
+}
+
 async function supabaseSystemTimeline() {
   const [officers, profiles, ranks, training, discipline, loa, shifts, tasks, aips, incidents, logs, caseUpdates, evidence] = await Promise.all([
     supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('rank_changes'), supabaseOptionalAll('training_records'),
@@ -8513,10 +8679,18 @@ async function supabaseSystemTimeline() {
 async function supabaseDataQualityCentre() {
   if (!can('VIEW_AUDIT_LOG') && !can('FULL_ACCESS')) return { ok: false, error: 'You do not have permission to review system data quality.' };
   const [officers, profiles, tasks, loa, aips, incidents, entities, people, vehicles, evidence, documents, cases] = await Promise.all([
-    supabaseAll('officers'), supabaseAll('profiles'), supabaseOptionalAll('mdt_tasks'), supabaseOptionalAll('loa_requests'),
-    supabaseOptionalAll('activity_improvement_notices'), supabaseOptionalAll('operational_incidents'), supabaseOptionalAll('operational_incident_entities'),
-    supabaseOptionalAll('operational_persons'), supabaseOptionalAll('operational_vehicles'), supabaseOptionalAll('operational_incident_attachments'),
-    supabaseOptionalAll('documents'), supabaseOptionalAll('operational_operations'),
+    supabaseOptionalSelect('officers', 'officer_id,member_id,roblox_username,callsign,status,supervisor_user_id'),
+    supabaseOptionalSelect('profiles', 'user_id,member_id,roblox_username,status'),
+    supabaseOptionalSelect('mdt_tasks', 'task_id,title,status,priority,due_at,assigned_officer_id', (query) => query.in('status', ['Open', 'In Progress', 'Blocked'])),
+    supabaseOptionalSelect('loa_requests', 'request_id,officer_id,start_date,end_date,status'),
+    supabaseOptionalSelect('activity_improvement_notices', 'aip_id,reference,officer_id,status,review_end_date,archived_at', (query) => query.is('archived_at', null)),
+    supabaseOptionalSelect('operational_incidents', 'incident_id,incident_number,title,status,outcome,closure_code,updated_at,created_at'),
+    supabaseOptionalSelect('operational_incident_entities', 'incident_id,person_id,vehicle_id'),
+    supabaseOptionalSelect('operational_persons', 'person_id,display_name'),
+    supabaseOptionalSelect('operational_vehicles', 'vehicle_id,registration,make,model,colour'),
+    supabaseOptionalSelect('operational_incident_attachments', 'attachment_id,incident_id,title,file_name,storage_path'),
+    supabaseOptionalSelect('documents', 'document_id,title,storage_path,drive_url'),
+    supabaseOptionalSelect('operational_operations', 'operation_id,reference,name,summary,objectives,archived_at'),
   ]);
   const rows = [];
   const issue = (Severity, Area, Check, Title, Detail, extra = {}) => rows.push({ Severity, Area, Check, Title, Detail, ...extra });
@@ -8536,7 +8710,7 @@ async function supabaseDataQualityCentre() {
   vehicles.filter((row) => !row.make || !row.model || !row.colour).forEach((row) => issue('Warning', 'Intelligence', 'Incomplete vehicle', row.registration, 'Vehicle is missing make, model or colour.', { OperationsTarget: `Vehicle:${row.vehicle_id}`, Reference: row.vehicle_id }));
   people.filter((row) => !entities.some((item) => item.person_id === row.person_id)).forEach((row) => issue('Warning', 'Intelligence', 'Unlinked person', row.display_name, 'Person record is not linked to any CAD.', { OperationsTarget: `Person:${row.person_id}`, Reference: row.person_id }));
   evidence.filter((row) => !row.title || !row.file_name || !row.storage_path).forEach((row) => issue('Critical', 'Evidence', 'Incomplete evidence metadata', row.title || row.file_name || row.attachment_id, 'Evidence is missing a title, filename or storage reference.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id }));
-  documents.filter((row) => !row.storage_path && !row.url && !row.drive_url).forEach((row) => issue('High', 'Documents', 'Unavailable document', row.title || row.document_id, 'Document has no uploaded file or external link.', { View: 'documents', Reference: row.document_id }));
+  documents.filter((row) => !row.storage_path && !row.drive_url).forEach((row) => issue('High', 'Documents', 'Unavailable document', row.title || row.document_id, 'Document has no uploaded file or external link.', { View: 'documents', Reference: row.document_id }));
   cases.filter((row) => !row.archived_at && !row.summary && !row.objectives).forEach((row) => issue('Warning', 'Casework', 'Incomplete case', `${row.reference} / ${row.name}`, 'Active case has no summary or objectives.', { OperationsTarget: `Case:${row.operation_id}`, Reference: row.reference }));
   const checked = activeOfficers.length + profiles.length + tasks.length + loa.length + aips.length + incidents.length + people.length + vehicles.length + evidence.length + documents.length + cases.length;
   const critical = rows.filter((row) => row.Severity === 'Critical').length;
@@ -12455,6 +12629,43 @@ async function supabaseOptionalAll(table) {
     return await supabaseAll(table);
   } catch (error) {
     if (/does not exist|schema cache/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
+async function supabaseOptionalSelect(table, columns = '*', configure = (query) => query) {
+  try {
+    const { data, error } = await configure(supabaseClient.from(table).select(columns));
+    if (error) throw new Error(error.message);
+    return data || [];
+  } catch (error) {
+    if (/does not exist|schema cache|permission denied/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
+async function supabaseSearchTable(table, columns, value, limit = 12) {
+  const term = String(value || '').replace(/[%_,().'\"]/g, ' ').trim();
+  if (!term) return [];
+  try {
+    const filter = columns.map((column) => `${column}.ilike.%${term}%`).join(',');
+    const { data, error } = await supabaseClient.from(table).select('*').or(filter).limit(limit);
+    if (error) throw new Error(error.message);
+    return data || [];
+  } catch (error) {
+    if (/does not exist|schema cache|permission denied/i.test(error.message || '')) return [];
+    throw error;
+  }
+}
+
+async function supabaseOptionalIn(table, column, values) {
+  if (!values?.length) return [];
+  try {
+    const { data, error } = await supabaseClient.from(table).select('*').in(column, values);
+    if (error) throw new Error(error.message);
+    return data || [];
+  } catch (error) {
+    if (/does not exist|schema cache|permission denied/i.test(error.message || '')) return [];
     throw error;
   }
 }
