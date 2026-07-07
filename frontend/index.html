@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-07-3">
+    <link rel="stylesheet" href="styles.css?v=2026-07-07-4">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -290,15 +290,19 @@
 
           <section class="data-view" id="shiftView" hidden>
             <div class="section-head">
-              <h2>Shift Log</h2>
+              <div><h2>Shift Log</h2><p>Book on, review your operational activity and complete a structured handover.</p></div>
               <div class="profile-actions">
-                <button id="startShiftButton">Start shift</button>
-                <button class="ghost" id="endShiftButton">End shift</button>
+                <button id="shiftDutyButton" class="shift-duty-button"><span class="shift-duty-indicator"></span><span id="shiftDutyButtonText">Start shift</span></button>
                 <button class="ghost" id="requestRetrospectiveShiftButton">Request retrospective shift</button>
               </div>
             </div>
+            <section id="shiftDutyConsole" class="shift-duty-console" aria-live="polite"></section>
             <div id="shiftSummary" class="stat-row"></div>
             <section class="dashboard-grid shift-dashboard">
+              <article class="dashboard-panel shift-personal-panel">
+                <div class="section-head"><div><h3>My Activity</h3><p>Your hours, operational activity and shift quality.</p></div></div>
+                <div id="shiftPersonalDashboard" class="shift-personal-dashboard"></div>
+              </article>
               <article class="dashboard-panel">
                 <h3>On Duty Officers</h3>
                 <div class="table-wrap compact">
@@ -329,6 +333,10 @@
               <article class="dashboard-panel shift-debrief-panel">
                 <div class="section-head"><div><h3>Shift Debriefs</h3><p>Recorded activity, outstanding work and supervisor attention.</p></div></div>
                 <div class="table-wrap compact"><table id="shiftDebriefsTable"></table></div>
+              </article>
+              <article class="dashboard-panel shift-audit-panel" data-permission="VIEW_TASKS">
+                <div class="section-head"><div><h3>Shift Assurance</h3><p>Supervisor reviews, amendments and voided records.</p></div><button class="ghost mini" id="showVoidedShiftsButton">Voided shifts</button></div>
+                <div class="table-wrap compact"><table id="shiftReviewsTable"></table></div>
               </article>
             </section>
           </section>
@@ -608,8 +616,7 @@
               <div class="ops-actions">
                 <input id="opsCommandSearch" type="search" placeholder="Search MDT" aria-label="Search the MDT">
                 <button class="ghost" id="opsControllerButton">Book on control</button>
-                <button id="opsStartShiftButton">Start shift</button>
-                <button class="ghost" id="opsEndShiftButton">End shift</button>
+                <button id="opsDutyButton">Start shift</button>
                 <button class="icon-button ghost" id="opsRefreshButton" title="Refresh operations" aria-label="Refresh operations">&#8635;</button>
               </div>
             </header>
@@ -839,6 +846,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-07-3"></script>
+    <script src="app.js?v=2026-07-07-4"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-07-3';
+const APP_VERSION = '2026-07-07-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -422,9 +422,9 @@ document.querySelectorAll('[data-recruitment-tab]').forEach((button) => button.a
 document.querySelector('#recruitmentVacancySearch')?.addEventListener('input', renderRecruitmentVacancies);
 document.querySelector('#recruitmentApplicationSearch')?.addEventListener('input', renderRecruitmentApplications);
 document.querySelector('#recruitmentApplicationStatus')?.addEventListener('change', renderRecruitmentApplications);
-document.querySelector('#startShiftButton').addEventListener('click', startShift);
-document.querySelector('#endShiftButton').addEventListener('click', () => openEndShiftEditor());
+document.querySelector('#shiftDutyButton')?.addEventListener('click', () => handleDutyControl('personnel'));
 document.querySelector('#requestRetrospectiveShiftButton')?.addEventListener('click', openRetrospectiveShiftEditor);
+document.querySelector('#showVoidedShiftsButton')?.addEventListener('click', openVoidedShifts);
 document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
@@ -460,8 +460,7 @@ document.querySelector('#newHandoverButton')?.addEventListener('click', () => op
 document.querySelector('#handoverSearch')?.addEventListener('input', renderHandoverBoard);
 document.querySelector('#handoverStatusFilter')?.addEventListener('change', renderHandoverBoard);
 document.querySelector('#opsRefreshButton')?.addEventListener('click', () => loadOperationsHub(true));
-document.querySelector('#opsStartShiftButton')?.addEventListener('click', () => startShift('operations'));
-document.querySelector('#opsEndShiftButton')?.addEventListener('click', () => openEndShiftEditor('operations'));
+document.querySelector('#opsDutyButton')?.addEventListener('click', () => handleDutyControl('operations'));
 document.querySelector('#opsNewIncidentButton')?.addEventListener('click', () => openOpsIncidentEditor());
 document.querySelector('#opsNewBoloButton')?.addEventListener('click', () => openOpsBoloEditor());
 document.querySelector('#opsNewUnitButton')?.addEventListener('click', () => openOpsUnitEditor());
@@ -2224,6 +2223,7 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Operational Action Review') return `data-open-action-review="${escapeHtml(row.ActionReviewID)}"`;
   if (row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
   if (row.TaskType === 'Assigned Task') return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
+  if (row.TaskType === 'Shift Review' || row.TaskType === 'Shift Amendment') return 'data-view-link="shift"';
   if (row.TaskType === 'Casework Action') return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
   if (row.TaskType === 'Recruitment Application') return 'data-view-link="recruitment"';
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
@@ -2292,23 +2292,27 @@ async function loadShift() {
   state.shiftStatus = statusResponse.ok ? statusResponse : null;
   state.shifts = teamResponse.ok ? teamResponse.recent || [] : [];
   state.shiftDebriefs = teamResponse.ok ? teamResponse.debriefs || [] : [];
+  state.shiftReviews = teamResponse.ok ? teamResponse.reviews || [] : [];
+  state.voidedShifts = teamResponse.ok ? teamResponse.voided || [] : [];
+  state.shiftAudit = teamResponse.ok ? teamResponse.audit || [] : [];
 
   const onDuty = Boolean(statusResponse.activeShift);
-  document.querySelector('#startShiftButton').disabled = onDuty;
-  document.querySelector('#endShiftButton').disabled = !onDuty;
+  renderDutyControl(statusResponse.activeShift);
   document.querySelector('#shiftSummary').innerHTML = [
     stat('Your Status', onDuty ? 'On Duty' : 'Off Duty'),
     stat('On Duty Now', teamResponse.active ? teamResponse.active.length : 0),
     stat('Your Shifts', teamResponse.myStats?.Shifts || 0),
     stat('Your Duration', teamResponse.myStats?.Duration || '0h 0m'),
   ].join('');
+  renderShiftPersonalDashboard(teamResponse.myDashboard || {});
 
   renderTable('#activeShiftsTable', teamResponse.active || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'StartedAt']);
   renderTable('#recentShiftsTable', teamResponse.recent || [], ['RobloxUsername', 'Callsign', 'StartedAt', 'EndedAt', 'Duration', 'Summary'], {
-    actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-shift="${escapeHtml(row.ShiftID)}">Edit</button>` : '',
+    actions: (row) => can('VIEW_TASKS') ? `<button class="mini ghost" data-shift-history="${escapeHtml(row.ShiftID)}">History</button><button class="mini" data-edit-shift="${escapeHtml(row.ShiftID)}">Edit</button><button class="mini danger ghost" data-void-shift="${escapeHtml(row.ShiftID)}">Void</button>` : '',
   });
   renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'Shifts', 'Duration', 'LastShift', 'ActivityFlag']);
   renderTable('#shiftDebriefsTable', state.shiftDebriefs, ['Officer', 'StartedAt', 'Duration', 'CADs', 'Actions', 'Incomplete', 'SupervisorAttention', 'SubmittedAt'], { actions: (row) => `<button class="mini ghost" data-open-shift-debrief="${escapeHtml(row.DebriefID)}">Review</button>` });
+  renderTable('#shiftReviewsTable', state.shiftReviews, ['Officer', 'StartedAt', 'Quality', 'ReviewStatus', 'ReviewedBy', 'ReviewedAt'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-review-shift="${escapeHtml(row.ShiftID)}">Review</button>` : '' });
   applyPermissions();
 }
 
@@ -2330,8 +2334,8 @@ async function loadOperationsHub(force = false) {
     controllerButton.textContent = response.controllerSession ? `Control: ${response.controllerSession.Status}` : 'Book on control';
     controllerButton.classList.toggle('active-control', response.controllerSession?.Status === 'Active');
   }
-  document.querySelector('#opsStartShiftButton').disabled = onDuty;
-  document.querySelector('#opsEndShiftButton').disabled = !onDuty;
+  const dutyButton = document.querySelector('#opsDutyButton');
+  if (dutyButton) { dutyButton.textContent = onDuty ? 'End shift' : 'Start shift'; dutyButton.classList.toggle('on-duty', onDuty); }
   document.querySelector('#opsSummary').innerHTML = [
     opsStat('Units', response.stats?.ActiveUnits || 0),
     opsStat('Available', (response.units || []).filter((unit) => unit.OperationalStatus === 'Available').length),
@@ -3898,7 +3902,7 @@ function toggleControlBoardMode(force) {
   const enabled = typeof force === 'boolean' ? force : !document.body.classList.contains('control-board-mode');
   document.body.classList.toggle('control-board-mode', enabled);
   const button = document.querySelector('#opsControlBoardMode');
-  if (button) button.textContent = enabled ? 'Exit board mode' : 'Board mode';
+  if (button) { button.textContent = enabled ? 'Exit board mode' : 'Board mode'; button.setAttribute('aria-pressed', String(enabled)); button.title = enabled ? 'Exit full-screen board (Esc)' : 'Open full-screen control board'; }
 }
 
 function renderOpsComms() {
@@ -5640,10 +5644,46 @@ function openShiftEditor(record) {
     field('StartedAt', 'Started at', 'datetime-local', false, localDateTimeValue(record.StartedAt)),
     field('EndedAt', 'Ended at', 'datetime-local', false, localDateTimeValue(record.EndedAt)),
     field('Summary', 'Summary', 'textarea', true, record.Summary),
+    field('ChangeReason', 'Reason for amendment', 'textarea'),
   ], async (values) => api('saveShift', values), {
     successMessage: 'Shift updated.',
     onSuccess: async () => { invalidateCache('teamShifts'); await loadShift(); },
   });
+}
+
+function openShiftReviewEditor(record) {
+  openEditor(`Review shift / ${record.Officer || record.RobloxUsername}`, [
+    hiddenField('ShiftID', record.ShiftID),
+    field('Officer', 'Officer', 'text', false, record.Officer || record.RobloxUsername),
+    field('StartedAt', 'Started', 'text', false, formatDisplayDateTime(record.StartedAt)),
+    field('Quality', 'Record quality', 'text', false, `${record.Quality || 0}%`),
+    selectField('ReviewStatus', 'Review outcome', ['Approved', 'Advice Given', 'Amendments Required'], record.ReviewStatus === 'Pending' ? 'Approved' : record.ReviewStatus),
+    field('ReviewNotes', 'Review notes', 'textarea'),
+  ], async (values) => api('reviewShift', values), {
+    successMessage: 'Shift review recorded.',
+    onSuccess: async () => { invalidateCache('teamShifts'); invalidateCache('tasks'); await loadShift(); },
+  });
+}
+
+function openVoidShiftEditor(record) {
+  openEditor(`Void shift / ${record.RobloxUsername}`, [
+    hiddenField('ShiftID', record.ShiftID),
+    `<p class="form-notice danger-notice">This removes the shift from activity totals. The original record and reason remain permanently available.</p>`,
+    field('Reason', 'Reason for voiding', 'textarea'),
+  ], async (values) => api('voidShift', values), {
+    submitLabel: 'Void shift', successMessage: 'Shift voided and the officer notified.',
+    onSuccess: async () => { invalidateCache('teamShifts'); await loadShift(); },
+  });
+}
+
+function openVoidedShifts() {
+  const rows = state.voidedShifts || [];
+  showInfo('Voided shifts', rows.length ? `<div class="shift-audit-list">${rows.map((row) => `<article><div><strong>${escapeHtml(row.RobloxUsername)}</strong><span>${escapeHtml(formatDisplayDateTime(row.StartedAt))} / ${escapeHtml(row.Duration)}</span></div><p>${escapeHtml(row.VoidReason)}</p><small>Voided by ${escapeHtml(row.VoidedBy || 'Unknown')} / ${escapeHtml(formatDisplayDateTime(row.VoidedAt))}</small></article>`).join('')}</div>` : '<p class="empty">No shifts have been voided.</p>');
+}
+
+function openShiftHistory(shiftId) {
+  const rows = (state.shiftAudit || []).filter((row) => row.ShiftID === shiftId);
+  showInfo('Shift change history', rows.length ? `<div class="shift-audit-list">${rows.map((row) => `<article><div><strong>${escapeHtml(row.Action)}</strong><span>${escapeHtml(formatDisplayDateTime(row.PerformedAt))}</span></div><p>${escapeHtml(row.Reason || 'No additional reason recorded.')}</p><small>${escapeHtml(row.PerformedBy || 'System')}</small></article>`).join('')}</div>` : '<p class="empty">No changes have been recorded for this shift.</p>');
 }
 
 function openShiftDebrief(debriefId) {
@@ -5654,15 +5694,48 @@ function openShiftDebrief(debriefId) {
   showInfo(`Shift debrief / ${row.Officer}`, `<section class="shift-debrief-detail"><header><span>${escapeHtml(formatDisplayDateTime(row.StartedAt))} / ${escapeHtml(row.Duration)}</span><h3>${escapeHtml(row.Officer)}${row.Callsign ? ` / ${escapeHtml(row.Callsign)}` : ''}</h3><p>${escapeHtml(row.Summary || 'No summary supplied.')}</p></header><div class="shift-debrief-facts">${detailCard('CADs', row.CADs)}${detailCard('Actions', row.Actions)}${detailCard('Arrests', row.Arrests)}${detailCard('FPNs', row.FPNs)}${detailCard('Warnings', row.Warnings)}${detailCard('Power uses', row.PowerUses)}</div><section><h4>Notable results</h4><p>${escapeHtml(row.NotableResults || 'None recorded.')}</p></section><section><h4>Issues and learning</h4><p>${escapeHtml(row.IssuesRisks || 'None recorded.')}</p></section><section class="${row.SupervisorAttention === 'Yes' ? 'requires-attention' : ''}"><h4>Supervisor attention</h4><p>${escapeHtml(row.SupervisorAttention)}${row.CarriedForwardNotes ? ` / ${escapeHtml(row.CarriedForwardNotes)}` : ''}</p></section><section><h4>Linked CADs</h4>${incidents.map((incident) => `<button class="debrief-cad-link" data-open-ops-search="Incident:${escapeHtml(incident.IncidentID)}"><strong>${escapeHtml(incident.IncidentNumber)}</strong><span>${escapeHtml(incident.Title)} / ${escapeHtml(incident.Status)}</span></button>`).join('') || '<p class="empty">No linked CADs.</p>'}</section><section><h4>Incomplete work</h4>${incomplete.map((item) => `<article><strong>${escapeHtml(item.Reference)}</strong><span>${escapeHtml(item.Type)} / ${escapeHtml(item.Detail)}</span></article>`).join('') || '<p class="empty">No incomplete work detected.</p>'}</section></section>`);
 }
 
-async function startShift(returnHub = 'personnel') {
-  const response = await api('startShift', {});
-  if (!response.ok) {
-    showInfo('Shift start failed', `<p>${escapeHtml(response.error || 'Could not start shift.')}</p>`);
+function handleDutyControl(returnHub = 'personnel') {
+  if (state.shiftStatus?.activeShift) openEndShiftEditor(returnHub);
+  else openStartShiftEditor(returnHub);
+}
+
+function openStartShiftEditor(returnHub = 'personnel') {
+  openEditor('Start shift', [
+    `<p class="form-notice">Confirm how you are deploying. These details remain attached to the shift record.</p>`,
+    field('Callsign', 'Callsign', 'text', true, state.shiftStatus?.officer?.Callsign || ''),
+    selectField('PatrolType', 'Patrol type', ['Roads Policing', 'Proactive Patrol', 'Traffic Enforcement', 'Training', 'Control', 'Other'], 'Roads Policing'),
+    field('Objectives', 'Shift objectives', 'textarea', true),
+    field('StartNotes', 'Starting notes', 'textarea', true),
+  ], async (values) => api('startShift', values), {
+    successMessage: 'You are now on duty.',
+    onSuccess: async () => { invalidateCache(); returnHub === 'operations' ? await loadOperationsHub(true) : await loadShift(); },
+  });
+}
+
+function renderDutyControl(active) {
+  const button = document.querySelector('#shiftDutyButton');
+  const text = document.querySelector('#shiftDutyButtonText');
+  const consolePanel = document.querySelector('#shiftDutyConsole');
+  if (!button || !text || !consolePanel) return;
+  const onDuty = Boolean(active);
+  button.classList.toggle('on-duty', onDuty);
+  text.textContent = onDuty ? 'End shift' : 'Start shift';
+  if (!onDuty) {
+    consolePanel.className = 'shift-duty-console off-duty';
+    consolePanel.innerHTML = `<div><span class="shift-duty-state">Off duty</span><strong>No active shift</strong><p>Start a shift before carrying out operational activity.</p></div><span>Ready to deploy</span>`;
     return;
   }
-  invalidateCache();
-  if (returnHub === 'operations') await loadOperationsHub(true);
-  else await showView('shift');
+  const elapsed = durationText(Math.max(0, Date.now() - new Date(active.StartedAt).getTime()));
+  const overdue = Date.now() - new Date(active.StartedAt).getTime() > 10 * 60 * 60 * 1000;
+  consolePanel.className = 'shift-duty-console on-duty';
+  consolePanel.classList.toggle('overdue', overdue);
+  consolePanel.innerHTML = `<div><span class="shift-duty-state">On duty</span><strong>${escapeHtml(active.Callsign || 'No callsign')} / ${escapeHtml(active.PatrolType || 'Roads Policing')}</strong><p>${escapeHtml(overdue ? 'Long-running shift detected. Check whether you forgot to end it.' : active.Objectives || 'No shift objectives recorded.')}</p></div><div class="shift-elapsed"><small>Elapsed</small><strong>${escapeHtml(elapsed)}</strong><span>Started ${escapeHtml(formatDisplayDateTime(active.StartedAt))}</span></div>`;
+}
+
+function renderShiftPersonalDashboard(data) {
+  const target = document.querySelector('#shiftPersonalDashboard');
+  if (!target) return;
+  target.innerHTML = `<div class="shift-personal-stats">${detailCard('Last 7 days', data.WeekDuration || '0h 0m')}${detailCard('Last 30 days', data.MonthDuration || '0h 0m')}${detailCard('CADs', data.CADs || 0)}${detailCard('Actions', data.Actions || 0)}${detailCard('Average quality', data.AverageQuality == null ? 'Not scored' : `${data.AverageQuality}%`)}${detailCard('Outstanding', data.Outstanding || 0)}</div><div class="shift-quality-note"><strong>Quality over quantity</strong><p>The score reflects record completeness, debrief quality and outstanding work. It does not reward enforcement volume.</p></div>`;
 }
 
 async function openEndShiftEditor(returnHub = 'personnel') {
@@ -5674,6 +5747,7 @@ async function openEndShiftEditor(returnHub = 'personnel') {
     <div><small>Recorded actions</small><strong>${escapeHtml(String(preview.ActionCount || 0))}</strong></div>
     <div><small>Incomplete work</small><strong>${escapeHtml(String(preview.IncompleteReportCount || 0))}</strong></div>
     <div><small>Enforcement</small><strong>${escapeHtml(String((preview.ArrestCount || 0) + (preview.FpnCount || 0) + (preview.WarningCount || 0)))}</strong></div>
+    <div class="shift-quality-score"><small>Record quality</small><strong>${escapeHtml(String(preview.QualityScore || 0))}%</strong><span>${escapeHtml((preview.QualityReasons || []).join(' / '))}</span></div>
     <section><h3>Shift activity</h3>${(preview.Incidents || []).map((row) => `<article><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}</span><small>${escapeHtml(row.Status)}</small></article>`).join('') || '<p>No linked CAD activity was recorded.</p>'}</section>
     <section class="${preview.IncompleteReportCount ? 'has-incomplete' : ''}"><h3>Incomplete or carried-forward work</h3>${(preview.IncompleteItems || []).map((row) => `<article><strong>${escapeHtml(row.Reference)}</strong><span>${escapeHtml(row.Type)}</span><small>${escapeHtml(row.Detail)}</small></article>`).join('') || '<p>No outstanding work detected.</p>'}</section>
   </section>` : `<p class="form-notice">Activity could not be calculated. You can still end the shift and add your own summary.</p>`;
@@ -6560,6 +6634,20 @@ async function handleDocumentClick(event) {
     if (record) openShiftEditor(record);
     return;
   }
+  const voidShift = event.target.closest('[data-void-shift]');
+  if (voidShift) {
+    const record = state.shifts.find((row) => row.ShiftID === voidShift.dataset.voidShift);
+    if (record) openVoidShiftEditor(record);
+    return;
+  }
+  const reviewShift = event.target.closest('[data-review-shift]');
+  if (reviewShift) {
+    const record = state.shiftReviews.find((row) => row.ShiftID === reviewShift.dataset.reviewShift);
+    if (record) openShiftReviewEditor(record);
+    return;
+  }
+  const shiftHistory = event.target.closest('[data-shift-history]');
+  if (shiftHistory) { openShiftHistory(shiftHistory.dataset.shiftHistory); return; }
   const retrospectiveShift = event.target.closest('[data-open-retrospective-shift]');
   if (retrospectiveShift) {
     const record = state.tasks.find((row) => row.RequestID === retrospectiveShift.dataset.openRetrospectiveShift);
@@ -7858,6 +7946,11 @@ function searchableReferenceCheckboxGroupField(name, label, options, selected = 
 
 async function api(action, data = {}, includeToken = true) {
   if (state.accessPreview && isPreviewMutation(action)) return { ok: false, error: 'This action is disabled while Command access preview is active.' };
+  if (shouldPromptForDuty(action)) {
+    const startNow = window.confirm(`You are not currently on duty.\n\nStart a shift before carrying out this operational action?\n\nSelect Cancel to continue off duty and mute this reminder for 30 minutes.`);
+    if (startNow) { openStartShiftEditor('operations'); return { ok: false, error: 'Start your shift, then repeat the operational action.' }; }
+    localStorage.setItem('mo8_duty_prompt_muted_until', String(Date.now() + 30 * 60 * 1000));
+  }
   if (USE_SUPABASE || localStorage.getItem('mo8_auth_provider') === 'supabase') {
     return supabaseApi(action, data, includeToken);
   }
@@ -7874,6 +7967,17 @@ async function api(action, data = {}, includeToken = true) {
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}
+
+function shouldPromptForDuty(action) {
+  if (state.shiftStatus?.activeShift) return false;
+  if (Number(localStorage.getItem('mo8_duty_prompt_muted_until') || 0) > Date.now()) return false;
+  return new Set([
+    'saveOperationalIncident', 'addOperationalIncidentLog', 'saveOperationalOfficerAction',
+    'saveOperationalPowerUse', 'saveOperationalDisposal', 'uploadOperationalAttachment',
+    'joinOperationalIncident', 'assignOperationalIncident', 'controlAssignOperationalUnit', 'saveOperationalUnit',
+    'requestJoinOperationalUnit', 'sendOperationalMessage', 'saveOperationalBoloSighting',
+  ]).has(String(action));
 }
 
 function isPreviewMutation(action) {
@@ -8046,6 +8150,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       shiftWrapupPreview: supabaseShiftWrapupPreview,
       endShift: supabaseEndShift,
       teamShifts: supabaseTeamShifts,
+      reviewShift: supabaseReviewShift,
+      voidShift: supabaseVoidShift,
       operationsHub: supabaseOperationsHub,
       saveCidReferralExport: supabaseSaveCidReferralExport,
       downloadCidReferralExport: supabaseDownloadCidReferralExport,
@@ -10142,7 +10248,7 @@ async function supabaseTasks() {
   }).filter((row) => row.AssignedToMe || can('FULL_ACCESS') || can('VIEW_TASKS'));
   const incidentAmendments = (cadReviews || []).filter((row) => row.status === 'Amendments Required' && row.amendment_assignee_user_id === state.user?.UserID).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'CAD Amendment', AmendmentType: 'Incident', ReviewID: row.review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: incident.title || 'CAD amendments', Reason: row.feedback || 'Update the CAD and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
   const actionAmendments = (actionReviewRows || []).filter((row) => row.status === 'Amendments Required' && row.officer_id === currentOfficer.officer_id).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'Operational Action Amendment', AmendmentType: 'Action', ReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: row.action_type, Reason: row.supervisor_feedback || 'Update the action record and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
-  const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; return { TaskType: 'Assigned Task', TaskID: row.task_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' }; });
+  const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const shiftTask = row.source_type === 'Shift Debrief'; return { TaskType: shiftTask ? (row.assigned_officer_id === currentOfficer.officer_id ? 'Shift Amendment' : 'Shift Review') : 'Assigned Task', TaskID: row.task_id, ShiftID: shiftTask ? row.source_id : '', OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' }; });
   const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
   const recruitmentReviews = (recruitmentApplications || []).filter((row) => row.internal_member_id !== currentProfile.member_id && ['Submitted', 'Under Review'].includes(row.status)).map((row) => ({ TaskType: 'Recruitment Application', ApplicationID: row.application_id, Officer: row.roblox_username, Subject: (recruitmentVacancies || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, Reason: 'Application awaiting an authorised recruitment decision.', Status: row.status, EndDate: row.updated_at || row.submitted_at, Priority: 'Normal', IsMine: row.reviewer_user_id === state.user?.UserID, AssignedToMe: true }));
   const authorisedQueue = can('VIEW_TASKS') ? [...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews] : [];
@@ -10767,7 +10873,7 @@ async function supabaseShiftStatus() {
   if (!me.ok) return me;
   const profile = await supabaseProfileByUserId(me.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
-  if (!officer) return { ok: true, onDuty: false, activeShift: null };
+  if (!officer) return { ok: true, onDuty: false, activeShift: null, officer: null };
   const { data, error } = await supabaseClient
     .from('shift_logs')
     .select('*')
@@ -10777,10 +10883,10 @@ async function supabaseShiftStatus() {
     .order('started_at', { ascending: false })
     .limit(1);
   if (error) return { ok: false, error: error.message };
-  return { ok: true, onDuty: Boolean(data && data.length), activeShift: data && data.length ? supabaseShift(data[0]) : null };
+  return { ok: true, onDuty: Boolean(data && data.length), activeShift: data && data.length ? supabaseShift(data[0]) : null, officer: supabaseOfficer(officer) };
 }
 
-async function supabaseStartShift() {
+async function supabaseStartShift(data = {}) {
   const profile = await supabaseProfileByUserId(state.user.UserID);
   const officer = await supabaseOfficerForMember(profile.member_id);
   if (!officer) return { ok: false, error: 'No linked officer profile.' };
@@ -10790,12 +10896,15 @@ async function supabaseStartShift() {
     officer_id: officer.officer_id,
     member_id: officer.member_id,
     roblox_username: officer.roblox_username,
-    callsign: officer.callsign || '',
+    callsign: data.Callsign || officer.callsign || '',
     rank: officer.rank || '',
     status: 'On Duty',
     operational_status: 'Available',
-    patrol_type: 'Roads Policing',
+    patrol_type: data.PatrolType || 'Roads Policing',
+    objectives: data.Objectives || '',
+    start_notes: data.StartNotes || '',
   }).select().single();
+  if (!result.error) await supabaseClient.from('shift_audit_events').insert({ shift_id: result.data.shift_id, officer_id: officer.officer_id, action: 'Created', after_snapshot: result.data, performed_by: state.user.UserID });
   return result.error ? { ok: false, error: result.error.message } : { ok: true, ShiftID: result.data.shift_id };
 }
 
@@ -10831,6 +10940,12 @@ async function supabaseShiftWrapupPreview() {
     ...openTasks.map((row) => ({ Type: row.category || 'Task', Reference: row.title, Detail: row.status })),
     ...incidentRows.filter((row) => !['Resolved', 'Cancelled'].includes(row.status)).map((row) => ({ Type: 'Open CAD', Reference: row.incident_number, Detail: row.title })),
   ];
+  let qualityScore = 100;
+  const qualityReasons = [];
+  if (incompleteItems.length) { qualityScore -= Math.min(35, incompleteItems.length * 10); qualityReasons.push(`${incompleteItems.length} outstanding item${incompleteItems.length === 1 ? '' : 's'}`); }
+  if (incidentRows.length && !officerActions.length && !powerUses.length && !officerDisposals.length) { qualityScore -= 15; qualityReasons.push('CAD activity has no linked outcome record'); }
+  if (!incidentRows.length) qualityReasons.push('No CAD activity to reconcile');
+  if (!incompleteItems.length) qualityReasons.push('No outstanding work detected');
   return {
     ok: true,
     ShiftID: active.ShiftID,
@@ -10846,6 +10961,8 @@ async function supabaseShiftWrapupPreview() {
     PowerUseCount: powerUses.length,
     ActionCount: officerActions.length,
     IncompleteItems: incompleteItems,
+    QualityScore: Math.max(0, qualityScore),
+    QualityReasons: qualityReasons,
   };
 }
 
@@ -10874,17 +10991,17 @@ async function supabaseEndShift(data) {
         fpn_count: preview.FpnCount || 0,
         warning_count: preview.WarningCount || 0,
         power_use_count: preview.PowerUseCount || 0,
+        quality_score: preview.QualityScore || 0,
         snapshot: { ...preview, Debrief: { NotableResults: data.NotableResults || '', IssuesRisks: data.IssuesRisks || '', SupervisorAttention: data.SupervisorAttention || 'No' } },
         submitted_by: state.user.UserID,
         submitted_at: new Date().toISOString(),
       }, { onConflict: 'shift_id' });
-      if (data.SupervisorAttention === 'Yes') {
-        const officer = await supabaseById('officers', 'officer_id', active.OfficerID);
-        const supervisorProfile = officer?.supervisor_user_id ? await supabaseById('profiles', 'user_id', officer.supervisor_user_id) : null;
-        const supervisorOfficer = supervisorProfile ? await supabaseOfficerForMember(supervisorProfile.member_id) : null;
-        if (supervisorOfficer) await supabaseClient.from('mdt_tasks').insert({ title: `Review shift debrief / ${active.RobloxUsername}`, details: data.IssuesRisks || data.CarriedForwardNotes || 'Officer requested supervisor attention at the end of their shift.', category: 'Shift Debrief', priority: 'High', status: 'Open', assigned_officer_id: supervisorOfficer.officer_id, source_type: 'Shift Debrief', source_id: active.ShiftID, created_by: state.user.UserID });
-      }
+      const officer = await supabaseById('officers', 'officer_id', active.OfficerID);
+      const supervisorProfile = officer?.supervisor_user_id ? await supabaseById('profiles', 'user_id', officer.supervisor_user_id) : null;
+      const supervisorOfficer = supervisorProfile ? await supabaseOfficerForMember(supervisorProfile.member_id) : null;
+      if (supervisorOfficer) await supabaseClient.from('mdt_tasks').insert({ title: `Review shift debrief / ${active.RobloxUsername}`, details: data.IssuesRisks || data.CarriedForwardNotes || 'Review the completed shift debrief and recorded activity.', category: 'Shift Debrief', priority: data.SupervisorAttention === 'Yes' ? 'High' : 'Normal', status: 'Open', assigned_officer_id: supervisorOfficer.officer_id, source_type: 'Shift Debrief', source_id: active.ShiftID, created_by: state.user.UserID });
     }
+    await supabaseClient.from('shift_audit_events').insert({ shift_id: active.ShiftID, officer_id: active.OfficerID, action: 'Ended', reason: data.Summary || '', before_snapshot: active, after_snapshot: { EndedAt: data.EndedAt || new Date().toISOString(), QualityScore: preview.QualityScore || 0 }, performed_by: state.user.UserID });
     await leaveUnitsForOfficer(active.OfficerID);
   }
   return error ? { ok: false, error: error.message } : { ok: true };
@@ -10899,9 +11016,10 @@ async function leaveUnitsForOfficer(officerId) {
 }
 
 async function supabaseTeamShifts(data = {}) {
-  const [officers, shifts, loa, wrapups] = await Promise.all([supabaseAll('officers'), supabaseAll('shift_logs'), supabaseAll('loa_requests'), supabaseOptionalAll('shift_wrapups')]);
-  const active = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at).map(supabaseShift);
-  const filtered = filterShiftsByQuery(shifts || [], data);
+  const [officers, shifts, loa, wrapups, profiles, tasks, auditEvents] = await Promise.all([supabaseAll('officers'), supabaseAll('shift_logs'), supabaseAll('loa_requests'), supabaseOptionalAll('shift_wrapups'), supabaseAll('profiles'), supabaseOptionalAll('mdt_tasks'), supabaseOptionalAll('shift_audit_events')]);
+  const validShifts = (shifts || []).filter((row) => !row.voided_at);
+  const active = validShifts.filter((row) => row.status === 'On Duty' && !row.ended_at).map(supabaseShift);
+  const filtered = filterShiftsByQuery(validShifts, data);
   const metrics = (officers || []).map((officer) => {
     const officerShifts = filtered.filter((shift) => shift.officer_id === officer.officer_id);
     const total = officerShifts.reduce((sum, shift) => sum + shiftMs(shift), 0);
@@ -10928,6 +11046,13 @@ async function supabaseTeamShifts(data = {}) {
     const debrief = row.snapshot?.Debrief || {};
     return { DebriefID: row.wrapup_id, ShiftID: row.shift_id, OfficerID: row.officer_id, Officer: officer.roblox_username || shift.roblox_username || row.officer_id, Callsign: officer.callsign || shift.callsign || '', StartedAt: shift.started_at || row.submitted_at, EndedAt: shift.ended_at || row.submitted_at, Duration: durationText(shiftMs(shift)), Summary: row.summary || '', CarriedForwardNotes: row.carried_forward_notes || '', CADs: (row.incident_ids || []).length, Actions: row.snapshot?.ActionCount || 0, Incomplete: row.incomplete_report_count || 0, Arrests: row.arrest_count || 0, FPNs: row.fpn_count || 0, Warnings: row.warning_count || 0, PowerUses: row.power_use_count || 0, NotableResults: debrief.NotableResults || '', IssuesRisks: debrief.IssuesRisks || '', SupervisorAttention: debrief.SupervisorAttention || 'No', SubmittedAt: row.submitted_at, Snapshot: row.snapshot || {} };
   }).sort((a, b) => String(b.SubmittedAt).localeCompare(String(a.SubmittedAt))).slice(0, 60);
+  const ownWrapups = ownOfficer ? (wrapups || []).filter((row) => row.officer_id === ownOfficer.officer_id) : [];
+  const now = Date.now();
+  const ownRecent = ownOfficer ? validShifts.filter((row) => row.officer_id === ownOfficer.officer_id) : [];
+  const sumSince = (days) => ownRecent.filter((row) => new Date(row.started_at).getTime() >= now - days * 86400000).reduce((sum, row) => sum + shiftMs(row), 0);
+  const reviewRows = (wrapups || []).map((row) => { const shift = shiftById.get(row.shift_id) || {}; const officer = officers.find((item) => item.officer_id === row.officer_id) || {}; const reviewer = profiles.find((item) => item.user_id === row.reviewed_by) || {}; return { ShiftID: row.shift_id, Officer: officer.roblox_username || shift.roblox_username || row.officer_id, StartedAt: shift.started_at, Quality: row.quality_score ?? row.snapshot?.QualityScore ?? 0, ReviewStatus: row.review_status || 'Pending', ReviewedBy: reviewer.roblox_username || '', ReviewedAt: row.reviewed_at || '' }; }).sort((a, b) => String(b.StartedAt).localeCompare(String(a.StartedAt)));
+  const voided = (shifts || []).filter((row) => row.voided_at).map((row) => { const actor = profiles.find((item) => item.user_id === row.voided_by) || {}; return { ...supabaseShift(row), Duration: durationText(shiftMs(row)), VoidReason: row.void_reason, VoidedAt: row.voided_at, VoidedBy: actor.roblox_username || row.voided_by }; }).sort((a, b) => String(b.VoidedAt).localeCompare(String(a.VoidedAt)));
+  const audit = (auditEvents || []).map((row) => ({ ShiftID: row.shift_id, Action: row.action, Reason: row.reason || '', PerformedBy: profiles.find((item) => item.user_id === row.performed_by)?.roblox_username || row.performed_by || 'System', PerformedAt: row.performed_at })).sort((a, b) => String(b.PerformedAt).localeCompare(String(a.PerformedAt)));
   return {
     ok: true,
     active,
@@ -10938,7 +11063,11 @@ async function supabaseTeamShifts(data = {}) {
     }),
     metrics,
     debriefs,
+    reviews: reviewRows,
+    voided,
+    audit,
     myStats: { Shifts: ownShifts.length, Duration: durationText(ownShifts.reduce((sum, shift) => sum + shiftMs(shift), 0)) },
+    myDashboard: { WeekDuration: durationText(sumSince(7)), MonthDuration: durationText(sumSince(30)), CADs: ownWrapups.reduce((sum, row) => sum + (row.incident_ids || []).length, 0), Actions: ownWrapups.reduce((sum, row) => sum + (row.snapshot?.ActionCount || 0), 0), AverageQuality: ownWrapups.length ? Math.round(ownWrapups.reduce((sum, row) => sum + (row.quality_score ?? row.snapshot?.QualityScore ?? 0), 0) / ownWrapups.length) : null, Outstanding: ownOfficer ? (tasks || []).filter((row) => row.assigned_officer_id === ownOfficer.officer_id && !['Completed', 'Cancelled'].includes(row.status)).length : 0 },
   };
 }
 
@@ -12770,8 +12899,52 @@ async function supabaseSaveShift(data) {
   const start = new Date(data.StartedAt);
   const end = new Date(data.EndedAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return { ok: false, error: 'The shift end must be after its start.' };
-  const { error } = await supabaseClient.from('shift_logs').update({ started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '', status: 'Completed', updated_at: new Date().toISOString() }).eq('shift_id', data.ShiftID);
+  if (!String(data.ChangeReason || '').trim()) return { ok: false, error: 'A reason for the amendment is required.' };
+  const before = await supabaseById('shift_logs', 'shift_id', data.ShiftID);
+  const update = { started_at: start.toISOString(), ended_at: end.toISOString(), summary: data.Summary || '', status: 'Completed', updated_at: new Date().toISOString() };
+  const { error } = await supabaseClient.from('shift_logs').update(update).eq('shift_id', data.ShiftID);
+  if (!error) {
+    await supabaseClient.from('shift_audit_events').insert({ shift_id: data.ShiftID, officer_id: before.officer_id, action: 'Edited', reason: data.ChangeReason, before_snapshot: before, after_snapshot: update, performed_by: state.user.UserID });
+    const officer = await supabaseById('officers', 'officer_id', before.officer_id);
+    await supabaseNotify(officer?.member_id, 'Shift record amended', `Your shift dated ${formatDisplayDateTime(before.started_at)} was amended. Reason: ${data.ChangeReason}`, state.user.UserID);
+  }
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseReviewShift(data) {
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'You do not have permission to review shifts.' };
+  if (!String(data.ReviewNotes || '').trim() && data.ReviewStatus !== 'Approved') return { ok: false, error: 'Review notes are required for this outcome.' };
+  const shift = await supabaseById('shift_logs', 'shift_id', data.ShiftID);
+  const wrapup = await supabaseById('shift_wrapups', 'shift_id', data.ShiftID);
+  if (!shift || !wrapup) return { ok: false, error: 'Shift debrief not found.' };
+  const reviewedAt = new Date().toISOString();
+  const { error } = await supabaseClient.from('shift_wrapups').update({ review_status: data.ReviewStatus, review_notes: data.ReviewNotes || '', reviewed_by: state.user.UserID, reviewed_at: reviewedAt }).eq('shift_id', data.ShiftID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.from('shift_audit_events').insert({ shift_id: data.ShiftID, officer_id: shift.officer_id, action: 'Reviewed', reason: data.ReviewNotes || data.ReviewStatus, before_snapshot: { review_status: wrapup.review_status }, after_snapshot: { review_status: data.ReviewStatus }, performed_by: state.user.UserID });
+  await supabaseClient.from('mdt_tasks').update({ status: 'Completed', completed_at: reviewedAt, updated_at: reviewedAt }).eq('source_type', 'Shift Debrief').eq('source_id', data.ShiftID).neq('assigned_officer_id', shift.officer_id);
+  const officer = await supabaseById('officers', 'officer_id', shift.officer_id);
+  await supabaseNotify(officer?.member_id, `Shift review: ${data.ReviewStatus}`, data.ReviewNotes || 'Your shift debrief has been approved.', state.user.UserID);
+  if (data.ReviewStatus === 'Amendments Required') await supabaseClient.from('mdt_tasks').insert({ title: `Amend shift debrief / ${formatDisplayDateTime(shift.started_at)}`, details: data.ReviewNotes || 'Your supervisor has requested amendments.', category: 'Shift Debrief', priority: 'High', status: 'Open', assigned_officer_id: shift.officer_id, source_type: 'Shift Debrief', source_id: data.ShiftID, created_by: state.user.UserID });
+  return { ok: true };
+}
+
+async function supabaseVoidShift(data) {
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'You do not have permission to void shifts.' };
+  if (!String(data.Reason || '').trim()) return { ok: false, error: 'A reason for voiding the shift is required.' };
+  const shift = await supabaseById('shift_logs', 'shift_id', data.ShiftID);
+  if (!shift || shift.voided_at) return { ok: false, error: 'This shift is unavailable or already voided.' };
+  const profile = await supabaseProfileByUserId(state.user.UserID);
+  const actorOfficer = await supabaseOfficerForMember(profile?.member_id);
+  if (actorOfficer?.officer_id === shift.officer_id) return { ok: false, error: 'You cannot void your own shift. Another authorised supervisor must review it.' };
+  const voidedAt = new Date().toISOString();
+  const update = { voided_at: voidedAt, voided_by: state.user.UserID, void_reason: data.Reason, updated_at: voidedAt };
+  const { error } = await supabaseClient.from('shift_logs').update(update).eq('shift_id', data.ShiftID);
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.from('shift_audit_events').insert({ shift_id: data.ShiftID, officer_id: shift.officer_id, action: 'Voided', reason: data.Reason, before_snapshot: shift, after_snapshot: update, performed_by: state.user.UserID });
+  const officer = await supabaseById('officers', 'officer_id', shift.officer_id);
+  await supabaseNotify(officer?.member_id, 'Shift record voided', `Your shift dated ${formatDisplayDateTime(shift.started_at)} was voided. Reason: ${data.Reason}`, state.user.UserID);
+  await supabaseAudit(state.user.UserID, 'Void shift', 'Shift', data.ShiftID, { officer_id: shift.officer_id, reason: data.Reason, original: shift });
+  return { ok: true };
 }
 
 async function supabaseVisibleDocuments() {
@@ -13375,6 +13548,10 @@ function supabaseShift(row) {
     Status: row.status || '',
     OperationalStatus: row.operational_status || 'Available',
     PatrolType: row.patrol_type || 'Roads Policing',
+    Objectives: row.objectives || '',
+    StartNotes: row.start_notes || '',
+    VoidedAt: row.voided_at || '',
+    VoidReason: row.void_reason || '',
     CurrentIncidentID: row.current_incident_id || '',
     UpdatedAt: row.updated_at || '',
   };
