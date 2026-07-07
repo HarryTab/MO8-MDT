@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-07-1">
+    <link rel="stylesheet" href="styles.css?v=2026-07-07-2">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -326,6 +326,10 @@
                   <table id="shiftMetricsTable"></table>
                 </div>
               </article>
+              <article class="dashboard-panel shift-debrief-panel">
+                <div class="section-head"><div><h3>Shift Debriefs</h3><p>Recorded activity, outstanding work and supervisor attention.</p></div></div>
+                <div class="table-wrap compact"><table id="shiftDebriefsTable"></table></div>
+              </article>
             </section>
           </section>
 
@@ -542,6 +546,12 @@
             </div>
             <div id="permissionsMatrix" class="matrix-block"></div>
             <div id="userPermissionsMatrix" class="matrix-block"></div>
+            <section class="permission-audit-panel">
+              <div class="section-head"><div><h3>Permission Audit</h3><p>Effective access, individual overrides and accounts requiring review.</p></div><select id="permissionAuditRisk"><option value="">All risk levels</option><option>Critical</option><option>High</option><option>Review</option><option>Normal</option></select></div>
+              <input id="permissionAuditSearch" class="search-input" type="search" placeholder="Search account, role, rank or permission">
+              <div id="permissionAuditSummary" class="stat-row"></div>
+              <div id="permissionAuditResults" class="permission-audit-list"></div>
+            </section>
           </section>
 
           <section class="data-view settings-view" id="settingsView" hidden>
@@ -828,6 +838,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-07-1"></script>
+    <script src="app.js?v=2026-07-07-2"></script>
   </body>
 </html>

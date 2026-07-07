@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-07-1';
+const APP_VERSION = '2026-07-07-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -438,6 +438,8 @@ document.querySelector('#refreshTimelineButton')?.addEventListener('click', load
 document.querySelector('#dataQualitySeverity')?.addEventListener('change', renderDataQualityCentre);
 document.querySelector('#dataQualityArea')?.addEventListener('change', renderDataQualityCentre);
 document.querySelector('#refreshDataQualityButton')?.addEventListener('click', async () => { invalidateCache('dataQualityCentre'); await loadDataQualityCentre(); });
+document.querySelector('#permissionAuditSearch')?.addEventListener('input', renderPermissionAudit);
+document.querySelector('#permissionAuditRisk')?.addEventListener('change', renderPermissionAudit);
 document.querySelector('#savedViewSelect')?.addEventListener('change', applySavedView);
 document.querySelector('#saveSearchViewButton')?.addEventListener('click', openSavedViewEditor);
 document.querySelector('#calendarDatePicker')?.addEventListener('change', (event) => state.calendarInstance?.gotoDate(event.target.value));
@@ -2287,6 +2289,7 @@ async function loadShift() {
   ]);
   state.shiftStatus = statusResponse.ok ? statusResponse : null;
   state.shifts = teamResponse.ok ? teamResponse.recent || [] : [];
+  state.shiftDebriefs = teamResponse.ok ? teamResponse.debriefs || [] : [];
 
   const onDuty = Boolean(statusResponse.activeShift);
   document.querySelector('#startShiftButton').disabled = onDuty;
@@ -2303,6 +2306,7 @@ async function loadShift() {
     actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-shift="${escapeHtml(row.ShiftID)}">Edit</button>` : '',
   });
   renderTable('#shiftMetricsTable', teamResponse.metrics || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'Shifts', 'Duration', 'LastShift', 'ActivityFlag']);
+  renderTable('#shiftDebriefsTable', state.shiftDebriefs, ['Officer', 'StartedAt', 'Duration', 'CADs', 'Actions', 'Incomplete', 'SupervisorAttention', 'SubmittedAt'], { actions: (row) => `<button class="mini ghost" data-open-shift-debrief="${escapeHtml(row.DebriefID)}">Review</button>` });
   applyPermissions();
 }
 
@@ -5019,6 +5023,7 @@ async function loadPermissions() {
   state.permissionConfig = response;
   renderPermissionsMatrix();
   renderUserPermissionsMatrix();
+  renderPermissionAudit();
 }
 
 async function loadSettings() {
@@ -5125,6 +5130,42 @@ function userPermissionMode(userId, permission) {
   const override = state.permissionConfig.userPermissions.find((row) => row.UserID === userId && row.Permission === permission);
   if (!override) return 'Inherit';
   return String(override.Allowed).toUpperCase() === 'TRUE' ? 'Allow' : 'Deny';
+}
+
+function permissionAuditRows() {
+  const config = state.permissionConfig;
+  if (!config) return [];
+  const sensitive = ['FULL_ACCESS', 'MANAGE_PERMISSIONS', 'MANAGE_USERS', 'RESET_PASSWORDS', 'VIEW_AUDIT_LOG', 'CONTROL_OPERATIONS'];
+  return config.users.map((user) => {
+    const overrides = config.userPermissions.filter((row) => row.UserID === user.UserID);
+    const effective = config.permissions.filter((permission) => {
+      const override = overrides.find((row) => row.Permission === permission);
+      if (override) return String(override.Allowed).toUpperCase() === 'TRUE';
+      return rolePermissionEnabled(user.Role, permission);
+    });
+    const explicitAllows = overrides.filter((row) => String(row.Allowed).toUpperCase() === 'TRUE').map((row) => row.Permission);
+    const sensitiveAccess = sensitive.filter((permission) => effective.includes(permission));
+    const reasons = [];
+    let Risk = 'Normal';
+    if (effective.includes('FULL_ACCESS')) { Risk = 'Critical'; reasons.push('Full Access enabled'); }
+    else if (sensitiveAccess.length >= 3 || explicitAllows.some((permission) => sensitive.includes(permission))) { Risk = 'High'; reasons.push('Multiple privileged capabilities'); }
+    else if (overrides.length || user.Status !== 'Active') { Risk = 'Review'; reasons.push(overrides.length ? `${overrides.length} individual override(s)` : 'Account is not active'); }
+    return { ...user, Effective: effective, Overrides: overrides, ExplicitAllows: explicitAllows, Sensitive: sensitiveAccess, Risk, Reasons: reasons };
+  });
+}
+
+function renderPermissionAudit() {
+  const container = document.querySelector('#permissionAuditResults');
+  if (!container || !state.permissionConfig) return;
+  const query = String(document.querySelector('#permissionAuditSearch')?.value || '').trim().toLowerCase();
+  const risk = document.querySelector('#permissionAuditRisk')?.value || '';
+  const allRows = permissionAuditRows();
+  const rows = allRows.filter((row) => (!risk || row.Risk === risk) && (!query || [row.RobloxUsername, row.Role, row.Rank, row.Status, ...row.Effective, ...row.ExplicitAllows].some((value) => String(value || '').toLowerCase().includes(query))));
+  document.querySelector('#permissionAuditSummary').innerHTML = [
+    stat('Accounts reviewed', allRows.length), stat('Critical', allRows.filter((row) => row.Risk === 'Critical').length),
+    stat('High risk', allRows.filter((row) => row.Risk === 'High').length), stat('With overrides', allRows.filter((row) => row.Overrides.length).length),
+  ].join('');
+  container.innerHTML = rows.length ? rows.map((row) => `<article class="permission-audit-row risk-${row.Risk.toLowerCase()}"><div class="permission-risk">${escapeHtml(row.Risk)}</div><div><span>${escapeHtml(row.Role)} / ${escapeHtml(row.Rank)} / ${escapeHtml(row.Status)}</span><strong>${escapeHtml(row.RobloxUsername)}</strong><p>${escapeHtml(row.Reasons.join(' / ') || 'No elevated-access concerns detected.')}</p><small>${escapeHtml(row.Sensitive.length ? `Privileged: ${row.Sensitive.join(', ')}` : `${row.Effective.length} effective permissions`)}</small></div><div class="permission-override-summary"><b>${row.Overrides.length}</b><span>Overrides</span><small>${escapeHtml(row.ExplicitAllows.join(', ') || 'None explicitly allowed')}</small></div></article>`).join('') : emptyState('No accounts match this audit view.');
 }
 
 async function loadAudit() {
@@ -5540,6 +5581,14 @@ function openShiftEditor(record) {
   });
 }
 
+function openShiftDebrief(debriefId) {
+  const row = (state.shiftDebriefs || []).find((item) => item.DebriefID === debriefId);
+  if (!row) return;
+  const incidents = row.Snapshot?.Incidents || [];
+  const incomplete = row.Snapshot?.IncompleteItems || [];
+  showInfo(`Shift debrief / ${row.Officer}`, `<section class="shift-debrief-detail"><header><span>${escapeHtml(formatDisplayDateTime(row.StartedAt))} / ${escapeHtml(row.Duration)}</span><h3>${escapeHtml(row.Officer)}${row.Callsign ? ` / ${escapeHtml(row.Callsign)}` : ''}</h3><p>${escapeHtml(row.Summary || 'No summary supplied.')}</p></header><div class="shift-debrief-facts">${detailCard('CADs', row.CADs)}${detailCard('Actions', row.Actions)}${detailCard('Arrests', row.Arrests)}${detailCard('FPNs', row.FPNs)}${detailCard('Warnings', row.Warnings)}${detailCard('Power uses', row.PowerUses)}</div><section><h4>Notable results</h4><p>${escapeHtml(row.NotableResults || 'None recorded.')}</p></section><section><h4>Issues and learning</h4><p>${escapeHtml(row.IssuesRisks || 'None recorded.')}</p></section><section class="${row.SupervisorAttention === 'Yes' ? 'requires-attention' : ''}"><h4>Supervisor attention</h4><p>${escapeHtml(row.SupervisorAttention)}${row.CarriedForwardNotes ? ` / ${escapeHtml(row.CarriedForwardNotes)}` : ''}</p></section><section><h4>Linked CADs</h4>${incidents.map((incident) => `<button class="debrief-cad-link" data-open-ops-search="Incident:${escapeHtml(incident.IncidentID)}"><strong>${escapeHtml(incident.IncidentNumber)}</strong><span>${escapeHtml(incident.Title)} / ${escapeHtml(incident.Status)}</span></button>`).join('') || '<p class="empty">No linked CADs.</p>'}</section><section><h4>Incomplete work</h4>${incomplete.map((item) => `<article><strong>${escapeHtml(item.Reference)}</strong><span>${escapeHtml(item.Type)} / ${escapeHtml(item.Detail)}</span></article>`).join('') || '<p class="empty">No incomplete work detected.</p>'}</section></section>`);
+}
+
 async function startShift(returnHub = 'personnel') {
   const response = await api('startShift', {});
   if (!response.ok) {
@@ -5567,6 +5616,9 @@ async function openEndShiftEditor(returnHub = 'personnel') {
     reviewPanel,
     field('EndedAt', 'End time', 'datetime-local', false, localDateTimeValue(active.EndedAt || new Date().toISOString())),
     field('Summary', 'Shift summary', 'textarea', true, generatedSummary),
+    field('NotableResults', 'Notable results and positive activity', 'textarea', true),
+    field('IssuesRisks', 'Issues, risks or learning points', 'textarea', true),
+    selectField('SupervisorAttention', 'Supervisor attention required?', ['No', 'Yes'], 'No'),
     field('CarriedForwardNotes', 'Notes for incomplete or carried-forward work', 'textarea', true),
   ], async (values) => api('endShift', values), {
     successMessage: 'Shift ended.',
@@ -5839,6 +5891,8 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
+  const shiftDebrief = event.target.closest('[data-open-shift-debrief]');
+  if (shiftDebrief) { openShiftDebrief(shiftDebrief.dataset.openShiftDebrief); return; }
   const timelineSubject = event.target.closest('[data-timeline-subject]');
   if (timelineSubject) { await openTimelineSubject(timelineSubject.dataset.timelineSubject); return; }
   if (event.target.closest('[data-close-timeline]')) { closeTimelineSubject(); return; }
@@ -10742,10 +10796,16 @@ async function supabaseEndShift(data) {
         fpn_count: preview.FpnCount || 0,
         warning_count: preview.WarningCount || 0,
         power_use_count: preview.PowerUseCount || 0,
-        snapshot: preview,
+        snapshot: { ...preview, Debrief: { NotableResults: data.NotableResults || '', IssuesRisks: data.IssuesRisks || '', SupervisorAttention: data.SupervisorAttention || 'No' } },
         submitted_by: state.user.UserID,
         submitted_at: new Date().toISOString(),
       }, { onConflict: 'shift_id' });
+      if (data.SupervisorAttention === 'Yes') {
+        const officer = await supabaseById('officers', 'officer_id', active.OfficerID);
+        const supervisorProfile = officer?.supervisor_user_id ? await supabaseById('profiles', 'user_id', officer.supervisor_user_id) : null;
+        const supervisorOfficer = supervisorProfile ? await supabaseOfficerForMember(supervisorProfile.member_id) : null;
+        if (supervisorOfficer) await supabaseClient.from('mdt_tasks').insert({ title: `Review shift debrief / ${active.RobloxUsername}`, details: data.IssuesRisks || data.CarriedForwardNotes || 'Officer requested supervisor attention at the end of their shift.', category: 'Shift Debrief', priority: 'High', status: 'Open', assigned_officer_id: supervisorOfficer.officer_id, source_type: 'Shift Debrief', source_id: active.ShiftID, created_by: state.user.UserID });
+      }
     }
     await leaveUnitsForOfficer(active.OfficerID);
   }
@@ -10761,7 +10821,7 @@ async function leaveUnitsForOfficer(officerId) {
 }
 
 async function supabaseTeamShifts(data = {}) {
-  const [officers, shifts, loa] = await Promise.all([supabaseAll('officers'), supabaseAll('shift_logs'), supabaseAll('loa_requests')]);
+  const [officers, shifts, loa, wrapups] = await Promise.all([supabaseAll('officers'), supabaseAll('shift_logs'), supabaseAll('loa_requests'), supabaseOptionalAll('shift_wrapups')]);
   const active = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at).map(supabaseShift);
   const filtered = filterShiftsByQuery(shifts || [], data);
   const metrics = (officers || []).map((officer) => {
@@ -10783,6 +10843,13 @@ async function supabaseTeamShifts(data = {}) {
   const profile = await supabaseProfileByUserId(state.user.UserID);
   const ownOfficer = (officers || []).find((officer) => officer.member_id === profile?.member_id);
   const ownShifts = ownOfficer ? filtered.filter((shift) => shift.officer_id === ownOfficer.officer_id) : [];
+  const shiftById = new Map((shifts || []).map((shift) => [shift.shift_id, shift]));
+  const debriefs = (wrapups || []).map((row) => {
+    const shift = shiftById.get(row.shift_id) || {};
+    const officer = officers.find((item) => item.officer_id === row.officer_id) || {};
+    const debrief = row.snapshot?.Debrief || {};
+    return { DebriefID: row.wrapup_id, ShiftID: row.shift_id, OfficerID: row.officer_id, Officer: officer.roblox_username || shift.roblox_username || row.officer_id, Callsign: officer.callsign || shift.callsign || '', StartedAt: shift.started_at || row.submitted_at, EndedAt: shift.ended_at || row.submitted_at, Duration: durationText(shiftMs(shift)), Summary: row.summary || '', CarriedForwardNotes: row.carried_forward_notes || '', CADs: (row.incident_ids || []).length, Actions: row.snapshot?.ActionCount || 0, Incomplete: row.incomplete_report_count || 0, Arrests: row.arrest_count || 0, FPNs: row.fpn_count || 0, Warnings: row.warning_count || 0, PowerUses: row.power_use_count || 0, NotableResults: debrief.NotableResults || '', IssuesRisks: debrief.IssuesRisks || '', SupervisorAttention: debrief.SupervisorAttention || 'No', SubmittedAt: row.submitted_at, Snapshot: row.snapshot || {} };
+  }).sort((a, b) => String(b.SubmittedAt).localeCompare(String(a.SubmittedAt))).slice(0, 60);
   return {
     ok: true,
     active,
@@ -10792,6 +10859,7 @@ async function supabaseTeamShifts(data = {}) {
       return converted;
     }),
     metrics,
+    debriefs,
     myStats: { Shifts: ownShifts.length, Duration: durationText(ownShifts.reduce((sum, shift) => sum + shiftMs(shift), 0)) },
   };
 }
