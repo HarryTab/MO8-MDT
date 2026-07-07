@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-07-2';
+const APP_VERSION = '2026-07-07-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -211,6 +211,7 @@ document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.body.classList.contains('control-board-mode')) { toggleControlBoardMode(false); return; }
   const searchPreview = event.target.closest?.('[data-search-preview]');
   if (searchPreview && ['Enter', ' '].includes(event.key)) {
     event.preventDefault();
@@ -478,6 +479,7 @@ document.querySelector('#clearTaskFilters')?.addEventListener('click', () => { [
 document.querySelector('#opsNewOffenceButton')?.addEventListener('click', () => openOpsOffenceEditor());
 document.querySelector('#opsControllerButton')?.addEventListener('click', openOpsControllerSessionEditor);
 document.querySelector('#opsControlSessionButton')?.addEventListener('click', openOpsControllerSessionEditor);
+document.querySelector('#opsControlBoardMode')?.addEventListener('click', toggleControlBoardMode);
 document.querySelector('#opsIntelSearch')?.addEventListener('input', debounce(renderOpsIntelSearch, 120));
 document.querySelector('#opsControlOfficerSearch')?.addEventListener('input', debounce(renderOpsControlOfficerSearch, 120));
 document.querySelector('#opsCommandSearch')?.addEventListener('keydown', (event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) runOpsCommandSearch(event.currentTarget.value.trim()); });
@@ -2412,7 +2414,7 @@ function renderOpsIncidentWorkspace(row) {
   workspace.innerHTML = `<header class="cad-detail-head">
     <div class="cad-priority-block ${escapeHtml(String(row.Priority || '').toLowerCase())}">${escapeHtml(String(opsPriorityWeight(row.Priority)))}</div>
     <div><small>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.IncidentType)} / ${escapeHtml(row.Status)}</small><h2>${escapeHtml(row.Title)}</h2><p>${escapeHtml(row.Location || 'Location not recorded')}</p></div>
-    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}${!isClosed ? `<button class="workflow-action" data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow ${workflow.completed}/${workflow.total}</button><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="cid-export-action" data-export-cid-referral="CAD:${escapeHtml(row.IncidentID)}">CID referral PDF</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
+    <div class="cad-detail-actions">${canAttach ? `<button data-attach-my-unit="${escapeHtml(row.IncidentID)}">Attach ${escapeHtml(myUnit.Callsign)}</button>` : ''}<button class="incident-brief-action" data-incident-brief="${escapeHtml(row.IncidentID)}">Incident brief</button>${!isClosed ? `<button class="workflow-action" data-open-cad-workflow="${escapeHtml(row.IncidentID)}">Workflow ${workflow.completed}/${workflow.total}</button><button class="ghost" data-link-cad-person="${escapeHtml(row.IncidentID)}">Add person</button><button class="ghost" data-link-cad-vehicle="${escapeHtml(row.IncidentID)}">Add vehicle</button>` : ''}${!isClosed && (row.AssignedUnitIDs || []).length && can('VIEW_TASKS') ? `<button class="ghost" data-transfer-cad="${escapeHtml(row.IncidentID)}">Transfer</button>` : ''}<button class="ghost" data-link-cad-case="${escapeHtml(row.IncidentID)}">Add to case</button><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Edit</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add log</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Evidence</button><button class="cid-export-action" data-export-cid-referral="CAD:${escapeHtml(row.IncidentID)}">CID referral PDF</button><button class="warning-action" data-ops-assistance="${escapeHtml(row.IncidentID)}">Assistance</button>${isClosed && can('VIEW_TASKS') ? `<button data-reopen-cad="${escapeHtml(row.IncidentID)}">Reopen</button>` : !isClosed ? `<button data-close-cad="${escapeHtml(row.IncidentID)}">Close CAD</button>` : ''}</div>
   </header>
   <nav class="cad-record-tabs"><button class="${activeDetailTab === 'overview' ? 'active' : ''}" data-cad-detail-tab="overview">Overview</button><button class="${activeDetailTab === 'intelligence' ? 'active' : ''}" data-cad-detail-tab="intelligence">Intelligence <span>${escapeHtml(String((row.Entities || []).length))}</span></button><button class="${activeDetailTab === 'command' ? 'active' : ''}" data-cad-detail-tab="command">Command</button><button class="${activeDetailTab === 'timeline' ? 'active' : ''}" data-cad-detail-tab="timeline">Timeline <span>${escapeHtml(String(logs.length))}</span></button><button class="${activeDetailTab === 'evidence' ? 'active' : ''}" data-cad-detail-tab="evidence">Evidence <span>${escapeHtml(String((row.Attachments || []).length + (row.Links || []).length))}</span></button></nav>
   <section class="cad-detail-panel" data-cad-detail-panel="overview"${activeDetailTab === 'overview' ? '' : ' hidden'}><div class="cad-detail-grid">
@@ -2429,10 +2431,61 @@ function renderOpsIncidentWorkspace(row) {
   <section class="cad-detail-panel" data-cad-detail-panel="command"${activeDetailTab === 'command' ? '' : ' hidden'}><div class="cad-detail-grid">
     <section class="cad-detail-section"><h3>Command structure</h3><div class="cad-facts">${opsFact('Incident commander', command.IncidentCommander || 'Not assigned')}${opsFact('Bronze', command.Bronze || 'Not assigned')}${opsFact('Silver', command.Silver || 'Not assigned')}${opsFact('Gold', command.Gold || 'Not assigned')}</div></section>
     <section class="cad-detail-section"><h3>Operational objectives</h3><p>${escapeHtml(row.Description || 'No operational objectives recorded.')}</p><div class="row-actions"><button class="ghost" data-edit-ops-incident="${escapeHtml(row.IncidentID)}">Update command record</button><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Record decision</button></div></section>
+    ${postIncidentLearningPanel(row)}
   </div></section>
   <section class="cad-detail-panel" data-cad-detail-panel="timeline"${activeDetailTab === 'timeline' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Incident timeline</h3><button class="ghost" data-open-ops-log="${escapeHtml(row.IncidentID)}">Add entry</button></div><div class="cad-timeline">${logs.length ? logs.map(opsLogEntry).join('') : '<p class="empty">No log entries yet.</p>'}</div></section></section>
   <section class="cad-detail-panel" data-cad-detail-panel="evidence"${activeDetailTab === 'evidence' ? '' : ' hidden'}><section class="cad-detail-section cad-detail-full"><div class="cad-panel-title"><h3>Evidence and links</h3><div><button class="ghost" data-add-ops-link="${escapeHtml(row.IncidentID)}">Add link</button><button class="ghost" data-add-ops-attachment="${escapeHtml(row.IncidentID)}">Upload file</button><button class="cid-export-action" data-export-cid-referral="CAD:${escapeHtml(row.IncidentID)}">Create CID pack</button></div></div><div class="cad-attachment-list">${(row.Attachments || []).map(opsAttachmentRow).join('') || '<p class="empty">No evidence attached.</p>'}</div><div class="cad-link-list">${(row.Links || []).map((link) => `<a class="cad-file-row" href="${escapeHtml(link.Url)}" target="_blank" rel="noopener"><span>${escapeHtml(link.Title)}</span><small>Open link</small></a>`).join('')}</div>${cidReferralHistoryHtml('CAD', row.IncidentID)}</section></section>`;
   renderOpsCallQueue();
+}
+
+function incidentBriefHtml(row) {
+  const logs = [...(row.Logs || [])].sort((a, b) => new Date(b.CreatedAt) - new Date(a.CreatedAt));
+  const risks = [...(row.CorrelationAlerts || []).map((item) => item.Title), ...(row.Entities || []).flatMap((entity) => (entity.Markers || []).map((marker) => marker.Type || marker.MarkerType)).filter(Boolean)];
+  const outstanding = [];
+  if (!(row.AssignedUnitIDs || []).length) outstanding.push('No unit assigned');
+  if (!(row.Entities || []).length) outstanding.push('No people or vehicles linked');
+  if (!row.Description) outstanding.push('Incident description incomplete');
+  if (!['Resolved', 'Cancelled'].includes(row.Status) && !(row.Logs || []).length) outstanding.push('No incident log entries');
+  return `<section class="incident-brief"><header><div><span>Automatically generated / ${escapeHtml(formatDisplayDateTime(new Date().toISOString()))}</span><h3>${escapeHtml(row.IncidentNumber)} / ${escapeHtml(row.Title)}</h3><p>${escapeHtml(row.Priority)} / ${escapeHtml(row.Status)} / ${escapeHtml(row.Location || 'Location not recorded')}</p></div><strong>${escapeHtml(String(opsPriorityWeight(row.Priority)))}</strong></header><div class="incident-brief-grid"><section><h4>Situation</h4><p>${escapeHtml(row.Description || 'No description recorded.')}</p></section><section><h4>Resources</h4><p>${escapeHtml(row.AssignedUnits || 'No units assigned')}</p><small>${escapeHtml(row.RequiredCapabilities ? `Required: ${row.RequiredCapabilities}` : 'No specialist capability requirement')}</small></section><section><h4>People and vehicles</h4>${(row.Entities || []).map((entity) => `<p><strong>${escapeHtml(entity.InvolvementRole)}</strong> ${escapeHtml(entity.Label)}</p>`).join('') || '<p>None linked.</p>'}</section><section class="${risks.length ? 'brief-risk' : ''}"><h4>Risks and intelligence</h4>${risks.map((risk) => `<p>${escapeHtml(risk)}</p>`).join('') || '<p>No explicit risks identified.</p>'}</section><section><h4>Recorded actions</h4><p>${escapeHtml(String((row.Disposals || []).length))} outcome(s) / ${escapeHtml(String((row.PowerUses || []).length))} power use(s) / ${escapeHtml(String((row.Attachments || []).length))} evidence item(s)</p></section><section class="${outstanding.length ? 'brief-outstanding' : ''}"><h4>Outstanding</h4>${outstanding.map((item) => `<p>${escapeHtml(item)}</p>`).join('') || '<p>No automatic gaps detected.</p>'}</section></div><section class="incident-brief-log"><h4>Latest updates</h4>${logs.slice(0, 5).map((log) => `<article><time>${escapeHtml(formatDisplayDateTime(log.CreatedAt))}</time><strong>${escapeHtml(log.EntryType)}</strong><p>${escapeHtml(log.Body)}</p></article>`).join('') || '<p>No updates recorded.</p>'}</section><footer>This brief is generated from the current MDT record and should be checked by the officer or controller before operational use.</footer></section>`;
+}
+
+function postIncidentLearningPanel(row) {
+  const review = row.AfterAction || {};
+  return `<section class="cad-detail-section cad-detail-full post-incident-learning"><div class="cad-panel-title"><div><small>${escapeHtml(review.Status || 'Not started')}</small><h3>Post-incident learning</h3></div>${can('VIEW_TASKS') ? `<button data-post-incident-learning="${escapeHtml(row.IncidentID)}">${review.AfterActionID ? 'Update review' : 'Start review'}</button>` : ''}</div>${review.AfterActionID ? `<div class="learning-grid">${opsFact('Decision summary', review.DecisionSummary || 'Not recorded')}${opsFact('Learning points', review.LearningPoints || 'Not recorded')}${opsFact('Follow-up actions', review.FollowUpActions || 'Not recorded')}${opsFact('Due', review.DueAt ? formatDisplayDateTime(review.DueAt) : 'Not set')}</div>` : '<p>No structured learning review has been recorded for this incident.</p>'}</section>`;
+}
+
+function openIncidentBrief(incidentId) {
+  const row = operationalIncidentById(incidentId);
+  if (row) showInfo(`Incident brief / ${row.IncidentNumber}`, incidentBriefHtml(row));
+}
+
+async function openAndVerifyEvidence(attachmentId) {
+  const target = window.open('', '_blank');
+  const response = await api('openOperationalEvidence', { AttachmentID: attachmentId });
+  if (!response.ok) { target?.close(); showInfo('Evidence unavailable', `<p>${escapeHtml(response.error || 'The evidence could not be opened.')}</p>`); return; }
+  if (target) target.location = response.Url;
+  try {
+    const fileResponse = await fetch(response.Url);
+    const observedHash = await sha256Hex(await fileResponse.arrayBuffer());
+    const verification = await api('recordEvidenceVerification', { AttachmentID: attachmentId, ObservedHash: observedHash });
+    const attachment = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])].flatMap((incident) => incident.Attachments || []).find((row) => row.AttachmentID === attachmentId);
+    if (attachment && verification.ok) { attachment.IntegrityStatus = verification.Status; attachment.Sha256 = verification.ExpectedHash || response.ExpectedHash || observedHash; attachment.VerifiedAt = new Date().toISOString(); attachment.AccessCount = Number(attachment.AccessCount || 0) + 2; }
+  } catch (error) {
+    // Signed evidence can still be opened when browser CORS prevents the secondary integrity read.
+  }
+}
+
+function showEvidenceHistory(attachmentId) {
+  const attachment = [...(state.operationsHub.incidents || []), ...(state.operationsHub.archive || [])].flatMap((incident) => incident.Attachments || []).find((row) => row.AttachmentID === attachmentId);
+  if (!attachment) return;
+  showInfo(`Evidence integrity / ${attachment.Title || attachment.FileName}`, `<section class="evidence-history"><header><span>${escapeHtml(attachment.IntegrityStatus)}</span><h3>${escapeHtml(attachment.FileName)}</h3><p>SHA-256 ${escapeHtml(attachment.Sha256 || 'Not recorded')}</p></header>${(attachment.AccessLog || []).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><div><strong>${escapeHtml(row.Action)}</strong><span>${escapeHtml(row.Actor)}${row.Result ? ` / ${escapeHtml(row.Result)}` : ''}</span></div></article>`).join('') || '<p class="empty">No access history recorded yet.</p>'}</section>`);
+}
+
+function openPostIncidentLearningEditor(incidentId) {
+  const row = operationalIncidentById(incidentId);
+  if (!row) return;
+  const review = row.AfterAction || {};
+  openEditor(`Post-incident learning / ${row.IncidentNumber}`, [hiddenField('IncidentID', incidentId), selectField('Status', 'Review status', ['In Progress', 'Completed'], review.Status === 'Completed' ? 'Completed' : 'In Progress'), field('DecisionSummary', 'What happened and why key decisions were made', 'textarea', false, review.DecisionSummary || ''), field('LearningPoints', 'Learning points', 'textarea', false, review.LearningPoints || ''), field('FollowUpActions', 'Follow-up actions and ownership', 'textarea', false, review.FollowUpActions || ''), field('DueAt', 'Follow-up due', 'datetime-local', true, localDateTimeValue(review.DueAt))], (values) => api('saveAfterActionLearning', values), { successMessage: 'Post-incident learning record saved.', onSuccess: refreshOperationsHub });
 }
 
 function opsFact(label, value) {
@@ -2478,7 +2531,7 @@ function opsIncidentPowerUses(rows) {
 }
 
 function opsAttachmentRow(row) {
-  return `<a class="cad-file-row" href="${escapeHtml(row.Url || '#')}" target="_blank" rel="noopener"><span>${escapeHtml(row.Title || row.FileName)}</span><small>${escapeHtml(row.FileType || 'File')}</small></a>`;
+  return `<article class="cad-file-row evidence-integrity-row"><div><span>${escapeHtml(row.Title || row.FileName)}</span><small>${escapeHtml(row.FileType || 'File')} / ${escapeHtml(formatFileSize(row.FileSize || 0))}</small><em class="integrity-${escapeHtml(String(row.IntegrityStatus || 'unverified').toLowerCase())}">${escapeHtml(row.IntegrityStatus || 'Unverified')} / SHA-256 ${escapeHtml(row.Sha256 ? `${row.Sha256.slice(0, 16)}...` : 'not recorded')}</em></div><div class="row-actions"><button class="mini" data-open-evidence="${escapeHtml(row.AttachmentID)}">Open and verify</button><button class="mini ghost" data-evidence-history="${escapeHtml(row.AttachmentID)}">History (${escapeHtml(String(row.AccessCount || 0))})</button></div></article>`;
 }
 
 function cidReferralHistoryHtml(sourceType, sourceId) {
@@ -3822,6 +3875,11 @@ function renderOpsControlRoom() {
   if (!status) return;
   status.innerHTML = session ? `<article><strong>${escapeHtml(session.ControllerRole)}</strong><span>${escapeHtml(session.Status)} / ${escapeHtml(session.Capabilities || 'No capabilities selected')}</span><button class="ghost" data-edit-controller-session>Update booking</button></article>` : `<article><strong>${eligible ? 'Not booked on control' : 'Controller authority not assigned'}</strong><span>${eligible ? 'Book on to use dispatch controls.' : 'A Controller tag or CONTROL_OPERATIONS permission is required.'}</span>${eligible ? '<button data-edit-controller-session>Book on control</button>' : ''}</article>`;
   const incidents = state.operationsHub.incidents || [];
+  const units = (state.operationsHub.units || []).filter((row) => row.UnitID);
+  const availableUnits = units.filter((row) => row.OperationalStatus === 'Available').length;
+  const unassignedIncidents = incidents.filter((row) => !(row.AssignedUnitIDs || []).length).length;
+  const priorityIncidents = incidents.filter((row) => ['Emergency', 'Immediate'].includes(row.Priority)).length;
+  document.querySelector('#opsControlBoardSummary').innerHTML = `<article><strong>${units.length}</strong><span>Active units</span></article><article><strong>${availableUnits}</strong><span>Available</span></article><article class="${unassignedIncidents ? 'attention' : ''}"><strong>${unassignedIncidents}</strong><span>Unassigned CADs</span></article><article class="${priorityIncidents ? 'critical' : ''}"><strong>${priorityIncidents}</strong><span>Priority incidents</span></article>`;
   const controlUnitOptions = (incident) => {
     const required = splitTags(incident.RequiredCapabilities || '');
     return (state.operationsHub.units || []).filter((row) => row.UnitID).map((unit) => {
@@ -3831,9 +3889,16 @@ function renderOpsControlRoom() {
     }).sort((a, b) => a.missing.length - b.missing.length || String(a.unit.Callsign).localeCompare(String(b.unit.Callsign))).map(({ unit, missing }) => `<option value="${escapeHtml(unit.UnitID)}">${missing.length ? `GAP: ${escapeHtml(missing.join(', '))}` : 'MATCH'} / ${escapeHtml(unit.Callsign)} / ${escapeHtml(unit.OperationalStatus)}</option>`).join('');
   };
   document.querySelector('#opsControlUnits').innerHTML = `<div class="control-row heading"><span>Callsign</span><span>Crew / capability</span><span>Status</span><span>CAD / controls</span></div>${(state.operationsHub.units || []).filter((row) => row.UnitID).map((row) => `<article class="control-row"><strong>${escapeHtml(row.Callsign)}</strong><span>${escapeHtml(row.Members)}<small>${escapeHtml(row.Capabilities)}</small></span><select data-control-unit-status="${escapeHtml(row.UnitID)}"${activeController ? '' : ' disabled'}>${['Available', 'Assigned', 'En Route', 'On Scene', 'Transporting', 'At Station', 'Out of Service'].map((value) => `<option${value === row.OperationalStatus ? ' selected' : ''}>${value}</option>`).join('')}</select><span>${escapeHtml(row.CurrentIncident || 'Unassigned')}${activeController ? `<button class="mini ghost" data-control-manage-unit="${escapeHtml(row.UnitID)}">Manage roster</button>` : ''}</span></article>`).join('') || emptyState('No active callsigns.')}`;
-  document.querySelector('#opsControlIncidents').innerHTML = `<div class="control-row incident heading"><span>CAD</span><span>Incident</span><span>Priority</span><span>Assign</span></div>${incidents.map((row) => `<article class="control-row incident"><strong>${escapeHtml(row.IncidentNumber)}</strong><span>${escapeHtml(row.Title)}<small>${escapeHtml(row.Location || '')}${row.RequiredCapabilities ? ` / requires ${escapeHtml(row.RequiredCapabilities)}` : ''}</small></span><span>${escapeHtml(row.Priority)}</span><div><select data-control-assignment-select="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}><option value="">Select callsign</option>${controlUnitOptions(row)}</select><button class="mini" data-control-assign="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}>Assign</button></div></article>`).join('') || emptyState('No active incidents.')}`;
+  document.querySelector('#opsControlIncidents').innerHTML = `<div class="control-row incident heading"><span>CAD</span><span>Incident</span><span>Priority</span><span>Assign</span></div>${incidents.map((row) => `<article class="control-row incident priority-${escapeHtml(String(row.Priority || 'routine').toLowerCase())}"><strong><button class="control-cad-link" data-open-cad="${escapeHtml(row.IncidentID)}">${escapeHtml(row.IncidentNumber)}</button></strong><span>${escapeHtml(row.Title)}<small>${escapeHtml(row.Location || '')}${row.RequiredCapabilities ? ` / requires ${escapeHtml(row.RequiredCapabilities)}` : ''} / ${escapeHtml(opsRelativeTime(row.CreatedAt))}</small></span><span>${escapeHtml(row.Priority)}</span><div><select data-control-assignment-select="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}><option value="">Select callsign</option>${controlUnitOptions(row)}</select><button class="mini" data-control-assign="${escapeHtml(row.IncidentID)}"${activeController ? '' : ' disabled'}>Assign</button><button class="mini ghost" data-incident-brief="${escapeHtml(row.IncidentID)}">Brief</button></div></article>`).join('') || emptyState('No active incidents.')}`;
   document.querySelector('#opsControlEvents').innerHTML = (state.operationsHub.controlEvents || []).length ? state.operationsHub.controlEvents.slice(0, 80).map((row) => `<article><time>${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</time><div><strong>${escapeHtml(row.EventType)}</strong><p>${escapeHtml(row.Summary)}</p><small>${escapeHtml([row.IncidentNumber, row.Callsign, row.Actor].filter(Boolean).join(' / '))}</small></div></article>`).join('') : emptyState('Control actions will be recorded here automatically.');
   renderOpsControlOfficerSearch();
+}
+
+function toggleControlBoardMode(force) {
+  const enabled = typeof force === 'boolean' ? force : !document.body.classList.contains('control-board-mode');
+  document.body.classList.toggle('control-board-mode', enabled);
+  const button = document.querySelector('#opsControlBoardMode');
+  if (button) button.textContent = enabled ? 'Exit board mode' : 'Board mode';
 }
 
 function renderOpsComms() {
@@ -5891,6 +5956,14 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
+  const openEvidence = event.target.closest('[data-open-evidence]');
+  if (openEvidence) { await openAndVerifyEvidence(openEvidence.dataset.openEvidence); return; }
+  const evidenceHistory = event.target.closest('[data-evidence-history]');
+  if (evidenceHistory) { showEvidenceHistory(evidenceHistory.dataset.evidenceHistory); return; }
+  const incidentBrief = event.target.closest('[data-incident-brief]');
+  if (incidentBrief) { openIncidentBrief(incidentBrief.dataset.incidentBrief); return; }
+  const postIncidentLearning = event.target.closest('[data-post-incident-learning]');
+  if (postIncidentLearning) { openPostIncidentLearningEditor(postIncidentLearning.dataset.postIncidentLearning); return; }
   const shiftDebrief = event.target.closest('[data-open-shift-debrief]');
   if (shiftDebrief) { openShiftDebrief(shiftDebrief.dataset.openShiftDebrief); return; }
   const timelineSubject = event.target.closest('[data-timeline-subject]');
@@ -7991,6 +8064,9 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       addOperationalIncidentLink: supabaseAddOperationalIncidentLink,
       uploadOperationalAttachment: supabaseUploadOperationalAttachment,
       reviewOperationalIncident: supabaseReviewOperationalIncident,
+      saveAfterActionLearning: supabaseSaveAfterActionLearning,
+      openOperationalEvidence: supabaseOpenOperationalEvidence,
+      recordEvidenceVerification: supabaseRecordEvidenceVerification,
       operationalReviewDetail: supabaseOperationalReviewDetail,
       submitOperationalAmendment: supabaseSubmitOperationalAmendment,
       reopenOperationalIncident: supabaseReopenOperationalIncident,
@@ -8742,7 +8818,7 @@ async function supabaseDataQualityCentre() {
     supabaseOptionalSelect('operational_incident_entities', 'incident_id,person_id,vehicle_id'),
     supabaseOptionalSelect('operational_persons', 'person_id,display_name'),
     supabaseOptionalSelect('operational_vehicles', 'vehicle_id,registration,make,model,colour'),
-    supabaseOptionalSelect('operational_incident_attachments', 'attachment_id,incident_id,title,file_name,storage_path'),
+    supabaseOptionalSelect('operational_incident_attachments', 'attachment_id,incident_id,title,file_name,storage_path,sha256,integrity_status'),
     supabaseOptionalSelect('documents', 'document_id,title,storage_path,drive_url'),
     supabaseOptionalSelect('operational_operations', 'operation_id,reference,name,summary,objectives,archived_at'),
   ]);
@@ -8764,6 +8840,8 @@ async function supabaseDataQualityCentre() {
   vehicles.filter((row) => !row.make || !row.model || !row.colour).forEach((row) => issue('Warning', 'Intelligence', 'Incomplete vehicle', row.registration, 'Vehicle is missing make, model or colour.', { OperationsTarget: `Vehicle:${row.vehicle_id}`, Reference: row.vehicle_id }));
   people.filter((row) => !entities.some((item) => item.person_id === row.person_id)).forEach((row) => issue('Warning', 'Intelligence', 'Unlinked person', row.display_name, 'Person record is not linked to any CAD.', { OperationsTarget: `Person:${row.person_id}`, Reference: row.person_id }));
   evidence.filter((row) => !row.title || !row.file_name || !row.storage_path).forEach((row) => issue('Critical', 'Evidence', 'Incomplete evidence metadata', row.title || row.file_name || row.attachment_id, 'Evidence is missing a title, filename or storage reference.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id }));
+  evidence.filter((row) => row.integrity_status === 'Mismatch').forEach((row) => issue('Critical', 'Evidence', 'Integrity mismatch', row.title || row.file_name, 'The latest SHA-256 verification did not match the stored evidence hash.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id }));
+  evidence.filter((row) => !row.sha256 || row.integrity_status === 'Unverified').forEach((row) => issue('High', 'Evidence', 'Evidence not verified', row.title || row.file_name, 'Open and verify this evidence to establish or confirm its integrity baseline.', { OperationsTarget: `Incident:${row.incident_id}`, Reference: row.attachment_id }));
   documents.filter((row) => !row.storage_path && !row.drive_url).forEach((row) => issue('High', 'Documents', 'Unavailable document', row.title || row.document_id, 'Document has no uploaded file or external link.', { View: 'documents', Reference: row.document_id }));
   cases.filter((row) => !row.archived_at && !row.summary && !row.objectives).forEach((row) => issue('Warning', 'Casework', 'Incomplete case', `${row.reference} / ${row.name}`, 'Active case has no summary or objectives.', { OperationsTarget: `Case:${row.operation_id}`, Reference: row.reference }));
   const checked = activeOfficers.length + profiles.length + tasks.length + loa.length + aips.length + incidents.length + people.length + vehicles.length + evidence.length + documents.length + cases.length;
@@ -10865,7 +10943,7 @@ async function supabaseTeamShifts(data = {}) {
 }
 
 async function supabaseOperationsHub() {
-  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses, messages, relationships, cidReferrals] = await Promise.all([
+  const [shiftStatus, shifts, incidents, bolos, officers, profiles, units, members, joinRequests, logs, links, briefings, trainingMatrix, attendance, reviews, attachments, templates, people, vehicles, offences, incidentEntities, disposals, markers, operations, operationLinks, invitations, officerActions, acknowledgements, boloSightings, afterActionReviews, powers, powerUses, actionReviews, controllerSessions, callsignPresets, caseActions, caseUpdates, briefingAcknowledgements, deployments, controlEvents, deploymentResponses, messages, relationships, cidReferrals, evidenceAccessLogs] = await Promise.all([
     supabaseShiftStatus(),
     supabaseAll('shift_logs'),
     supabaseOptionalAll('operational_incidents'),
@@ -10910,10 +10988,11 @@ async function supabaseOperationsHub() {
     supabaseOptionalAll('operational_messages'),
     supabaseOptionalAll('operational_entity_relationships'),
     supabaseOptionalAll('cid_referral_exports'),
+    supabaseOptionalAll('operational_evidence_access_log'),
   ]);
   const attachmentRows = await Promise.all((attachments || []).map(async (row) => {
     const { data: signed } = await supabaseClient.storage.from('mo8-cad-evidence').createSignedUrl(row.storage_path, 60 * 60);
-    return { ...row, signed_url: signed?.signedUrl || '' };
+    return { ...row, signed_url: signed?.signedUrl || '', access_log: (evidenceAccessLogs || []).filter((item) => item.attachment_id === row.attachment_id) };
   }));
   const activeShifts = (shifts || []).filter((row) => row.status === 'On Duty' && !row.ended_at);
   const activeUnits = (units || [])
@@ -10930,12 +11009,14 @@ async function supabaseOperationsHub() {
     .filter((row) => !['Resolved', 'Cancelled'].includes(row.status))
     .sort((a, b) => opsPriorityWeight(b.priority) - opsPriorityWeight(a.priority) || String(b.created_at).localeCompare(String(a.created_at)))
     .map((row) => supabaseOperationalIncident(row, officers, profiles, activeUnits, logs || [], links || [], attendance || [], reviews || [], attachmentRows, members || []))
-    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []));
+    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []))
+    .map((row) => ({ ...row, AfterAction: mapAfterActionReview((afterActionReviews || []).find((review) => review.incident_id === row.IncidentID), profiles || []) }));
   const archivedIncidents = (incidents || [])
     .filter((row) => ['Resolved', 'Cancelled'].includes(row.status))
     .sort((a, b) => String(b.closed_at || b.updated_at).localeCompare(String(a.closed_at || a.updated_at)))
     .map((row) => supabaseOperationalIncident(row, officers, profiles, activeUnits, logs || [], links || [], attendance || [], reviews || [], attachmentRows, members || []))
-    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []));
+    .map((row) => enrichOperationalIncident(row, people || [], vehicles || [], offences || [], incidentEntities || [], disposals || [], markers || [], incidents || [], bolos || [], officers || [], powerUses || [], powers || [], officerActions || []))
+    .map((row) => ({ ...row, AfterAction: mapAfterActionReview((afterActionReviews || []).find((review) => review.incident_id === row.IncidentID), profiles || []) }));
   const boloRows = await Promise.all((bolos || []).map(async (row) => {
     if (!row.image_storage_path) return row;
     const { data: signed } = await supabaseClient.storage.from('mo8-bolo-images').createSignedUrl(row.image_storage_path, 60 * 60);
@@ -11603,17 +11684,44 @@ async function supabaseUploadOperationalAttachment(data) {
   const file = data.EvidenceFile instanceof File && data.EvidenceFile.size > 0 ? data.EvidenceFile : null;
   if (!data.IncidentID || !file) return { ok: false, error: 'Select an incident and a file to upload.' };
   if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'CAD evidence files must be 10 MB or smaller.' };
+  const fileHash = await sha256Hex(await file.arrayBuffer());
   const attachmentId = idForSupabase('IATTACH');
   const path = `${data.IncidentID}/${attachmentId}-${safeStorageFileName(file.name)}`;
   const upload = await supabaseClient.storage.from('mo8-cad-evidence').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
   if (upload.error) return { ok: false, error: upload.error.message };
-  const { error } = await supabaseClient.from('operational_incident_attachments').insert({ attachment_id: attachmentId, incident_id: data.IncidentID, title: data.Title || file.name, storage_path: path, file_name: file.name, file_type: file.type || '', file_size: file.size, uploaded_by: me.user.UserID });
+  const { error } = await supabaseClient.from('operational_incident_attachments').insert({ attachment_id: attachmentId, incident_id: data.IncidentID, title: data.Title || file.name, storage_path: path, file_name: file.name, file_type: file.type || '', file_size: file.size, uploaded_by: me.user.UserID, sha256: fileHash, integrity_status: 'Verified', verified_at: new Date().toISOString(), verified_by: me.user.UserID });
   if (error) {
     await supabaseClient.storage.from('mo8-cad-evidence').remove([path]);
     return { ok: false, error: error.message };
   }
-  await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Evidence', Body: `Evidence attached: ${data.Title || file.name}.` });
+  await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Evidence', Body: `Evidence attached: ${data.Title || file.name}. SHA-256 ${fileHash}.` });
   return { ok: true };
+}
+
+async function supabaseOpenOperationalEvidence(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const attachment = await supabaseById('operational_incident_attachments', 'attachment_id', data.AttachmentID);
+  if (!attachment) return { ok: false, error: 'Evidence record not found.' };
+  const { data: signed, error } = await supabaseClient.storage.from('mo8-cad-evidence').createSignedUrl(attachment.storage_path, 60 * 15);
+  if (error || !signed?.signedUrl) return { ok: false, error: error?.message || 'Secure evidence link could not be created.' };
+  await supabaseClient.from('operational_evidence_access_log').insert({ attachment_id: attachment.attachment_id, incident_id: attachment.incident_id, actor_user_id: me.user.UserID, action: 'Opened', expected_hash: attachment.sha256 || '', details: { file_name: attachment.file_name } });
+  return { ok: true, Url: signed.signedUrl, ExpectedHash: attachment.sha256 || '' };
+}
+
+async function supabaseRecordEvidenceVerification(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  const attachment = await supabaseById('operational_incident_attachments', 'attachment_id', data.AttachmentID);
+  if (!attachment) return { ok: false, error: 'Evidence record not found.' };
+  const observed = String(data.ObservedHash || '');
+  const baselineCreated = !attachment.sha256 && Boolean(observed);
+  const expected = attachment.sha256 || observed;
+  const verified = Boolean(expected && observed && expected === observed);
+  const status = verified ? 'Verified' : 'Mismatch';
+  const { error } = await supabaseClient.from('operational_incident_attachments').update({ sha256: expected, integrity_status: status, verified_at: new Date().toISOString(), verified_by: me.user.UserID }).eq('attachment_id', attachment.attachment_id);
+  if (error) return { ok: false, error: error.message };
+  await supabaseClient.from('operational_evidence_access_log').insert({ attachment_id: attachment.attachment_id, incident_id: attachment.incident_id, actor_user_id: me.user.UserID, action: verified ? 'Verified' : 'Integrity Mismatch', expected_hash: expected || '', observed_hash: observed, details: { baseline_created: baselineCreated } });
+  if (!verified) await supabaseAddOperationalIncidentLog({ IncidentID: attachment.incident_id, EntryType: 'Evidence Integrity Alert', Body: `Integrity mismatch detected for ${attachment.title || attachment.file_name}.` });
+  return { ok: true, Status: status, ExpectedHash: expected };
 }
 
 async function supabaseReviewOperationalIncident(data) {
@@ -11643,6 +11751,20 @@ async function supabaseReviewOperationalIncident(data) {
     if (assignee) await supabaseNotify(assignee.member_id, 'CAD amendments required', notificationDetails([detailLine('CAD', incident.incident_number || incident.incident_id), detailLine('Incident', incident.title), detailLine('Supervisor feedback', data.Feedback || 'Review the CAD and make the requested changes.'), detailLine('Action', 'Update the record and return it for review')]), me.user.UserID);
   }
   await supabaseAudit(me.user.UserID, 'REVIEW_CAD', 'operational_incident', data.IncidentID, { status, feedback: data.Feedback || '' });
+  return { ok: true };
+}
+
+async function supabaseSaveAfterActionLearning(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!can('VIEW_TASKS')) return { ok: false, error: 'Supervisor access is required to manage post-incident learning.' };
+  const incident = await supabaseById('operational_incidents', 'incident_id', data.IncidentID);
+  if (!incident) return { ok: false, error: 'Incident not found.' };
+  const status = data.Status === 'Completed' ? 'Completed' : 'In Progress';
+  const record = { incident_id: data.IncidentID, assigned_reviewer_user_id: me.user.UserID, status, decision_summary: data.DecisionSummary || '', learning_points: data.LearningPoints || '', follow_up_actions: data.FollowUpActions || '', due_at: data.DueAt || null, completed_by: status === 'Completed' ? me.user.UserID : null, completed_at: status === 'Completed' ? new Date().toISOString() : null, updated_at: new Date().toISOString() };
+  const { error } = await supabaseClient.from('operational_after_action_reviews').upsert(record, { onConflict: 'incident_id' });
+  if (error) return { ok: false, error: error.message };
+  await supabaseAddOperationalIncidentLog({ IncidentID: data.IncidentID, EntryType: 'Post-Incident Learning', Body: `${status}: ${data.LearningPoints || data.DecisionSummary || 'Review updated.'}` });
+  await supabaseAudit(me.user.UserID, 'UPDATE_POST_INCIDENT_LEARNING', 'operational_incident', data.IncidentID, { status, dueAt: data.DueAt || '', followUpActions: data.FollowUpActions || '' });
   return { ok: true };
 }
 
@@ -12371,7 +12493,7 @@ function supabaseOperationalIncident(row, officers, profiles, units = [], logs =
     RadioChannel: row.radio_channel || '',
     Logs: (logs || []).filter((log) => log.incident_id === row.incident_id).map((log) => ({ LogID: log.log_id, EntryType: log.entry_type, Body: log.body, CreatedAt: log.created_at, Author: profiles.find((profile) => profile.user_id === log.author_user_id)?.roblox_username || 'System' })),
     Links: (links || []).filter((link) => link.incident_id === row.incident_id).map((link) => ({ LinkID: link.link_id, Title: link.title, Url: link.url, CreatedAt: link.created_at })),
-    Attachments: (attachments || []).filter((item) => item.incident_id === row.incident_id).map((item) => ({ AttachmentID: item.attachment_id, Title: item.title, FileName: item.file_name, FileType: item.file_type, FileSize: item.file_size, StoragePath: item.storage_path, Url: item.signed_url, CreatedAt: item.created_at })),
+    Attachments: (attachments || []).filter((item) => item.incident_id === row.incident_id).map((item) => ({ AttachmentID: item.attachment_id, IncidentID: item.incident_id, Title: item.title, FileName: item.file_name, FileType: item.file_type, FileSize: item.file_size, StoragePath: item.storage_path, Url: item.signed_url, Sha256: item.sha256 || '', IntegrityStatus: item.integrity_status || 'Unverified', VerifiedAt: item.verified_at || '', CreatedAt: item.created_at, AccessCount: (item.access_log || []).length, AccessLog: (item.access_log || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((access) => ({ Action: access.action, Actor: profiles.find((profile) => profile.user_id === access.actor_user_id)?.roblox_username || 'System', CreatedAt: access.created_at, Result: access.observed_hash && access.expected_hash ? (access.observed_hash === access.expected_hash ? 'Match' : 'Mismatch') : '' })) })),
     Attendance: incidentAttendance.map((item) => ({ AttendanceID: item.attendance_id, Callsign: item.callsign_snapshot, UnitID: item.unit_id, AssignedAt: item.assigned_at, EnRouteAt: item.en_route_at, OnSceneAt: item.on_scene_at, ClearedAt: item.cleared_at, Outcome: item.outcome, Duration: item.cleared_at ? durationText(new Date(item.cleared_at) - new Date(item.assigned_at)) : 'Active' })),
     CreatedBy: profiles.find((profile) => profile.user_id === row.created_by)?.roblox_username || '',
     CreatedAt: row.created_at,
@@ -12390,6 +12512,11 @@ function supabaseOperationalIncident(row, officers, profiles, units = [], logs =
     ReviewDueAt: row.review_due_at || '',
     DuplicateOfIncidentID: row.duplicate_of_incident_id || '',
   };
+}
+
+function mapAfterActionReview(row, profiles = []) {
+  if (!row) return {};
+  return { AfterActionID: row.after_action_id, Status: row.status, DecisionSummary: row.decision_summary || '', LearningPoints: row.learning_points || '', FollowUpActions: row.follow_up_actions || '', AssignedReviewer: profiles.find((profile) => profile.user_id === row.assigned_reviewer_user_id)?.roblox_username || '', CompletedBy: profiles.find((profile) => profile.user_id === row.completed_by)?.roblox_username || '', DueAt: row.due_at || '', CompletedAt: row.completed_at || '', UpdatedAt: row.updated_at || '' };
 }
 
 function supabaseOperationalTemplate(row) {
