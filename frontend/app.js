@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-08-3';
+const APP_VERSION = '2026-07-08-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -5191,7 +5191,7 @@ function resetPersonnelDesign() {
 }
 
 function personnelWorkspaceEnabled() {
-  return localStorage.getItem(PERSONNEL_WORKSPACE_STORAGE_KEY) === '1';
+  return localStorage.getItem(PERSONNEL_WORKSPACE_STORAGE_KEY) !== 'classic';
 }
 
 function personnelOpenTabs() {
@@ -5204,8 +5204,7 @@ function savePersonnelOpenTabs(tabs) {
 }
 
 function setPersonnelWorkspaceMode(enabled) {
-  if (enabled) localStorage.setItem(PERSONNEL_WORKSPACE_STORAGE_KEY, '1');
-  else localStorage.removeItem(PERSONNEL_WORKSPACE_STORAGE_KEY);
+  localStorage.setItem(PERSONNEL_WORKSPACE_STORAGE_KEY, enabled ? 'desktop' : 'classic');
   document.body.classList.toggle('personnel-workspace-v2', enabled);
   const tabs = document.querySelector('#personnelWorkspaceTabs');
   if (tabs) tabs.hidden = !enabled;

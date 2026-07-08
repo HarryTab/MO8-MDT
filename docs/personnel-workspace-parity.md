@@ -1,6 +1,6 @@
 # Personnel Desktop Workspace parity checklist
 
-The Desktop Workspace is an interface layer over the existing Personnel Hub. A module is not considered migrated until its existing permissions, actions, task routes, notifications, mobile behavior and Supabase operations remain available.
+Desktop Workspace is the standard Personnel interface. It remains an interface layer over the existing Personnel Hub modules: a module is not considered migrated unless its permissions, actions, task routes, notifications, mobile behavior and Supabase operations remain available.
 
 ## Home and personal work
 
@@ -47,8 +47,8 @@ The Desktop Workspace is an interface layer over the existing Personnel Hub. A m
 - Rank, role, tag and individual permission enforcement
 - Loading, caching, update detection and stale-record protection
 - Desktop and mobile workflows
-- Classic Personnel Hub remains available during preview rollout
+- Classic Personnel Hub remains available temporarily as an emergency browser-local fallback
 
 ## Release gate
 
-Before Desktop Workspace becomes the default, every item above must be exercised using representative Constable, Sergeant, Inspector and Command accounts. No existing action may be removed merely because it has not yet received its final Desktop Workspace presentation.
+Desktop Workspace is now the default shell. Before the Classic fallback is removed, every item above must be exercised using representative Constable, Sergeant, Inspector and Command accounts. No existing action may be removed merely because it has not yet received its final Desktop Workspace presentation.
