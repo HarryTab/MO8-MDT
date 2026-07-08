@@ -169,8 +169,8 @@ body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { 
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) { background: #dce3e7; }
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode)::before { display: none; }
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-shell { min-height: 100dvh; padding: 0; }
-body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 230px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: calc(100dvh - 54px); background: linear-gradient(90deg, #1b3544 0, #1b3544 230px, #e9eef1 230px, #e9eef1 100%); border: 0; border-radius: 0; backdrop-filter: none; }
-body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { position: sticky; top: 0; display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); align-self: start; gap: 12px; width: 230px; height: calc(100dvh - 54px); padding: 15px 11px; color: #cad7dd; background: #1b3544; border: 0; border-right: 1px solid #3c5360; overflow: hidden; }
+body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 230px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: calc(100dvh - 54px); background: linear-gradient(90deg, #1b3544 0, #1b3544 230px, #e9eef1 230px, #e9eef1 100%); border: 0; border-radius: 0; backdrop-filter: none; transition: grid-template-columns 220ms ease; }
+body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { position: sticky; top: 0; display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); align-self: start; gap: 12px; width: 230px; height: calc(100dvh - 54px); padding: 15px 11px; color: #cad7dd; background: #1b3544; border: 0; border-right: 1px solid #3c5360; overflow: hidden; transition: width 220ms ease, padding 220ms ease; }
 body.personnel-workspace-v2 .dock-label { display: flex; align-items: center; min-height: 45px; padding: 0 5px; }
 body.personnel-workspace-v2 .dock-mark { color: #fff; background: #326d87; border-color: #5b8fa6; }
 body.personnel-workspace-v2 .dock-title strong { color: #f0f5f7; }
@@ -204,6 +204,12 @@ body.personnel-workspace-v2 .personnel-workspace-tabs:not([hidden]) { display: f
 body.personnel-workspace-v2 #appView { min-width: 0; padding: 18px 20px 30px; }
 body.personnel-workspace-v2 .data-view, body.personnel-workspace-v2 #dashboardView { max-width: 1600px; margin-right: auto; margin-left: auto; }
 body.personnel-workspace-v2 .system-taskbar button.active-app { color: #fff; background: #294e61; border-color: #477083; box-shadow: inset 0 -2px #78bed8; }
+body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 62px minmax(0, 1fr); background: linear-gradient(90deg, #1b3544 0, #1b3544 62px, #e9eef1 62px, #e9eef1 100%); }
+body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { grid-template-rows: auto; place-items: start center; width: 62px; padding: 12px 8px; }
+body.personnel-workspace-v2.nav-collapsed .module-dock .nav, body.personnel-workspace-v2.nav-collapsed .module-dock .mobile-menu-button { display: none; }
+body.personnel-workspace-v2.nav-collapsed .dock-label { display: grid; grid-template-columns: 1fr; justify-items: center; width: 100%; padding: 0; }
+body.personnel-workspace-v2.nav-collapsed .dock-mark, body.personnel-workspace-v2.nav-collapsed .dock-title { display: none; }
+body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 40px; }
 .workspace-preview-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 13px; background: #f3f6f8; border: 1px solid #d4dfe5; }
 .workspace-preview-actions span { flex-basis: 100%; color: #637986; font-size: 11px; }
 .workspace-preview-actions button:disabled { opacity: .45; cursor: default; }
@@ -217,6 +223,10 @@ body.personnel-workspace-v2 .system-taskbar button.active-app { color: #fff; bac
 @media (max-width: 760px) {
   body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { display: grid; grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); min-height: calc(100dvh - 62px); background: #e9eef1; }
   body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { position: sticky; top: 0; z-index: 115; width: 100%; height: auto; padding: 8px 10px; overflow: visible; }
+  body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 1fr; background: #e9eef1; }
+  body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { display: grid; width: 100%; padding: 8px 10px; }
+  body.personnel-workspace-v2.nav-collapsed .module-dock .nav { display: grid; }
+  body.personnel-workspace-v2.nav-collapsed .module-dock .mobile-menu-button { display: grid; }
   body.personnel-workspace-v2 .mobile-menu-button { display: grid; }
   body.personnel-workspace-v2 .nav { max-height: 0; padding: 0; overflow: hidden; }
   body.personnel-workspace-v2.mobile-nav-open .nav { max-height: calc(100dvh - 160px); padding: 10px 2px 20px; overflow-y: auto; }
