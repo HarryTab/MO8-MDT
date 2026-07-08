@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-07-4">
+    <link rel="stylesheet" href="styles.css?v=2026-07-08-1">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -565,8 +565,8 @@
           <section class="data-view settings-view" id="settingsView" hidden>
             <div class="section-head"><div><h2>Settings & Administration</h2><p>Command tools for reviewing access, navigation and system behaviour.</p></div></div>
             <section class="settings-layout">
-              <aside class="settings-menu"><button class="active" type="button">Access preview</button><span>Additional system settings can be added here without extending the main navigation.</span></aside>
-              <main class="settings-workspace">
+              <aside class="settings-menu"><button class="active" type="button" data-settings-panel="access">Access preview</button><button type="button" data-settings-panel="design">Personnel Design Lab</button><span>Design experiments are stored only in this browser and do not change the live default for other users.</span></aside>
+              <main class="settings-workspace" data-settings-workspace="access">
                 <div class="settings-workspace-head"><span>Command tool</span><h3>View MDT as...</h3><p>Build a simulated officer profile to review visible modules and effective permissions. Preview mode is read-only and never changes the selected officer or your account.</p></div>
                 <form id="accessPreviewForm" class="access-preview-form">
                   <label>Rank<select id="previewRank" name="Rank"></select></label>
@@ -576,6 +576,25 @@
                   <div class="access-preview-actions"><button type="submit">Start read-only preview</button><button type="button" class="ghost" id="resetAccessPreviewForm">Reset</button></div>
                 </form>
                 <section id="accessPreviewResult" class="access-preview-result"><p>Select a combination to see its predicted access.</p></section>
+              </main>
+              <main class="settings-workspace design-lab" data-settings-workspace="design" hidden>
+                <div class="settings-workspace-head"><span>Browser-only experiment</span><h3>Personnel Design Lab</h3><p>Try complete visual directions instantly. Your selection stays on this device, does not alter any records and can be reset at any time.</p></div>
+                <div class="design-lab-status"><div><small>Previewing</small><strong id="designLabCurrent">Current MDT</strong><span id="designLabDescription">The established Personnel Hub appearance.</span></div><button class="ghost" id="resetDesignLabButton" type="button">Restore current design</button></div>
+                <section class="design-preset-grid" id="designPresetGrid">
+                  <button class="design-preset active" type="button" data-design-preset="default"><span class="design-swatch design-swatch-default"><i></i><i></i><i></i></span><strong>Current MDT</strong><small>Existing live appearance</small></button>
+                  <button class="design-preset" type="button" data-design-preset="civic"><span class="design-swatch design-swatch-civic"><i></i><i></i><i></i></span><strong>Civic Precision</strong><small>Crisp, calm and information-led</small></button>
+                  <button class="design-preset" type="button" data-design-preset="executive"><span class="design-swatch design-swatch-executive"><i></i><i></i><i></i></span><strong>Executive Console</strong><small>Decisive dark navigation</small></button>
+                  <button class="design-preset" type="button" data-design-preset="glass"><span class="design-swatch design-swatch-glass"><i></i><i></i><i></i></span><strong>Quiet Glass</strong><small>Polished translucent workspace</small></button>
+                </section>
+                <section class="design-lab-options">
+                  <div><span>Information density</span><div class="segmented-control"><button type="button" data-design-density="comfortable">Comfortable</button><button type="button" data-design-density="compact">Compact</button></div></div>
+                  <div><span>Preview size</span><div class="segmented-control"><button type="button" data-design-viewport="desktop">Desktop</button><button type="button" data-design-viewport="mobile">Mobile</button></div></div>
+                </section>
+                <section class="design-preview-frame" id="designPreviewFrame">
+                  <header><span>Personnel Hub</span><div><i></i><i></i><i></i></div></header>
+                  <div class="design-preview-body"><nav><b></b><b></b><b></b><b></b><b></b></nav><main><div class="design-preview-title"><span></span><button type="button" tabindex="-1">Action</button></div><div class="design-preview-stats"><i></i><i></i><i></i></div><div class="design-preview-content"><section></section><aside></aside></div></main></div>
+                </section>
+                <p class="design-lab-footnote">These presets affect the Personnel Hub only. The CAD retains its dedicated operational appearance.</p>
               </main>
             </section>
           </section>
@@ -846,6 +865,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-07-4"></script>
+    <script src="app.js?v=2026-07-08-1"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-07-4';
+const APP_VERSION = '2026-07-08-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -69,6 +69,8 @@ const VERSION_STORAGE_KEY = 'mo8_app_version';
 const DASHBOARD_LAYOUT_STORAGE_KEY = 'mo8_dashboard_layout';
 const NAV_FAVOURITES_STORAGE_KEY = 'mo8_nav_favourites';
 const NAV_COLLAPSED_STORAGE_KEY = 'mo8_nav_collapsed';
+const DESIGN_PRESET_STORAGE_KEY = 'mo8_personnel_design_preset';
+const DESIGN_DENSITY_STORAGE_KEY = 'mo8_personnel_design_density';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -415,6 +417,11 @@ document.querySelector('#newUserButton').addEventListener('click', () => openUse
 document.querySelector('#accessPreviewForm')?.addEventListener('submit', startAccessPreview);
 document.querySelector('#accessPreviewForm')?.addEventListener('change', updateAccessPreviewEstimate);
 document.querySelector('#resetAccessPreviewForm')?.addEventListener('click', resetAccessPreviewForm);
+document.querySelectorAll('[data-settings-panel]').forEach((button) => button.addEventListener('click', () => switchSettingsPanel(button.dataset.settingsPanel)));
+document.querySelectorAll('[data-design-preset]').forEach((button) => button.addEventListener('click', () => applyPersonnelDesign(button.dataset.designPreset)));
+document.querySelectorAll('[data-design-density]').forEach((button) => button.addEventListener('click', () => applyPersonnelDensity(button.dataset.designDensity)));
+document.querySelectorAll('[data-design-viewport]').forEach((button) => button.addEventListener('click', () => setDesignPreviewViewport(button.dataset.designViewport)));
+document.querySelector('#resetDesignLabButton')?.addEventListener('click', resetPersonnelDesign);
 document.querySelector('#exitAccessPreviewButton')?.addEventListener('click', exitAccessPreview);
 document.querySelector('#collapseNavigationButton')?.addEventListener('click', toggleDesktopNavigation);
 document.querySelector('#newVacancyButton')?.addEventListener('click', () => openVacancyEditor());
@@ -5108,7 +5115,66 @@ async function loadSettings() {
   renderPreviewChoices('#previewTags', 'PreviewTags', OFFICER_TAGS);
   renderPreviewChoices('#previewTraining', 'PreviewTraining', TRAINING_STANDARDS);
   updateAccessPreviewEstimate();
+  renderDesignLabState();
 }
+
+const PERSONNEL_DESIGNS = {
+  default: { name: 'Current MDT', description: 'The established Personnel Hub appearance.' },
+  civic: { name: 'Civic Precision', description: 'A crisp public-service workspace with compact geometry, strong hierarchy and minimal decoration.' },
+  executive: { name: 'Executive Console', description: 'Dark, decisive navigation paired with bright operational work areas and restrained teal accents.' },
+  glass: { name: 'Quiet Glass', description: 'A polished translucent workspace with soft depth, cooler surfaces and controlled contrast.' },
+};
+
+function switchSettingsPanel(panel = 'access') {
+  document.querySelectorAll('[data-settings-panel]').forEach((button) => button.classList.toggle('active', button.dataset.settingsPanel === panel));
+  document.querySelectorAll('[data-settings-workspace]').forEach((workspace) => { workspace.hidden = workspace.dataset.settingsWorkspace !== panel; });
+}
+
+function applyStoredPersonnelDesign() {
+  const preset = localStorage.getItem(DESIGN_PRESET_STORAGE_KEY) || 'default';
+  const density = localStorage.getItem(DESIGN_DENSITY_STORAGE_KEY) || 'comfortable';
+  document.body.dataset.personnelTheme = PERSONNEL_DESIGNS[preset] ? preset : 'default';
+  document.body.dataset.personnelDensity = density === 'compact' ? 'compact' : 'comfortable';
+}
+
+function applyPersonnelDesign(preset) {
+  if (!PERSONNEL_DESIGNS[preset]) return;
+  localStorage.setItem(DESIGN_PRESET_STORAGE_KEY, preset);
+  document.body.dataset.personnelTheme = preset;
+  renderDesignLabState();
+}
+
+function applyPersonnelDensity(density) {
+  const value = density === 'compact' ? 'compact' : 'comfortable';
+  localStorage.setItem(DESIGN_DENSITY_STORAGE_KEY, value);
+  document.body.dataset.personnelDensity = value;
+  renderDesignLabState();
+}
+
+function setDesignPreviewViewport(viewport) {
+  document.querySelector('#designPreviewFrame')?.classList.toggle('mobile-preview', viewport === 'mobile');
+  document.querySelectorAll('[data-design-viewport]').forEach((button) => button.classList.toggle('active', button.dataset.designViewport === viewport));
+}
+
+function renderDesignLabState() {
+  const preset = document.body.dataset.personnelTheme || 'default';
+  const density = document.body.dataset.personnelDensity || 'comfortable';
+  const design = PERSONNEL_DESIGNS[preset] || PERSONNEL_DESIGNS.default;
+  const name = document.querySelector('#designLabCurrent'); if (name) name.textContent = design.name;
+  const description = document.querySelector('#designLabDescription'); if (description) description.textContent = design.description;
+  document.querySelectorAll('[data-design-preset]').forEach((button) => button.classList.toggle('active', button.dataset.designPreset === preset));
+  document.querySelectorAll('[data-design-density]').forEach((button) => button.classList.toggle('active', button.dataset.designDensity === density));
+  if (!document.querySelector('[data-design-viewport].active')) setDesignPreviewViewport('desktop');
+}
+
+function resetPersonnelDesign() {
+  localStorage.removeItem(DESIGN_PRESET_STORAGE_KEY);
+  localStorage.removeItem(DESIGN_DENSITY_STORAGE_KEY);
+  applyStoredPersonnelDesign();
+  renderDesignLabState();
+}
+
+applyStoredPersonnelDesign();
 
 function renderPreviewChoices(selector, name, values) {
   const container = document.querySelector(selector); if (!container || container.children.length) return;
