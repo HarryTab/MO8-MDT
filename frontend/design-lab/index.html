@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MO8 Personnel Prototype Studio</title>
+  <link rel="stylesheet" href="styles.css?v=1">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+</head>
+<body data-concept="desktop">
+  <header class="studio-bar">
+    <a href="../" class="studio-back"><i data-lucide="arrow-left"></i><span>Return to MDT</span></a>
+    <div class="studio-title"><strong>Personnel Prototype Studio</strong><span>Private visual experiment</span></div>
+    <div class="concept-switcher" role="group" aria-label="Prototype concept">
+      <button class="active" data-concept-button="desktop"><i data-lucide="monitor"></i><span>Desktop Workspace</span></button>
+      <button data-concept-button="portal"><i data-lucide="panel-left"></i><span>Command Portal</span></button>
+      <button data-concept-button="intranet"><i data-lucide="search"></i><span>Modern Intranet</span></button>
+    </div>
+    <button class="studio-icon" id="studioInfo" title="About this prototype"><i data-lucide="info"></i></button>
+  </header>
+
+  <main class="prototype" id="prototype">
+    <header class="system-header">
+      <div class="system-brand"><span class="brand-mark">M8</span><div><strong>Personnel</strong><small>Metropolitan Operations 8</small></div></div>
+      <div class="system-command"><i data-lucide="search"></i><input id="globalPrototypeSearch" placeholder="Search officers, records, documents or commands"><kbd>Ctrl K</kbd></div>
+      <nav class="portal-nav" aria-label="Main applications"></nav>
+      <div class="system-actions">
+        <span class="connection"><i></i> Secure</span>
+        <button class="icon-button" id="prototypeNotifications" title="Notifications"><i data-lucide="bell"></i><b>3</b></button>
+        <button class="identity-button"><span>HT</span><div><strong>harry_ted</strong><small>Inspector</small></div><i data-lucide="chevron-down"></i></button>
+      </div>
+    </header>
+
+    <aside class="app-rail">
+      <div class="rail-label">Applications</div>
+      <nav class="primary-navigation" aria-label="Personnel modules"></nav>
+      <div class="rail-section"><span>Quick access</span><button data-view="calendar"><i data-lucide="calendar-days"></i><span>Calendar</span></button><button data-view="documents"><i data-lucide="folder-open"></i><span>Documents</span></button><button data-view="messages"><i data-lucide="message-square"></i><span>Messages</span><b>2</b></button></div>
+      <footer><button><i data-lucide="settings"></i><span>Settings</span></button><button><i data-lucide="life-buoy"></i><span>Support</span></button></footer>
+    </aside>
+
+    <aside class="record-navigator">
+      <header><span>Personnel records</span><button title="Filter records"><i data-lucide="list-filter"></i></button></header>
+      <label><i data-lucide="search"></i><input id="recordSearch" placeholder="Find an officer"></label>
+      <div class="record-list" id="recordList"></div>
+    </aside>
+
+    <section class="workspace-shell">
+      <div class="workspace-tabs" id="workspaceTabs"><button class="active"><i data-lucide="layout-dashboard"></i><span id="activeTabLabel">Dashboard</span><i data-lucide="x"></i></button><button class="new-tab" title="Open application"><i data-lucide="plus"></i></button></div>
+      <div class="workspace-toolbar"><div><button class="mobile-nav-button" id="mobileNavButton"><i data-lucide="menu"></i></button><span id="workspaceEyebrow">Personnel overview</span><h1 id="workspaceTitle">Good evening, Inspector</h1></div><div class="toolbar-actions"><button class="secondary"><i data-lucide="sliders-horizontal"></i><span>Customise</span></button><button><i data-lucide="plus"></i><span>New record</span></button></div></div>
+      <div class="workspace-content" id="workspaceContent"></div>
+    </section>
+
+    <aside class="context-panel">
+      <header><div><span>My work</span><strong>Action centre</strong></div><button id="closeContext" title="Close panel"><i data-lucide="x"></i></button></header>
+      <div class="context-tabs"><button class="active">Tasks <b>5</b></button><button>Updates <b>3</b></button></div>
+      <div class="context-content" id="contextContent"></div>
+    </aside>
+
+    <footer class="system-taskbar">
+      <button class="taskbar-home active" title="Workstation home"><i data-lucide="grid-2x2"></i></button>
+      <button data-taskbar-view="dashboard" title="Personnel"><i data-lucide="users"></i><span>Personnel</span></button>
+      <button title="Operational CAD"><i data-lucide="radio-tower"></i><span>CAD</span></button>
+      <button data-taskbar-view="messages" title="Messages"><i data-lucide="message-square"></i><span>Messages</span><b>2</b></button>
+      <button data-taskbar-view="documents" title="Documents"><i data-lucide="folder"></i><span>Documents</span></button>
+      <div class="taskbar-status"><span>20:18</span><button title="Open notifications"><i data-lucide="bell"></i><b>3</b></button><span class="avatar">HT</span></div>
+    </footer>
+  </main>
+
+  <dialog id="prototypeDialog"><div class="dialog-shell"><header><div><span id="dialogEyebrow">Personnel record</span><h2 id="dialogTitle">Record details</h2></div><button data-close-dialog title="Close"><i data-lucide="x"></i></button></header><div id="dialogContent"></div></div></dialog>
+  <div class="notification-drawer" id="notificationDrawer" hidden><header><div><span>Personnel inbox</span><strong>Notifications</strong></div><button id="closeNotifications" title="Close"><i data-lucide="x"></i></button></header><div id="notificationItems"></div></div>
+  <div class="mobile-scrim" id="mobileScrim" hidden></div>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
