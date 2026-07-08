@@ -7,11 +7,11 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-08-6">
+    <link rel="stylesheet" href="styles.css?v=2026-07-08-7">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
-    <link rel="stylesheet" href="workstation.css?v=2026-07-08-4">
+    <link rel="stylesheet" href="workstation.css?v=2026-07-08-5">
   </head>
   <body>
     <main class="terminal-shell">
@@ -87,11 +87,9 @@
 
         <section class="workspace">
           <header class="topbar">
-            <div>
-              <span class="eyebrow">Internal terminal</span>
-              <h1 id="pageTitle">Sign in</h1>
-              <p id="pageSubtitle">MO8 roleplay community administration</p>
-            </div>
+            <div class="classic-page-title"><span class="eyebrow">Internal terminal</span><h1 id="pageTitle">Sign in</h1><p id="pageSubtitle">MO8 roleplay community administration</p></div>
+            <div class="workspace-system-brand"><span>M8</span><div><strong>Personnel</strong><small>Metropolitan Operations 8</small></div></div>
+            <label class="workspace-command-search"><span>Search</span><input id="desktopCommandSearch" type="search" placeholder="Search officers, records, documents or commands" autocomplete="off"><kbd>Ctrl K</kbd></label>
             <div class="identity" id="identity" hidden>
               <span id="currentUser"></span>
               <div class="notification-shell">
@@ -104,6 +102,7 @@
             </div>
         </header>
           <nav class="personnel-workspace-tabs" id="personnelWorkspaceTabs" aria-label="Open Personnel workspaces" hidden></nav>
+          <header class="personnel-page-heading" id="personnelPageHeading"><div><span class="eyebrow">Personnel workspace</span><h1 id="desktopPageTitle">Sign in</h1><p id="desktopPageSubtitle">MO8 roleplay community administration</p></div></header>
           <aside class="access-preview-banner" id="accessPreviewBanner" hidden><div><strong>Access preview active</strong><span id="accessPreviewSummary">Read-only simulated account</span></div><button type="button" id="exitAccessPreviewButton">Exit preview</button></aside>
 
           <section class="login-console workstation-login" id="loginView">
@@ -872,6 +871,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-08-6"></script>
+    <script src="app.js?v=2026-07-08-7"></script>
   </body>
 </html>

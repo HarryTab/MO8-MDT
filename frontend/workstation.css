@@ -166,6 +166,7 @@ body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { 
 
 /* Opt-in Personnel Desktop Workspace shell. Existing views remain unchanged. */
 .personnel-workspace-tabs { display: none; }
+.workspace-system-brand, .workspace-command-search, .personnel-page-heading { display: none; }
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) { background: #dce3e7; }
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode)::before { display: none; }
 body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-shell { min-height: 100dvh; padding: 0; }
@@ -187,12 +188,23 @@ body.personnel-workspace-v2 .nav-item:hover { color: #fff; background: #284b5c; 
 body.personnel-workspace-v2 .nav-item.active { color: #fff; background: #32677f; border-color: #4a7d93; }
 body.personnel-workspace-v2 .nav-symbol { width: 24px; height: 24px; color: #c6d5db; background: #2b4b5b; border-color: #456270; border-radius: 3px; }
 body.personnel-workspace-v2 .nav-item.active .nav-symbol { color: #173444; background: #e7f0f4; border-color: #fff; }
-body.personnel-workspace-v2 .workspace { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 0; min-width: 0; padding: 0; background: #edf1f3; overflow: auto; }
-body.personnel-workspace-v2 .topbar { min-height: 70px; padding: 10px 18px; color: #e9f1f4; background: #152b38; border: 0; border-bottom: 1px solid #3b505c; border-radius: 0; }
-body.personnel-workspace-v2 .topbar h1 { font-size: 20px; }
-body.personnel-workspace-v2 .topbar p, body.personnel-workspace-v2 .topbar #currentUser span { color: #9db1bb; }
-body.personnel-workspace-v2 .topbar .eyebrow { color: #78b1c9; font-size: 9px; }
+body.personnel-workspace-v2 .workspace { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 0; min-width: 0; padding: 0; background: #edf1f3; overflow: auto; }
+body.personnel-workspace-v2 .topbar { display: grid; grid-template-columns: 220px minmax(260px, 560px) minmax(280px, 1fr); align-items: center; gap: 18px; min-height: 70px; padding: 9px 18px; color: #e9f1f4; background: #152b38; border: 0; border-bottom: 1px solid #3b505c; border-radius: 0; }
+body.personnel-workspace-v2 .classic-page-title { display: none; }
+body.personnel-workspace-v2 .workspace-system-brand { display: flex; align-items: center; gap: 10px; }
+body.personnel-workspace-v2 .workspace-system-brand > span { display: grid; place-items: center; width: 36px; height: 36px; color: #fff; background: #326d87; border: 1px solid #5b8fa6; border-radius: 4px; font-size: 11px; font-weight: 950; }
+body.personnel-workspace-v2 .workspace-system-brand div { display: grid; gap: 2px; }
+body.personnel-workspace-v2 .workspace-system-brand strong { color: #f1f6f8; }
+body.personnel-workspace-v2 .workspace-system-brand small { color: #8fa7b2; font-size: 9px; }
+body.personnel-workspace-v2 .workspace-command-search { display: flex; align-items: center; gap: 8px; height: 39px; padding: 0 9px; color: #8ca3ae; background: #0e202a; border: 1px solid #3b5360; border-radius: 4px; }
+body.personnel-workspace-v2 .workspace-command-search > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+body.personnel-workspace-v2 .workspace-command-search::before { content: "\2315"; color: #8ca3ae; font-size: 17px; }
+body.personnel-workspace-v2 .workspace-command-search input { min-width: 0; height: 35px; flex: 1; padding: 0; color: #e4edf1; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+body.personnel-workspace-v2 .workspace-command-search kbd { padding: 3px 6px; color: #91a5ae; background: #243a45; border: 1px solid #465d68; border-radius: 3px; font-size: 9px; }
+body.personnel-workspace-v2 .topbar #currentUser span { color: #9db1bb; }
+body.personnel-workspace-v2 .topbar .identity { justify-content: flex-end; flex-wrap: nowrap; }
 body.personnel-workspace-v2 .topbar .ghost { color: #d7e4e9; background: #213d4a; border-color: #49626e; }
+body.personnel-workspace-v2 .topbar .identity button { min-height: 35px; padding: 0 8px; font-size: 10px; white-space: nowrap; }
 body.personnel-workspace-v2 .personnel-workspace-tabs:not([hidden]) { display: flex; align-items: end; gap: 3px; min-height: 40px; padding: 5px 10px 0; background: #dbe3e7; border-bottom: 1px solid #becbd1; overflow-x: auto; }
 .personnel-workspace-tab { display: flex; align-items: center; gap: 7px; min-width: 135px; max-width: 210px; height: 35px; padding: 0 8px; color: #536b76; background: #cdd8dd; border: 1px solid #b7c5cc; border-bottom: 0; border-radius: 5px 5px 0 0; box-shadow: none; }
 .personnel-workspace-tab.active { color: #203d4b; background: #f7f9fa; border-color: #aebec6; }
@@ -201,8 +213,28 @@ body.personnel-workspace-v2 .personnel-workspace-tabs:not([hidden]) { display: f
 .personnel-workspace-tab i { display: grid; place-items: center; width: 19px; height: 19px; color: #6f828b; border-radius: 3px; font-size: 16px; font-style: normal; }
 .personnel-workspace-tab i:hover { color: #fff; background: #a33b43; }
 .workspace-tab-home { flex: 0 0 auto; width: 34px; height: 34px; padding: 0; color: #536c78; background: transparent; border: 0; box-shadow: none; font-size: 18px; }
+body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .personnel-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 89px; padding: 15px 24px; background: #f8fafb; border-bottom: 1px solid #d2dce1; }
+body.personnel-workspace-v2 .personnel-page-heading > div { display: grid; gap: 3px; }
+body.personnel-workspace-v2 .personnel-page-heading .eyebrow { margin: 0; color: #607985; font-size: 9px; }
+body.personnel-workspace-v2 .personnel-page-heading h1 { margin: 0; color: #182a34; font-size: 24px; font-weight: 720; }
+body.personnel-workspace-v2 .personnel-page-heading p { margin: 0; color: #647984; font-size: 12px; }
 body.personnel-workspace-v2 #appView { min-width: 0; padding: 18px 20px 30px; }
 body.personnel-workspace-v2 .data-view, body.personnel-workspace-v2 #dashboardView { max-width: 1600px; margin-right: auto; margin-left: auto; }
+body.personnel-workspace-v2 .data-view { padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+body.personnel-workspace-v2 .data-view > .section-head, body.personnel-workspace-v2 #dashboardView > .section-head { min-height: 57px; margin: 0 0 10px; padding: 9px 14px; background: #fff; border: 1px solid #d4dde2; border-radius: 3px; }
+body.personnel-workspace-v2 #dashboardView > .dashboard-config h2 { display: none; }
+body.personnel-workspace-v2 #dashboardView > .dashboard-config { justify-content: flex-end; min-height: 42px; background: transparent; border: 0; }
+body.personnel-workspace-v2 .rank-home-strip { gap: 8px; }
+body.personnel-workspace-v2 .rank-home-strip article, body.personnel-workspace-v2 .stat { min-height: 96px; padding: 13px 14px; background: #fff; border: 1px solid #d4dde2; border-top: 3px solid #718d9a; border-radius: 3px; box-shadow: none; }
+body.personnel-workspace-v2 .stat strong { color: #172b36; font-size: 22px; }
+body.personnel-workspace-v2 .dashboard-panel { padding: 13px; background: #fff; border: 1px solid #d4dde2; border-radius: 3px; box-shadow: none; }
+body.personnel-workspace-v2 .dashboard-panel > h3, body.personnel-workspace-v2 .dashboard-widget-head { min-height: 38px; padding-bottom: 9px; border-bottom: 1px solid #dde5e9; }
+body.personnel-workspace-v2 .table-wrap { background: #fff; border: 1px solid #d4dde2; border-radius: 3px; box-shadow: none; }
+body.personnel-workspace-v2 table { border-collapse: collapse; }
+body.personnel-workspace-v2 table th { color: #536c78; background: #e9eef1; border-bottom: 1px solid #c9d4da; font-size: 9px; text-transform: uppercase; }
+body.personnel-workspace-v2 table td { background: #fff; border-bottom: 1px solid #e1e7ea; }
+body.personnel-workspace-v2 button { border-radius: 4px; }
+body.personnel-workspace-v2 input, body.personnel-workspace-v2 select, body.personnel-workspace-v2 textarea { border-radius: 4px; }
 body.personnel-workspace-v2 .system-taskbar button.active-app { color: #fff; background: #294e61; border-color: #477083; box-shadow: inset 0 -2px #78bed8; }
 body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 62px minmax(0, 1fr); background: linear-gradient(90deg, #1b3544 0, #1b3544 62px, #e9eef1 62px, #e9eef1 100%); }
 body.personnel-workspace-v2.nav-collapsed.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { grid-template-rows: auto; place-items: start center; width: 62px; padding: 12px 8px; }
@@ -218,6 +250,8 @@ body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 
   body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .terminal-window { grid-template-columns: 205px minmax(0, 1fr); background: linear-gradient(90deg, #1b3544 0, #1b3544 205px, #e9eef1 205px, #e9eef1 100%); }
   body.personnel-workspace-v2.is-authenticated:not(.operations-mode):not(.hub-select-mode) .module-dock { width: 205px; }
   .system-taskbar-apps small { display: none; }
+  body.personnel-workspace-v2 .topbar { grid-template-columns: 170px minmax(220px, 1fr) auto; gap: 10px; }
+  body.personnel-workspace-v2 .topbar #currentUser, body.personnel-workspace-v2 #passwordButton, body.personnel-workspace-v2 #hubSwitchButton { display: none; }
 }
 
 @media (max-width: 760px) {
@@ -231,10 +265,15 @@ body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 
   body.personnel-workspace-v2 .nav { max-height: 0; padding: 0; overflow: hidden; }
   body.personnel-workspace-v2.mobile-nav-open .nav { max-height: calc(100dvh - 160px); padding: 10px 2px 20px; overflow-y: auto; }
   body.personnel-workspace-v2 .topbar { min-height: 58px; padding: 8px 10px; }
-  body.personnel-workspace-v2 .topbar p, body.personnel-workspace-v2 .topbar .eyebrow { display: none; }
+  body.personnel-workspace-v2 .topbar { grid-template-columns: 1fr auto; }
+  body.personnel-workspace-v2 .workspace-command-search { display: none; }
+  body.personnel-workspace-v2 .workspace-system-brand div { display: none; }
   body.personnel-workspace-v2 .identity > span, body.personnel-workspace-v2 #passwordButton, body.personnel-workspace-v2 #hubSwitchButton { display: none; }
   body.personnel-workspace-v2 .personnel-workspace-tabs:not([hidden]) { min-height: 38px; padding-left: 7px; }
   .personnel-workspace-tab { min-width: 118px; }
   body.personnel-workspace-v2 #appView { padding: 11px 10px 22px; }
+  body.personnel-workspace-v2 .personnel-page-heading { min-height: 72px; padding: 10px 13px; }
+  body.personnel-workspace-v2 .personnel-page-heading h1 { font-size: 20px; }
+  body.personnel-workspace-v2 .personnel-page-heading p { display: none; }
   .system-taskbar-apps button:nth-of-type(4), .system-taskbar-apps button:nth-of-type(6), .system-taskbar-apps button:nth-of-type(7), .system-taskbar-apps button:nth-of-type(8) { display: none; }
 }

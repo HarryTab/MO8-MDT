@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-08-6';
+const APP_VERSION = '2026-07-08-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -215,6 +215,7 @@ document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
 document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && document.body.classList.contains('personnel-workspace-v2') && state.activeHub === 'personnel') { event.preventDefault(); document.querySelector('#desktopCommandSearch')?.focus(); return; }
   if (event.key === 'Escape' && document.body.classList.contains('control-board-mode')) { toggleControlBoardMode(false); return; }
   const searchPreview = event.target.closest?.('[data-search-preview]');
   if (searchPreview && ['Enter', ' '].includes(event.key)) {
@@ -443,6 +444,7 @@ document.querySelector('#shiftPeriodFilter').addEventListener('change', loadShif
 document.querySelector('#shiftStartFilter').addEventListener('change', loadShift);
 document.querySelector('#shiftEndFilter').addEventListener('change', loadShift);
 document.querySelector('#globalSearchInput')?.addEventListener('input', debounce(runGlobalSearch, 220));
+document.querySelector('#desktopCommandSearch')?.addEventListener('keydown', handleDesktopCommandSearch);
 document.querySelector('#globalSearchType')?.addEventListener('change', renderGlobalSearchResults);
 document.querySelector('#timelineSearch')?.addEventListener('input', debounce(searchTimelineSubjects, 240));
 document.querySelector('#timelineEventSearch')?.addEventListener('input', debounce(renderUnifiedTimeline, 120));
@@ -780,6 +782,7 @@ function showLogin() {
   document.body.classList.remove('operations-mode');
   document.body.classList.remove('hub-select-mode');
   state.activeHub = '';
+  syncPersonnelWorkspaceClass();
   elements.pageTitle.textContent = 'Sign in';
   elements.pageSubtitle.textContent = 'MO8 roleplay community administration';
   elements.loginView.hidden = false;
@@ -802,6 +805,7 @@ function showHubSelector() {
   document.body.classList.add('hub-select-mode');
   document.body.classList.toggle('is-officer-portal', isOfficerPortal());
   state.activeHub = '';
+  syncPersonnelWorkspaceClass();
   document.querySelectorAll('[data-system-view]').forEach((button) => button.classList.remove('active-app'));
   elements.pageTitle.textContent = 'Select hub';
   elements.pageSubtitle.textContent = 'Choose Personnel Hub or Operations Hub';
@@ -836,6 +840,7 @@ function showHubSelector() {
 async function enterPersonnelHub() {
   stopOperationsRealtime();
   state.activeHub = 'personnel';
+  syncPersonnelWorkspaceClass();
   document.body.classList.remove('operations-mode');
   document.body.classList.remove('hub-select-mode');
   elements.hubSelectView.hidden = true;
@@ -850,6 +855,7 @@ async function enterPersonnelHub() {
 
 async function enterOperationsHub() {
   state.activeHub = 'operations';
+  syncPersonnelWorkspaceClass();
   document.querySelectorAll('[data-system-view]').forEach((button) => button.classList.remove('active-app'));
   document.body.classList.add('operations-mode');
   document.body.classList.remove('hub-select-mode');
@@ -910,6 +916,18 @@ function defaultView() {
   return 'myProfile';
 }
 
+async function handleDesktopCommandSearch(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  const query = event.currentTarget.value.trim();
+  if (!query) return;
+  const moduleButton = [...document.querySelectorAll('.nav-item[data-view]')].find((button) => !button.hidden && button.innerText.trim().toLowerCase() === query.toLowerCase());
+  if (moduleButton) { event.currentTarget.value = ''; await showView(moduleButton.dataset.view); return; }
+  await showView('globalSearch');
+  const input = document.querySelector('#globalSearchInput');
+  if (input) { input.value = query; input.dispatchEvent(new Event('input', { bubbles: true })); input.focus(); }
+}
+
 async function showView(view) {
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
@@ -951,6 +969,8 @@ async function showView(view) {
 
   elements.pageTitle.textContent = titles[view][0];
   elements.pageSubtitle.textContent = titles[view][1];
+  const desktopTitle = document.querySelector('#desktopPageTitle'); if (desktopTitle) desktopTitle.textContent = titles[view][0];
+  const desktopSubtitle = document.querySelector('#desktopPageSubtitle'); if (desktopSubtitle) desktopSubtitle.textContent = titles[view][1];
   updatePersonnelWorkspaceTabs(view, view === 'officerProfile' ? 'Officer Record' : titles[view][0]);
   updatePersonnelTaskbar(view);
   if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = titles[view][0];
@@ -5194,6 +5214,10 @@ function personnelWorkspaceEnabled() {
   return localStorage.getItem(PERSONNEL_WORKSPACE_STORAGE_KEY) !== 'classic';
 }
 
+function syncPersonnelWorkspaceClass() {
+  document.body.classList.toggle('personnel-workspace-v2', personnelWorkspaceEnabled() && state.activeHub === 'personnel');
+}
+
 function personnelOpenTabs() {
   try { return JSON.parse(sessionStorage.getItem(PERSONNEL_TABS_STORAGE_KEY) || '[]'); }
   catch (error) { return []; }
@@ -5205,7 +5229,7 @@ function savePersonnelOpenTabs(tabs) {
 
 function setPersonnelWorkspaceMode(enabled) {
   localStorage.setItem(PERSONNEL_WORKSPACE_STORAGE_KEY, enabled ? 'desktop' : 'classic');
-  document.body.classList.toggle('personnel-workspace-v2', enabled);
+  syncPersonnelWorkspaceClass();
   const tabs = document.querySelector('#personnelWorkspaceTabs');
   if (tabs) tabs.hidden = !enabled;
   renderPersonnelWorkspaceTabs();
