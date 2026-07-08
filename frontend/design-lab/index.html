@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MO8 Personnel Prototype Studio</title>
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=2">
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
 <body data-concept="desktop">
@@ -16,6 +16,7 @@
       <button data-concept-button="portal"><i data-lucide="panel-left"></i><span>Command Portal</span></button>
       <button data-concept-button="intranet"><i data-lucide="search"></i><span>Modern Intranet</span></button>
     </div>
+    <button class="studio-use" id="useDesktopPreview"><i data-lucide="check"></i><span>Use Desktop preview</span></button>
     <button class="studio-icon" id="studioInfo" title="About this prototype"><i data-lucide="info"></i></button>
   </header>
 
@@ -69,6 +70,6 @@
   <dialog id="prototypeDialog"><div class="dialog-shell"><header><div><span id="dialogEyebrow">Personnel record</span><h2 id="dialogTitle">Record details</h2></div><button data-close-dialog title="Close"><i data-lucide="x"></i></button></header><div id="dialogContent"></div></div></dialog>
   <div class="notification-drawer" id="notificationDrawer" hidden><header><div><span>Personnel inbox</span><strong>Notifications</strong></div><button id="closeNotifications" title="Close"><i data-lucide="x"></i></button></header><div id="notificationItems"></div></div>
   <div class="mobile-scrim" id="mobileScrim" hidden></div>
-  <script src="app.js?v=1"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

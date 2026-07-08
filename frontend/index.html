@@ -7,11 +7,11 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-07-08-2">
+    <link rel="stylesheet" href="styles.css?v=2026-07-08-3">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
-    <link rel="stylesheet" href="workstation.css?v=2026-07-06-4">
+    <link rel="stylesheet" href="workstation.css?v=2026-07-08-1">
   </head>
   <body>
     <main class="terminal-shell">
@@ -103,6 +103,7 @@
               <button class="ghost" id="logoutButton">Logout</button>
             </div>
         </header>
+          <nav class="personnel-workspace-tabs" id="personnelWorkspaceTabs" aria-label="Open Personnel workspaces" hidden></nav>
           <aside class="access-preview-banner" id="accessPreviewBanner" hidden><div><strong>Access preview active</strong><span id="accessPreviewSummary">Read-only simulated account</span></div><button type="button" id="exitAccessPreviewButton">Exit preview</button></aside>
 
           <section class="login-console workstation-login" id="loginView">
@@ -580,6 +581,7 @@
               <main class="settings-workspace design-lab" data-settings-workspace="design" hidden>
                 <div class="settings-workspace-head"><span>Browser-only experiment</span><h3>Personnel Design Lab</h3><p>Try complete visual directions instantly. Your selection stays on this device, does not alter any records and can be reset at any time.</p></div>
                 <a class="design-studio-launch" href="design-lab/"><span><small>Full interface prototypes</small><strong>Open Personnel Prototype Studio</strong><em>Compare three complete navigation and workspace models using interactive sample data.</em></span><b>Open studio</b></a>
+                <div class="workspace-preview-actions"><button id="enableDesktopWorkspaceButton" type="button">Use Desktop Workspace preview</button><button class="ghost" id="disableDesktopWorkspaceButton" type="button">Return to Classic Personnel Hub</button><span>This affects only this browser. All existing modules, permissions and data actions remain connected.</span></div>
                 <div class="design-lab-status"><div><small>Quick colour preview</small><strong id="designLabCurrent">Current MDT</strong><span id="designLabDescription">The established Personnel Hub appearance.</span></div><button class="ghost" id="resetDesignLabButton" type="button">Restore current design</button></div>
                 <section class="design-preset-grid" id="designPresetGrid">
                   <button class="design-preset active" type="button" data-design-preset="default"><span class="design-swatch design-swatch-default"><i></i><i></i><i></i></span><strong>Current MDT</strong><small>Existing live appearance</small></button>
@@ -800,6 +802,10 @@
         <button type="button" data-system-view="myProfile" title="My Profile"><span class="system-taskbar-icon">ME</span><small>My Profile</small></button>
         <button class="system-taskbar-tasks" type="button" data-system-view="tasks" title="Tasks"><span class="system-taskbar-icon">TK</span><small>Tasks</small><b id="systemTaskCount" hidden>0</b></button>
         <button type="button" data-system-view="globalSearch" title="Search all records"><span class="system-taskbar-icon">SR</span><small>Search</small></button>
+        <button type="button" data-system-view="messaging" title="Messages"><span class="system-taskbar-icon">CH</span><small>Chat</small><b id="systemChatCount" hidden></b></button>
+        <button type="button" data-system-view="documents" data-permission="VIEW_DOCUMENTS" title="Documents"><span class="system-taskbar-icon">DO</span><small>Documents</small></button>
+        <button type="button" data-system-view="calendar" title="Calendar"><span class="system-taskbar-icon">CA</span><small>Calendar</small></button>
+        <button type="button" data-system-view="courses" data-permission="VIEW_COURSES" title="Training"><span class="system-taskbar-icon">TR</span><small>Training</small></button>
         <button type="button" id="systemTaskbarCad" title="Operations and CAD"><span class="system-taskbar-icon system-taskbar-cad-icon">CAD</span><small>CAD</small></button>
       </nav>
       <div class="system-taskbar-session"><span id="systemTaskbarUser">Officer</span><time id="systemTaskbarClock">00:00</time></div>
@@ -866,6 +872,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-07-08-2"></script>
+    <script src="app.js?v=2026-07-08-3"></script>
   </body>
 </html>

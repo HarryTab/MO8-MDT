@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-08-2';
+const APP_VERSION = '2026-07-08-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -71,6 +71,8 @@ const NAV_FAVOURITES_STORAGE_KEY = 'mo8_nav_favourites';
 const NAV_COLLAPSED_STORAGE_KEY = 'mo8_nav_collapsed';
 const DESIGN_PRESET_STORAGE_KEY = 'mo8_personnel_design_preset';
 const DESIGN_DENSITY_STORAGE_KEY = 'mo8_personnel_design_density';
+const PERSONNEL_WORKSPACE_STORAGE_KEY = 'mo8_personnel_workspace_v2';
+const PERSONNEL_TABS_STORAGE_KEY = 'mo8_personnel_open_tabs';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -316,8 +318,10 @@ document.querySelector('#desktopSignOutButton')?.addEventListener('click', () =>
 document.querySelector('#systemTaskbarHome')?.addEventListener('click', showHubSelector);
 document.querySelector('#systemTaskbarCad')?.addEventListener('click', enterOperationsHub);
 document.querySelectorAll('[data-system-view]').forEach((button) => button.addEventListener('click', async () => {
+  const targetView = button.dataset.systemView || defaultView();
+  if (document.body.classList.contains('personnel-workspace-v2') && state.activeHub === 'personnel' && state.activeView === targetView) { showHubSelector(); return; }
   if (state.activeHub !== 'personnel') await enterPersonnelHub();
-  await showView(button.dataset.systemView || defaultView());
+  await showView(targetView);
 }));
 document.querySelector('#unlockWorkstationButton')?.addEventListener('click', showWorkstationSignin);
 document.querySelector('#signinBackButton')?.addEventListener('click', showWorkstationLock);
@@ -422,6 +426,9 @@ document.querySelectorAll('[data-design-preset]').forEach((button) => button.add
 document.querySelectorAll('[data-design-density]').forEach((button) => button.addEventListener('click', () => applyPersonnelDensity(button.dataset.designDensity)));
 document.querySelectorAll('[data-design-viewport]').forEach((button) => button.addEventListener('click', () => setDesignPreviewViewport(button.dataset.designViewport)));
 document.querySelector('#resetDesignLabButton')?.addEventListener('click', resetPersonnelDesign);
+document.querySelector('#enableDesktopWorkspaceButton')?.addEventListener('click', () => setPersonnelWorkspaceMode(true));
+document.querySelector('#disableDesktopWorkspaceButton')?.addEventListener('click', () => setPersonnelWorkspaceMode(false));
+document.querySelector('#personnelWorkspaceTabs')?.addEventListener('click', handlePersonnelWorkspaceTabClick);
 document.querySelector('#exitAccessPreviewButton')?.addEventListener('click', exitAccessPreview);
 document.querySelector('#collapseNavigationButton')?.addEventListener('click', toggleDesktopNavigation);
 document.querySelector('#newVacancyButton')?.addEventListener('click', () => openVacancyEditor());
@@ -795,6 +802,7 @@ function showHubSelector() {
   document.body.classList.add('hub-select-mode');
   document.body.classList.toggle('is-officer-portal', isOfficerPortal());
   state.activeHub = '';
+  document.querySelectorAll('[data-system-view]').forEach((button) => button.classList.remove('active-app'));
   elements.pageTitle.textContent = 'Select hub';
   elements.pageSubtitle.textContent = 'Choose Personnel Hub or Operations Hub';
   elements.loginView.hidden = true;
@@ -807,6 +815,7 @@ function showHubSelector() {
   });
   elements.nav.hidden = true;
   document.querySelector('.module-dock').hidden = true;
+  const workspaceTabs = document.querySelector('#personnelWorkspaceTabs'); if (workspaceTabs) workspaceTabs.hidden = true;
   elements.identity.hidden = false;
   elements.currentUser.innerHTML = `
     <strong>${escapeHtml(state.user.RobloxUsername)}</strong>
@@ -834,12 +843,14 @@ async function enterPersonnelHub() {
   elements.operationsView.hidden = true;
   elements.nav.hidden = false;
   document.querySelector('.module-dock').hidden = false;
+  const workspaceTabs = document.querySelector('#personnelWorkspaceTabs'); if (workspaceTabs) workspaceTabs.hidden = !personnelWorkspaceEnabled();
   await showView(defaultView());
   startMessagingRealtime();
 }
 
 async function enterOperationsHub() {
   state.activeHub = 'operations';
+  document.querySelectorAll('[data-system-view]').forEach((button) => button.classList.remove('active-app'));
   document.body.classList.add('operations-mode');
   document.body.classList.remove('hub-select-mode');
   elements.hubSelectView.hidden = true;
@@ -847,6 +858,7 @@ async function enterOperationsHub() {
   elements.operationsView.hidden = false;
   elements.nav.hidden = true;
   document.querySelector('.module-dock').hidden = true;
+  const workspaceTabs = document.querySelector('#personnelWorkspaceTabs'); if (workspaceTabs) workspaceTabs.hidden = true;
   elements.pageTitle.textContent = 'Operations Hub';
   elements.pageSubtitle.textContent = 'Live units, dispatch incidents and operational alerts';
   if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = 'Operations';
@@ -939,6 +951,8 @@ async function showView(view) {
 
   elements.pageTitle.textContent = titles[view][0];
   elements.pageSubtitle.textContent = titles[view][1];
+  updatePersonnelWorkspaceTabs(view, view === 'officerProfile' ? 'Officer Record' : titles[view][0]);
+  updatePersonnelTaskbar(view);
   if (elements.mobileMenuLabel) elements.mobileMenuLabel.textContent = titles[view][0];
   renderViewLoading(view);
 
@@ -1252,9 +1266,11 @@ async function loadMessaging(force = false) {
 function updateChatBadge() {
   const badge = document.querySelector('#chatNavUnread');
   const desktopBadge = document.querySelector('#desktopChatUnread');
+  const systemBadge = document.querySelector('#systemChatCount');
   const value = state.unreadChatMessages > 99 ? '99+' : String(state.unreadChatMessages);
   if (badge) { badge.hidden = state.unreadChatMessages < 1; badge.textContent = value; if (state.unreadChatMessages) pulseBadge(badge, state.unreadChatMessages); }
   if (desktopBadge) { desktopBadge.hidden = state.unreadChatMessages < 1; desktopBadge.textContent = value; if (state.unreadChatMessages) pulseBadge(desktopBadge, state.unreadChatMessages); }
+  if (systemBadge) { systemBadge.hidden = state.unreadChatMessages < 1; systemBadge.textContent = value; }
 }
 
 function switchMessagingMode(mode) {
@@ -5174,7 +5190,87 @@ function resetPersonnelDesign() {
   renderDesignLabState();
 }
 
+function personnelWorkspaceEnabled() {
+  return localStorage.getItem(PERSONNEL_WORKSPACE_STORAGE_KEY) === '1';
+}
+
+function personnelOpenTabs() {
+  try { return JSON.parse(sessionStorage.getItem(PERSONNEL_TABS_STORAGE_KEY) || '[]'); }
+  catch (error) { return []; }
+}
+
+function savePersonnelOpenTabs(tabs) {
+  sessionStorage.setItem(PERSONNEL_TABS_STORAGE_KEY, JSON.stringify(tabs.slice(-9)));
+}
+
+function setPersonnelWorkspaceMode(enabled) {
+  if (enabled) localStorage.setItem(PERSONNEL_WORKSPACE_STORAGE_KEY, '1');
+  else localStorage.removeItem(PERSONNEL_WORKSPACE_STORAGE_KEY);
+  document.body.classList.toggle('personnel-workspace-v2', enabled);
+  const tabs = document.querySelector('#personnelWorkspaceTabs');
+  if (tabs) tabs.hidden = !enabled;
+  renderPersonnelWorkspaceTabs();
+  const enable = document.querySelector('#enableDesktopWorkspaceButton');
+  const disable = document.querySelector('#disableDesktopWorkspaceButton');
+  if (enable) enable.disabled = enabled;
+  if (disable) disable.disabled = !enabled;
+}
+
+function updatePersonnelWorkspaceTabs(view, label) {
+  if (!personnelWorkspaceEnabled() || state.activeHub === 'operations') return;
+  const officerId = view === 'officerProfile' ? state.selectedOfficerId || '' : '';
+  const key = officerId ? `${view}:${officerId}` : view;
+  let tabs = personnelOpenTabs().filter((tab) => tab && tab.key);
+  const existing = tabs.find((tab) => tab.key === key);
+  if (existing) existing.label = label;
+  else tabs.push({ key, view, label, officerId });
+  savePersonnelOpenTabs(tabs);
+  renderPersonnelWorkspaceTabs(key);
+}
+
+function renderPersonnelWorkspaceTabs(activeKey = '') {
+  const container = document.querySelector('#personnelWorkspaceTabs');
+  if (!container) return;
+  const enabled = personnelWorkspaceEnabled();
+  container.hidden = !enabled;
+  if (!enabled) return;
+  const currentKey = activeKey || (state.activeView === 'officerProfile' && state.selectedOfficerId ? `officerProfile:${state.selectedOfficerId}` : state.activeView);
+  const tabs = personnelOpenTabs();
+  container.innerHTML = tabs.map((tab) => `<button type="button" class="personnel-workspace-tab${tab.key === currentKey ? ' active' : ''}" data-workspace-tab="${escapeHtml(tab.key)}"><span class="tab-symbol">${escapeHtml(String(tab.label || tab.view).slice(0, 2).toUpperCase())}</span><strong>${escapeHtml(tab.label || tab.view)}</strong><i data-close-workspace-tab="${escapeHtml(tab.key)}" aria-label="Close ${escapeHtml(tab.label || tab.view)}">&times;</i></button>`).join('') + '<button type="button" class="workspace-tab-home" data-workspace-home title="Open workstation desktop">+</button>';
+}
+
+async function handlePersonnelWorkspaceTabClick(event) {
+  const close = event.target.closest('[data-close-workspace-tab]');
+  if (close) {
+    event.stopPropagation();
+    const key = close.dataset.closeWorkspaceTab;
+    const remaining = personnelOpenTabs().filter((tab) => tab.key !== key);
+    savePersonnelOpenTabs(remaining);
+    if (close.closest('.active')) {
+      const next = remaining[remaining.length - 1];
+      if (next) { if (next.officerId) state.selectedOfficerId = next.officerId; await showView(next.view); }
+      else await showView(defaultView());
+    } else renderPersonnelWorkspaceTabs();
+    return;
+  }
+  if (event.target.closest('[data-workspace-home]')) { showHubSelector(); return; }
+  const button = event.target.closest('[data-workspace-tab]');
+  if (!button) return;
+  const tab = personnelOpenTabs().find((item) => item.key === button.dataset.workspaceTab);
+  if (!tab) return;
+  if (tab.officerId) state.selectedOfficerId = tab.officerId;
+  await showView(tab.view);
+}
+
+function updatePersonnelTaskbar(view) {
+  document.querySelectorAll('[data-system-view]').forEach((button) => {
+    const target = button.dataset.systemView || defaultView();
+    button.classList.toggle('active-app', state.activeHub === 'personnel' && target === view);
+  });
+}
+
 applyStoredPersonnelDesign();
+setPersonnelWorkspaceMode(personnelWorkspaceEnabled());
 
 function renderPreviewChoices(selector, name, values) {
   const container = document.querySelector(selector); if (!container || container.children.length) return;
