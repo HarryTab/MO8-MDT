@@ -10511,7 +10511,8 @@ async function supabaseTasks() {
     const subjectOfficer = shiftTask ? (officers || []).find((item) => item.officer_id === shift.officer_id) || {} : null;
     const assignee = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {};
     const officer = subjectOfficer || assignee;
-    const taskType = shiftTask ? (shift.officer_id === row.assigned_officer_id ? 'Shift Amendment' : 'Shift Review') : 'Assigned Task';
+    const title = String(row.title || '').toLowerCase();
+    const taskType = shiftTask ? (title.startsWith('amend shift debrief') ? 'Shift Amendment' : 'Shift Review') : 'Assigned Task';
     return { TaskType: taskType, TaskID: row.task_id, ShiftID: shiftTask ? row.source_id : '', OfficerID: officer.officer_id || row.assigned_officer_id, AssignedOfficerID: row.assigned_officer_id, SubjectOfficerID: officer.officer_id || '', Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' };
   });
   const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
@@ -13193,6 +13194,7 @@ async function supabaseReviewShift(data) {
   const { error } = await supabaseClient.from('shift_wrapups').update({ review_status: data.ReviewStatus, review_notes: data.ReviewNotes || '', reviewed_by: state.user.UserID, reviewed_at: reviewedAt }).eq('shift_id', data.ShiftID);
   if (error) return { ok: false, error: error.message };
   await supabaseClient.from('shift_audit_events').insert({ shift_id: data.ShiftID, officer_id: shift.officer_id, action: 'Reviewed', reason: data.ReviewNotes || data.ReviewStatus, before_snapshot: { review_status: wrapup.review_status }, after_snapshot: { review_status: data.ReviewStatus }, performed_by: state.user.UserID });
+  await supabaseClient.from('mdt_tasks').update({ status: 'Completed', completed_at: reviewedAt, updated_at: reviewedAt }).eq('source_type', 'Shift Debrief').eq('source_id', data.ShiftID).ilike('title', 'Review shift debrief%');
   await supabaseClient.from('mdt_tasks').update({ status: 'Completed', completed_at: reviewedAt, updated_at: reviewedAt }).eq('source_type', 'Shift Debrief').eq('source_id', data.ShiftID).neq('assigned_officer_id', shift.officer_id);
   const officer = await supabaseById('officers', 'officer_id', shift.officer_id);
   await supabaseNotify(officer?.member_id, `Shift review: ${data.ReviewStatus}`, data.ReviewNotes || 'Your shift debrief has been approved.', state.user.UserID);
