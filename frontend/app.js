@@ -488,6 +488,7 @@ document.querySelector('#opsNewOperationButton')?.addEventListener('click', () =
 document.querySelector('#opsNewCaseButton')?.addEventListener('click', () => openOpsOperationEditor());
 document.querySelector('#opsNewDeploymentButton')?.addEventListener('click', () => openOpsDeploymentEditor());
 document.querySelector('#newMdtTaskButton')?.addEventListener('click', () => openMdtTaskEditor());
+document.querySelector('#supervisorAllTasksButton')?.addEventListener('click', () => openSupervisorTaskPreview());
 document.querySelectorAll('[data-task-scope]').forEach((button) => button.addEventListener('click', () => { state.taskScope = button.dataset.taskScope; renderTaskView(); }));
 ['taskSearchFilter', 'taskTypeFilter', 'taskPriorityFilter', 'taskStatusFilter', 'taskDueFilter', 'taskSortFilter'].forEach((id) => document.querySelector(`#${id}`)?.addEventListener(id === 'taskSearchFilter' ? 'input' : 'change', renderTaskView));
 document.querySelector('#clearTaskFilters')?.addEventListener('click', () => { ['taskSearchFilter', 'taskTypeFilter', 'taskPriorityFilter', 'taskStatusFilter', 'taskDueFilter'].forEach((id) => { const input = document.querySelector(`#${id}`); if (input) input.value = ''; }); const sort = document.querySelector('#taskSortFilter'); if (sort) sort.value = 'priority'; renderTaskView(); });
@@ -2243,11 +2244,43 @@ function openGeneratedTaskResolution(task) {
 function taskCard(row) {
   const priority = taskPriority(row); const due = taskDueLabel(row); const mine = row.IsMine || row.MySupervisee || row.AssignedToMe;
   const buttonLabel = String(row.TaskType).includes('Amendment') ? 'Complete amendments' : String(row.TaskType).includes('Review') ? 'Review' : String(row.TaskType).includes('Signature') ? 'Review and sign' : 'Open task';
+  const guidance = taskCompletionGuidance(row);
   return `<article class="task-card priority-${escapeHtml(priority.toLowerCase())}${mine ? ' is-mine' : ''}">
     <div class="task-card-priority"><span>${escapeHtml(priority)}</span><small>${mine ? 'My task' : 'Available'}</small></div>
-    <div class="task-card-main"><div class="task-card-meta"><span>${escapeHtml(row.TaskType || 'Task')}</span><span>${escapeHtml(row.Status || 'Open')}</span><span class="task-due ${escapeHtml(due.className)}">${escapeHtml(due.label)}</span></div><h3>${escapeHtml(row.Subject || row.TaskType || 'Assigned task')}</h3><p>${escapeHtml(row.Reason || 'No additional instructions recorded.')}</p><div class="task-card-officer"><strong>${escapeHtml(row.Officer || 'General task')}</strong>${row.Rank ? `<span>${escapeHtml(row.Rank)}</span>` : ''}${row.Supervisor ? `<small>Supervisor: ${escapeHtml(row.Supervisor)}</small>` : ''}</div></div>
+    <div class="task-card-main"><div class="task-card-meta"><span>${escapeHtml(row.TaskType || 'Task')}</span><span>${escapeHtml(row.Status || 'Open')}</span><span class="task-due ${escapeHtml(due.className)}">${escapeHtml(due.label)}</span></div><h3>${escapeHtml(row.Subject || row.TaskType || 'Assigned task')}</h3><p>${escapeHtml(row.Reason || 'No additional instructions recorded.')}</p><p class="task-card-guidance">${escapeHtml(guidance)}</p><div class="task-card-officer"><strong>${escapeHtml(row.Officer || 'General task')}</strong>${row.Rank ? `<span>${escapeHtml(row.Rank)}</span>` : ''}${row.Supervisor ? `<small>Supervisor: ${escapeHtml(row.Supervisor)}</small>` : ''}</div></div>
     <div class="task-card-action"><button ${taskOpenAttr(row)}>${escapeHtml(buttonLabel)}</button></div>
   </article>`;
+}
+
+function taskCompletionGuidance(row) {
+  const type = row.TaskType || '';
+  const guidance = {
+    'LOA Approval': 'Open the request, review the dates/reason, then approve or deny it.',
+    'Transfer Request': 'Open the request, check the transfer details, then approve, deny or request more information.',
+    'Supervisor Request': 'Open the request, respond to the officer, then mark it completed or closed.',
+    'Appeal / Review': 'Open the appeal, record the review decision and any outcome notes.',
+    'Course Booking': 'Open course bookings, then approve, deny, waitlist or otherwise update the seat request.',
+    'Account Request': 'Open the account request, verify membership details, then approve or deny it.',
+    'Retrospective Shift': 'Open the retrospective shift request, check the times/reason, then approve or deny it.',
+    'Probation Review': 'Open the probation record, update progress/status or complete the record.',
+    'Performance Review': 'Open or create the performance review and save the next review position.',
+    'Restriction Review': 'Open the restriction and update, remove, archive or confirm it remains active.',
+    'Activity Review': 'Record the contact/action taken, optionally notify the officer, then clear the review.',
+    'Training Review': 'Record the training action or renewal plan, then clear the review.',
+    'AIP Signature': 'Review the AIP document and add the required signature.',
+    'AIP Review': 'Open the AIP, review activity for the period and record the outcome.',
+    'CAD Review': 'Open the CAD review, check the incident record, then sign off or return for amendments.',
+    'After Action Review': 'Open the after-action review, record learning, decisions and follow-up actions.',
+    'Operational Action Review': 'Open the officer action, check rationale/outcome, then approve or request amendments.',
+    'CAD Amendment': 'Open the returned CAD, make the requested changes and send it back for review.',
+    'Operational Action Amendment': 'Open the returned action, amend the record and resubmit it.',
+    'Shift Review': 'Open the shift debrief, review activity/incomplete work, then approve, advise or request amendments.',
+    'Shift Amendment': 'Open your shift debrief, make the requested amendments and resubmit if required.',
+    'Casework Action': 'Open the linked case and complete or update the assigned case action.',
+    'Recruitment Application': 'Open recruitment, review the application and record the application decision.',
+    'Assigned Task': 'Open the assigned task, update status and mark it completed when the work is done.',
+  };
+  return guidance[type] || 'Open the task, complete the linked action, then save or clear the task.';
 }
 
 function taskOpenAttr(row) {
@@ -2266,7 +2299,7 @@ function taskOpenAttr(row) {
   if (row.TaskType === 'Operational Action Review') return `data-open-action-review="${escapeHtml(row.ActionReviewID)}"`;
   if (row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
   if (row.TaskType === 'Assigned Task') return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
-  if (row.TaskType === 'Shift Review' || row.TaskType === 'Shift Amendment') return 'data-view-link="shift"';
+  if (row.TaskType === 'Shift Review' || row.TaskType === 'Shift Amendment') return `data-open-shift-review-task="${escapeHtml(row.ShiftID || row.SourceID || row.TaskID || '')}"`;
   if (row.TaskType === 'Casework Action') return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
   if (row.TaskType === 'Recruitment Application') return 'data-view-link="recruitment"';
   return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
@@ -2306,9 +2339,9 @@ async function loadSupervisor() {
     stat('Open Goals', counts.openPlans || 0),
   ].join('');
 
-  renderTable('#supervisorAssignedTable', response.assigned || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'LastShift', 'MonthlyActivity', 'TrainingGaps', 'DisciplineFlags', 'OpenPlans'], {
+  renderTable('#supervisorAssignedTable', response.assigned || [], ['RobloxUsername', 'Callsign', 'Rank', 'LoaStatus', 'LastShift', 'MonthlyActivity', 'OpenTasks', 'TrainingGaps', 'DisciplineFlags', 'OpenPlans'], {
     rowAction: (row) => `data-open-officer="${escapeHtml(row.OfficerID)}"`,
-    actions: (row) => `<button class="mini" data-add-checkin="${escapeHtml(row.OfficerID)}">Check-in</button><button class="mini" data-add-plan="${escapeHtml(row.OfficerID)}">Add goal</button>`,
+    actions: (row) => `<button class="mini ghost" data-supervisee-tasks="${escapeHtml(row.OfficerID)}">Tasks</button><button class="mini" data-add-checkin="${escapeHtml(row.OfficerID)}">Check-in</button><button class="mini" data-add-plan="${escapeHtml(row.OfficerID)}">Add goal</button>`,
   });
   renderTable('#supervisorRequestsTable', response.pendingRequests || [], ['Officer', 'Rank', 'Category', 'Subject', 'CreatedAt', 'Supervisor'], {
     actions: (row) => `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>`,
@@ -2323,6 +2356,15 @@ async function loadSupervisor() {
   });
   renderTable('#supervisorCheckinsTable', response.checkins || [], ['Officer', 'CheckinDate', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate']);
   applyPermissions();
+}
+
+function openSupervisorTaskPreview(officerId = '') {
+  const dashboard = state.supervisorDashboard || {};
+  const tasks = (dashboard.superviseeTasks || []).filter((task) => !officerId || task.OfficerID === officerId || task.SubjectOfficerID === officerId);
+  const officer = officerId ? (dashboard.assigned || []).find((row) => row.OfficerID === officerId) : null;
+  const title = officer ? `Tasks / ${officer.RobloxUsername}` : 'All supervisee tasks';
+  const body = tasks.length ? `<div class="supervisee-task-preview">${tasks.map((task) => `<article class="supervisee-task-row priority-${escapeHtml(taskPriority(task).toLowerCase())}"><div><span>${escapeHtml(task.TaskType || 'Task')}</span><strong>${escapeHtml(task.Subject || task.TaskType || 'Task')}</strong><p>${escapeHtml(task.Reason || 'No details recorded.')}</p><small>${escapeHtml(taskCompletionGuidance(task))}</small></div><aside><b>${escapeHtml(task.Officer || 'Officer')}</b><em>${escapeHtml(task.Status || 'Open')}</em><button class="mini" ${taskOpenAttr(task)}>Open</button></aside></article>`).join('')}</div>` : '<p class="empty">No open tasks are recorded for this supervisee.</p>';
+  showInfo(title, body);
 }
 
 async function loadShift() {
@@ -5836,8 +5878,12 @@ function openShiftEditor(record) {
   });
 }
 
-function openShiftReviewEditor(record) {
+function openShiftReviewEditor(record, debrief = null) {
+  const incomplete = debrief?.Snapshot?.IncompleteItems || [];
+  const incidents = debrief?.Snapshot?.Incidents || [];
+  const debriefSummary = debrief ? `<section class="task-brief wide shift-review-brief"><span>${escapeHtml(formatDisplayDateTime(debrief.StartedAt))} / ${escapeHtml(debrief.Duration)}</span><h3>${escapeHtml(debrief.Officer)}${debrief.Callsign ? ` / ${escapeHtml(debrief.Callsign)}` : ''}</h3><p>${escapeHtml(debrief.Summary || 'No shift summary supplied.')}</p><div class="shift-debrief-facts">${detailCard('CADs', debrief.CADs)}${detailCard('Actions', debrief.Actions)}${detailCard('Incomplete', debrief.Incomplete)}${detailCard('Quality', `${record.Quality || 0}%`)}</div><ol class="task-clear-steps"><li>Read the shift summary, linked CADs and incomplete work.</li><li>Select an outcome: Approved, Advice Given, or Amendments Required.</li><li>Add review notes explaining what you checked or what needs changing.</li><li>Save the review. This clears your review task; amendments create a new task for the officer.</li></ol>${incidents.length ? `<section><h4>Linked CADs</h4>${incidents.map((incident) => `<button type="button" class="debrief-cad-link" data-open-ops-search="Incident:${escapeHtml(incident.IncidentID)}"><strong>${escapeHtml(incident.IncidentNumber)}</strong><span>${escapeHtml(incident.Title)} / ${escapeHtml(incident.Status)}</span></button>`).join('')}</section>` : ''}${incomplete.length ? `<section><h4>Incomplete work</h4>${incomplete.map((item) => `<article><strong>${escapeHtml(item.Reference)}</strong><span>${escapeHtml(item.Type)} / ${escapeHtml(item.Detail)}</span></article>`).join('')}</section>` : ''}</section>` : `<section class="task-brief wide"><span>Shift review task</span><h3>${escapeHtml(record.Officer || record.RobloxUsername || 'Officer')}</h3><p>Review the completed shift record and save an outcome to clear this task.</p></section>`;
   openEditor(`Review shift / ${record.Officer || record.RobloxUsername}`, [
+    { html: debriefSummary },
     hiddenField('ShiftID', record.ShiftID),
     field('Officer', 'Officer', 'text', false, record.Officer || record.RobloxUsername),
     field('StartedAt', 'Started', 'text', false, formatDisplayDateTime(record.StartedAt)),
@@ -5848,6 +5894,21 @@ function openShiftReviewEditor(record) {
     successMessage: 'Shift review recorded.',
     onSuccess: async () => { invalidateCache('teamShifts'); invalidateCache('tasks'); await loadShift(); },
   });
+}
+
+async function openShiftReviewTask(shiftId) {
+  if (!shiftId) return showInfo('Shift review unavailable', '<p class="empty">This task is missing a linked shift reference.</p>');
+  if (!state.shiftReviews?.length || !state.shiftDebriefs?.some((row) => row.ShiftID === shiftId)) {
+    const response = await api('teamShifts', shiftQuery());
+    if (response.ok) {
+      state.shiftReviews = response.reviews || [];
+      state.shiftDebriefs = response.debriefs || [];
+    }
+  }
+  const review = (state.shiftReviews || []).find((row) => row.ShiftID === shiftId);
+  const debrief = (state.shiftDebriefs || []).find((row) => row.ShiftID === shiftId);
+  if (!review && !debrief) return showInfo('Shift review unavailable', '<p class="empty">The linked shift debrief could not be found. It may already have been removed or archived.</p>');
+  openShiftReviewEditor(review || { ShiftID: shiftId, Officer: debrief.Officer, StartedAt: debrief.StartedAt, Quality: debrief.Snapshot?.QualityScore || 0, ReviewStatus: 'Pending' }, debrief);
 }
 
 function openVoidShiftEditor(record) {
@@ -6326,6 +6387,17 @@ async function handleDocumentClick(event) {
   if (editMdtTask) {
     const task = [...state.tasks, ...state.allTasks].find((row) => row.TaskID === editMdtTask.dataset.editMdtTask);
     if (task) openMdtTaskEditor(task);
+    return;
+  }
+  const shiftReviewTask = event.target.closest('[data-open-shift-review-task]');
+  if (shiftReviewTask) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
+    await openShiftReviewTask(shiftReviewTask.dataset.openShiftReviewTask);
+    return;
+  }
+  const superviseeTasks = event.target.closest('[data-supervisee-tasks]');
+  if (superviseeTasks) {
+    openSupervisorTaskPreview(superviseeTasks.dataset.superviseeTasks);
     return;
   }
   const resolveGeneratedTask = event.target.closest('[data-resolve-generated-task]');
@@ -10433,7 +10505,15 @@ async function supabaseTasks() {
   }).filter((row) => row.AssignedToMe || can('FULL_ACCESS') || can('VIEW_TASKS'));
   const incidentAmendments = (cadReviews || []).filter((row) => row.status === 'Amendments Required' && row.amendment_assignee_user_id === state.user?.UserID).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'CAD Amendment', AmendmentType: 'Incident', ReviewID: row.review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: incident.title || 'CAD amendments', Reason: row.feedback || 'Update the CAD and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
   const actionAmendments = (actionReviewRows || []).filter((row) => row.status === 'Amendments Required' && row.officer_id === currentOfficer.officer_id).map((row) => { const incident = (cadIncidents || []).find((item) => item.incident_id === row.incident_id) || {}; return { TaskType: 'Operational Action Amendment', AmendmentType: 'Action', ReviewID: row.action_review_id, IncidentID: row.incident_id, IncidentNumber: incident.incident_number || row.incident_id, Officer: currentOfficer.roblox_username || state.user?.RobloxUsername, Subject: row.action_type, Reason: row.supervisor_feedback || 'Update the action record and return it for supervisor approval.', Status: row.status, IsMine: true, Priority: 'Critical' }; });
-  const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const shiftTask = row.source_type === 'Shift Debrief'; return { TaskType: shiftTask ? (row.assigned_officer_id === currentOfficer.officer_id ? 'Shift Amendment' : 'Shift Review') : 'Assigned Task', TaskID: row.task_id, ShiftID: shiftTask ? row.source_id : '', OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' }; });
+  const assignedTasks = (genericTaskRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => {
+    const shiftTask = row.source_type === 'Shift Debrief';
+    const shift = shiftTask ? (shifts || []).find((item) => item.shift_id === row.source_id) || {} : {};
+    const subjectOfficer = shiftTask ? (officers || []).find((item) => item.officer_id === shift.officer_id) || {} : null;
+    const assignee = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {};
+    const officer = subjectOfficer || assignee;
+    const taskType = shiftTask ? (shift.officer_id === row.assigned_officer_id ? 'Shift Amendment' : 'Shift Review') : 'Assigned Task';
+    return { TaskType: taskType, TaskID: row.task_id, ShiftID: shiftTask ? row.source_id : '', OfficerID: officer.officer_id || row.assigned_officer_id, AssignedOfficerID: row.assigned_officer_id, SubjectOfficerID: officer.officer_id || '', Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: row.details, Category: row.category, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id, SourceType: row.source_type || '', SourceID: row.source_id || '' };
+  });
   const caseworkTasks = (caseActionRows || []).filter((row) => !['Completed', 'Cancelled'].includes(row.status)).map((row) => { const officer = (officers || []).find((item) => item.officer_id === row.assigned_officer_id) || {}; const operation = (operationRows || []).find((item) => item.operation_id === row.operation_id) || {}; return { TaskType: 'Casework Action', ActionID: row.action_id, OperationID: row.operation_id, OfficerID: row.assigned_officer_id, Officer: officer.roblox_username || '', Rank: officer.rank || '', Subject: row.title, Reason: `${operation.reference || 'Case'} / ${row.details || ''}`, Priority: row.priority, Status: row.status, EndDate: row.due_at || '', IsMine: row.assigned_officer_id === currentOfficer.officer_id }; });
   const recruitmentReviews = (recruitmentApplications || []).filter((row) => row.internal_member_id !== currentProfile.member_id && ['Submitted', 'Under Review'].includes(row.status)).map((row) => ({ TaskType: 'Recruitment Application', ApplicationID: row.application_id, Officer: row.roblox_username, Subject: (recruitmentVacancies || []).find((item) => item.vacancy_id === row.vacancy_id)?.title || row.vacancy_id, Reason: 'Application awaiting an authorised recruitment decision.', Status: row.status, EndDate: row.updated_at || row.submitted_at, Priority: 'Normal', IsMine: row.reviewer_user_id === state.user?.UserID, AssignedToMe: true }));
   const authorisedQueue = can('VIEW_TASKS') ? [...pendingTransfers, ...pendingSupervisorRequests, ...pendingAppeals, ...probationReviews, ...performanceReviews, ...restrictionReviews, ...activityReviews, ...trainingNeedsReview, ...retrospectiveShifts, ...operationalReviews, ...afterActionReviews, ...actionReviews] : [];
@@ -10576,6 +10656,10 @@ async function supabaseSupervisorDashboard() {
     supabaseAll('supervisor_requests'),
     supabaseAll('profiles'),
   ]);
+  const taskResponse = await supabaseTasks();
+  const superviseeIds = new Set((officers || []).filter((row) => row.supervisor_user_id === state.user?.UserID && row.status !== 'Archived').map((row) => row.officer_id));
+  const superviseeTasks = (taskResponse.ok ? taskResponse.allTasks || [] : []).filter((task) => superviseeIds.has(task.OfficerID) || superviseeIds.has(task.SubjectOfficerID));
+  const openTaskCount = (officerId) => superviseeTasks.filter((task) => task.OfficerID === officerId || task.SubjectOfficerID === officerId).length;
   const assigned = (officers || []).filter((row) => row.supervisor_user_id === state.user?.UserID).map((officer) => {
     const officerShifts = (shifts || []).filter((row) => row.officer_id === officer.officer_id);
     return Object.assign(decorateSupabaseOfficer(officer, { loa, shifts: officerShifts, profiles }), {
@@ -10584,6 +10668,7 @@ async function supabaseSupervisorDashboard() {
       TrainingGaps: '',
       DisciplineFlags: (discipline || []).filter((row) => row.officer_id === officer.officer_id && row.status === 'Active').length,
       OpenPlans: (plans || []).filter((row) => row.officer_id === officer.officer_id && row.status !== 'Completed').length,
+      OpenTasks: openTaskCount(officer.officer_id),
     });
   });
   const unassigned = (officers || []).filter((row) => row.status !== 'Archived' && !row.supervisor_user_id).map((row) => decorateSupabaseOfficer(row, { loa, shifts, profiles }));
@@ -10598,6 +10683,7 @@ async function supabaseSupervisorDashboard() {
   return {
     ok: true,
     assigned,
+    superviseeTasks,
     unassigned,
     pendingRequests,
     workload,
@@ -10608,6 +10694,7 @@ async function supabaseSupervisorDashboard() {
       unassigned: unassigned.length,
       pendingRequests: pendingRequests.length,
       openPlans: (plans || []).filter((row) => row.status !== 'Completed').length,
+      superviseeTasks: superviseeTasks.length,
     },
   };
 }
