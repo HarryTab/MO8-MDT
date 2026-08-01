@@ -2842,7 +2842,30 @@ dialog .section-head .ghost:hover {
 .quick-settings-discord {
   max-height: min(330px, calc(100vh - 310px));
   overflow: auto;
+  padding-right: 4px;
+  scrollbar-color: rgba(154, 190, 216, .42) transparent;
   scrollbar-width: thin;
+}
+
+.quick-settings-discord::-webkit-scrollbar,
+.discord-alert-card.open .discord-alert-group-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.quick-settings-discord::-webkit-scrollbar-track,
+.discord-alert-card.open .discord-alert-group-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quick-settings-discord::-webkit-scrollbar-thumb,
+.discord-alert-card.open .discord-alert-group-body::-webkit-scrollbar-thumb {
+  background: rgba(154, 190, 216, .38);
+  border-radius: 999px;
+}
+
+.quick-settings-discord::-webkit-scrollbar-thumb:hover,
+.discord-alert-card.open .discord-alert-group-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(181, 211, 232, .56);
 }
 
 .discord-alert-form {
@@ -2959,6 +2982,7 @@ dialog .section-head .ghost:hover {
   overflow-y: auto;
   opacity: 1;
   transform: translateY(0);
+  scrollbar-color: rgba(122, 159, 185, .42) transparent;
   scrollbar-width: thin;
 }
 
@@ -5242,6 +5266,16 @@ body.tutorial-mode { overflow: hidden; }
 .tutorial-example strong { color: #163e58; }
 .tutorial-example span, .tutorial-demo-form em { color: #557084; font-size: 12px; }
 .tutorial-demo-form { display: grid; gap: 8px; }
+.tutorial-demo-form span {
+  display: block;
+  padding: 7px 9px;
+  color: #17384f;
+  background: #f3f8fb;
+  border: 1px solid #d6e4ec;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
 .tutorial-demo-form label { display: grid; gap: 4px; color: #506b7e; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .tutorial-demo-form input { min-height: 36px; color: #18384f; background: #fff; border-color: #ccdce6; }
 .tutorial-demo-form em { font-style: normal; }

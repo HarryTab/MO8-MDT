@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-17';
+const APP_VERSION = '2026-08-02-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -5758,8 +5758,8 @@ function tutorialSteps(profile) {
     tutorialStep('Dashboard overview', 'The dashboard is the quick status page. Use it to spot new tasks, upcoming training, team activity and notices before you start work.', '#dashboardView', { view: 'dashboard' }, tutorialDemoForm('Practice dashboard read-out', ['My open tasks: 2', 'Upcoming training: Response Driving', 'Pending LOA: 1', 'Action: Open the relevant widget before acting'])),
     tutorialStep('Create a record or request', 'Click New record to open the creation menu. This is the safest way to start common workflows such as LOA, discipline, documents, cases and calendar items.', '[data-open-universal-new]', { view: 'dashboard' }, tutorialDemoForm('Practice menu choice', ['Workflow: Leave of Absence', 'Officer: ExampleOfficer123', 'Start: 12/08/2026', 'End: 16/08/2026']), null, { clickToAdvance: true, actionText: 'Click New record to open the menu, then the tutorial will continue.' }),
     tutorialStep('My Profile', 'Click My Profile to open your own officer record. This is where officers check their training, discipline visible to them, LOA, shift activity and supervisor details.', '[data-launch-personnel-app="myProfile"], [data-system-view="myProfile"]', { view: 'dashboard' }, tutorialExample('Practice check', ['Confirm callsign and rank', 'Check active LOA or restrictions', 'Review shift activity', 'Find supervisor contact route']), null, { clickToAdvance: true, actionText: 'Click the highlighted My Profile shortcut.' }),
-    tutorialStep('Submit an LOA request', 'Requests is where any officer can submit LOA, transfer or supervisor contact requests. The real form saves to Supabase; this tutorial example is just the shape of the data to enter.', '[data-view="requests"], [data-launch-personnel-app="tasks"]', { view: 'requests' }, tutorialDemoForm('Practice LOA request', ['Officer: ExampleOfficer123', 'Start date: 12/08/2026', 'End date: 16/08/2026', 'Reason: Pre-booked holiday', 'Submit result: Task created for authorised reviewer'])),
-    tutorialStep('Review and approve LOA', 'Sergeants and above use Tasks or Requests to review LOA. Check the officer name, rank, dates, reason and cover officer before approving or denying.', '[data-view="tasks"], [data-system-view="tasks"]', { view: 'tasks' }, tutorialDemoForm('Practice LOA decision', ['Requesting officer: ExampleOfficer123', 'Decision: Approved', 'Cover officer: Acting Sgt Example', 'Reason note: Cover confirmed and dates recorded'])),
+    tutorialStep('Submit an LOA request', 'Open the Request LOA form and practise entering a short leave request. In tutorial mode, submitting the form will show success but will not create a real LOA record.', '[data-request-loa], #requestLoaFromLoaButton', { view: 'requests' }, tutorialDemoForm('Practice LOA request', ['Start date: 12/08/2026', 'End date: 16/08/2026', 'Reason: Pre-booked holiday', 'Submit result: Simulated only']), null, { actionText: 'Click Request LOA, fill the form if you want to practise, then continue the tutorial when finished.' }),
+    tutorialStep('Review and approve LOA', 'Supervisors use the pending LOA row to review dates, reason and cover arrangements. Open the review action and practise an approval or denial decision.', '[data-review-loa], [data-open-loa-review]', { view: 'requests' }, tutorialDemoForm('Practice LOA decision', ['Requesting officer: ExampleOfficer123', 'Decision: Approved', 'Cover officer: Sgt_River', 'Reason note: Cover confirmed and dates recorded']), null, { actionText: 'Click the highlighted Review button on the pending LOA request, then continue the tutorial when finished.' }),
     tutorialStep('Documents and acknowledgements', 'Documents behave like a file explorer. Open folders, check rank/tag restrictions, and acknowledge required policies so Command can see compliance.', '[data-view="documents"], [data-launch-personnel-app="documents"]', { view: 'documents' }, tutorialDemoForm('Practice document action', ['Folder: Policies / Pursuit guidance', 'Restriction: Response drivers +', 'Action: Open document', 'Acknowledgement: Confirm read'])),
     tutorialStep('Courses and training', 'Courses let officers request seats and trainers manage attendees. Training records update when a trainer records pass/fail or a senior officer edits the matrix.', '[data-view="courses"], [data-launch-personnel-app="courses"]', { view: 'courses' }, tutorialDemoForm('Practice course booking', ['Course: Response Driving', 'Request status: Pending', 'Trainer action: Approve / Waitlist / Deny', 'Completion: Pass updates driving standard'])),
     tutorialStep('Calendar and assignments', 'The calendar shows LOA, courses, meetings, supervisor check-ins and operational assignments. Calendar entries can target officers, ranks, tags or supervisees.', '[data-view="calendar"], [data-launch-personnel-app="calendar"]', { view: 'calendar' }, tutorialDemoForm('Practice calendar event', ['Event: Supervisor check-in', 'Date: 14/08/2026', 'Time: 19:30', 'Assigned to: ExampleOfficer123 + Sergeant rank'])),
@@ -5815,7 +5815,7 @@ function tutorialExample(title, rows) {
 }
 
 function tutorialDemoForm(title, rows) {
-  return `<section class="tutorial-demo-form"><strong>${escapeHtml(title)}</strong>${rows.map((row) => `<label>${escapeHtml(row.split(':')[0])}<input value="${escapeHtml(row.split(':').slice(1).join(':').trim())}"></label>`).join('')}<em>Practice fields only - nothing is saved.</em></section>`;
+  return `<section class="tutorial-demo-form"><strong>${escapeHtml(title)}</strong>${rows.map((row) => `<span>${escapeHtml(row)}</span>`).join('')}<em>Use the MDT screen underneath to practise. Tutorial mode simulates saves, so no live records are changed.</em></section>`;
 }
 
 async function startTutorial(key = 'auto') {
@@ -9388,8 +9388,141 @@ function searchableReferenceCheckboxGroupField(name, label, options, selected = 
   return { html: `<fieldset class="wide checkbox-group searchable-reference-field"><legend>${escapeHtml(label)}</legend><input type="search" data-reference-search placeholder="${escapeHtml(placeholder)}" autocomplete="off"><div class="reference-choice-list">${choices || '<p class="empty">No matching records are available.</p>'}</div></fieldset>` };
 }
 
+function tutorialIso(days = 0, hour = 19, minute = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hour, minute, 0, 0);
+  return date.toISOString();
+}
+
+function tutorialDate(days = 0) {
+  return tutorialIso(days).slice(0, 10);
+}
+
+function tutorialDemoResponse(action, data = {}) {
+  if (!state.tutorial?.active) return null;
+  if (isPreviewMutation(action)) {
+    return {
+      ok: true,
+      tutorial: true,
+      message: 'Tutorial action completed. No live MDT data was saved.',
+      RequestID: data.RequestID || 'TUT_LOA_001',
+      IncidentID: data.IncidentID || 'TUT_CAD_001',
+      UnitID: data.UnitID || 'TUT_UNIT_RP21',
+      TaskID: data.TaskID || 'TUT_TASK_001',
+    };
+  }
+  const demo = tutorialDemoData();
+  const responses = {
+    dashboard: demo.dashboard,
+    personalInbox: demo.personalInbox,
+    tasks: demo.tasks,
+    listLoa: { ok: true, rows: demo.loa },
+    listDocuments: { ok: true, rows: demo.documents },
+    listAnnouncements: { ok: true, rows: demo.announcements },
+    courses: demo.courses,
+    listTrainingCourses: demo.courses,
+    listOfficers: { ok: true, rows: demo.officers },
+    supervisorDashboard: demo.supervisorDashboard,
+    developmentRecords: demo.developmentRecords,
+    listDiscipline: { ok: true, rows: demo.discipline },
+    listAccountRequests: { ok: true, rows: demo.accountRequests },
+    operationsHub: demo.operationsHub,
+    timelineSubjects: { ok: true, rows: demo.timelineSubjects },
+    entityTimeline: { ok: true, subject: demo.timelineSubjects[0], rows: demo.timeline },
+    dataQualityCentre: demo.dataQualityCentre,
+    operationalCalendar: { ok: true, rows: demo.calendar },
+  };
+  return responses[action] || null;
+}
+
+function tutorialDemoData() {
+  const officers = [
+    { OfficerID: 'TUT_OFF_001', RobloxUsername: 'ExampleOfficer123', Rank: 'Police Constable', Callsign: '2104', Status: 'Active', Supervisor: 'Sgt_River', LoaStatus: 'Available', DutyStatus: 'On duty', Tags: 'Roads and Traffic Policing Team' },
+    { OfficerID: 'TUT_OFF_002', RobloxUsername: 'Sgt_River', Rank: 'Sergeant', Callsign: '2099', Status: 'Active', Supervisor: 'harry_ted', LoaStatus: 'Available', DutyStatus: 'Available', Tags: 'Bronze Command, Trainer' },
+    { OfficerID: 'TUT_OFF_003', RobloxUsername: 'Morgan_RCT', Rank: 'Police Constable', Callsign: '2110', Status: 'Active', Supervisor: 'Sgt_River', LoaStatus: 'On LOA', DutyStatus: 'Off duty', Tags: 'Roads Crime Team' },
+    { OfficerID: 'TUT_OFF_004', RobloxUsername: 'Taylor_Control', Rank: 'Inspector', Callsign: '710', Status: 'Active', Supervisor: 'Command', LoaStatus: 'Available', DutyStatus: 'Controller', Tags: 'MO8 Command, Controller' },
+  ];
+  const loa = [
+    { RequestID: 'TUT_LOA_001', OfficerID: 'TUT_OFF_001', Officer: 'ExampleOfficer123', Rank: 'Police Constable', StartDate: tutorialDate(4), EndDate: tutorialDate(8), Status: 'Pending', Reason: 'Pre-booked holiday', ReviewReason: '', CreatedAt: tutorialIso(-1, 18, 30) },
+    { RequestID: 'TUT_LOA_002', OfficerID: 'TUT_OFF_003', Officer: 'Morgan_RCT', Rank: 'Police Constable', StartDate: tutorialDate(-2), EndDate: tutorialDate(5), Status: 'Approved', Reason: 'Temporary availability issue', ReviewReason: 'Approved with activity requirement adjusted.', CreatedAt: tutorialIso(-4, 20, 0) },
+  ];
+  const tasks = [
+    { TaskType: 'LOA Approval', RequestID: 'TUT_LOA_001', OfficerID: 'TUT_OFF_001', Officer: 'ExampleOfficer123', Rank: 'Police Constable', Subject: `${tutorialDate(4)} to ${tutorialDate(8)}`, Reason: 'Pre-booked holiday', Status: 'Pending', EndDate: tutorialDate(1), Priority: 'High', MySupervisee: true, AssignedToMe: true },
+    { TaskType: 'CAD Review', ReviewID: 'TUT_REV_001', IncidentID: 'TUT_CAD_001', IncidentNumber: 'CAD-2026-0042', Officer: 'ExampleOfficer123', Subject: 'Traffic stop requires review', Reason: 'Check offence, power use and outcome rationale before sign-off.', Status: 'Pending', EndDate: tutorialDate(0), Priority: 'Critical', MySupervisee: true, AssignedToMe: true },
+    { TaskType: 'Course Booking', BookingID: 'TUT_BOOK_001', CourseID: 'TUT_COURSE_001', Course: 'Response Driving Assessment', Officer: 'Morgan_RCT', Rank: 'Police Constable', Subject: 'Response Driving', Reason: 'Officer requested a seat.', Status: 'Requested', EndDate: tutorialDate(2), Priority: 'Normal', AssignedToMe: true },
+    { TaskType: 'Shift Amendment', TaskID: 'TUT_TASK_004', Officer: 'ExampleOfficer123', Rank: 'Police Constable', Subject: 'Review shift debrief amendments', Reason: 'Supervisor requested more detail on CAD actions and arrest rationale.', Status: 'Open', EndDate: tutorialDate(1), Priority: 'High', IsMine: true },
+    { TaskType: 'Document Acknowledgement', TaskID: 'TUT_TASK_005', Officer: 'ExampleOfficer123', Subject: 'Pursuit guidance acknowledgement', Reason: 'Read and acknowledge the updated guidance.', Status: 'Open', EndDate: tutorialDate(3), Priority: 'Normal', IsMine: true },
+  ];
+  const documents = [
+    { DocumentID: 'TUT_DOC_001', Title: 'Pursuit and Initial Phase Guidance', Category: 'Policy', FolderPath: 'Policies / Roads Policing', RequiredRole: 'Constable +', RequiredTags: 'Response', RequiresAcknowledgement: 'TRUE', UpdatedAt: tutorialIso(-2, 17, 15), Status: 'Published' },
+    { DocumentID: 'TUT_DOC_002', Title: 'Traffic Stop Recording Guide', Category: 'Training', FolderPath: 'Training / CAD Workflow', RequiredRole: 'Constable +', RequiredTags: '', RequiresAcknowledgement: 'FALSE', UpdatedAt: tutorialIso(-5, 19, 45), Status: 'Published' },
+    { DocumentID: 'TUT_DOC_003', Title: 'Supervisor CAD Review Checklist', Category: 'Supervisor', FolderPath: 'Supervisor / Reviews', RequiredRole: 'Sergeant +', RequiredTags: '', RequiresAcknowledgement: 'TRUE', UpdatedAt: tutorialIso(-1, 21, 0), Status: 'Published' },
+  ];
+  const announcements = [
+    { AnnouncementID: 'TUT_ANN_001', Title: 'Operational standards update', Body: 'Vehicle stop recording guidance has been refreshed. Supervisors should check CAD outcomes during reviews.', Priority: 'High', Status: 'Published', CreatedAt: tutorialIso(-1, 18, 0), UpdatedAt: tutorialIso(-1, 18, 0), Author: 'MO8 Command' },
+    { AnnouncementID: 'TUT_ANN_002', Title: 'Response driving course', Body: 'Three seats remain for the Saturday Response Driving assessment.', Priority: 'Normal', Status: 'Published', CreatedAt: tutorialIso(-3, 20, 0), UpdatedAt: tutorialIso(-3, 20, 0), Author: 'Training Team' },
+  ];
+  const calendar = [
+    { EventID: 'TUT_CAL_001', Title: 'Response Driving Assessment', Type: 'Training', StartAt: tutorialIso(6, 19, 0), EndAt: tutorialIso(6, 20, 0), AllDay: false, Status: 'Scheduled', AssignedTo: 'ExampleOfficer123', Description: 'Approved course booking.' },
+    { EventID: 'TUT_CAL_002', Title: 'Morgan_RCT LOA', Type: 'LOA', StartAt: tutorialDate(-2), EndAt: tutorialDate(5), AllDay: true, Status: 'Approved', AssignedTo: 'Morgan_RCT', Description: 'Officer unavailable during approved LOA.' },
+    { EventID: 'TUT_CAL_003', Title: 'Supervisor check-in', Type: 'Supervision', StartAt: tutorialIso(2, 19, 30), EndAt: tutorialIso(2, 20, 0), AllDay: false, Status: 'Scheduled', AssignedTo: 'ExampleOfficer123', Description: 'Monthly check-in with Sgt_River.' },
+  ];
+  const courses = [
+    { CourseID: 'TUT_COURSE_001', Title: 'Response Driving Assessment', Standard: 'Response', Trainer: 'Sgt_River', CoTrainers: 'Taylor_Control', CourseDate: tutorialIso(6, 19, 0), Duration: '1 hour', Location: 'Training Centre', Capacity: 6, BookedSeats: 3, PendingRequests: 1, Waitlist: 1, Status: 'Scheduled', MyBookingStatus: '' },
+    { CourseID: 'TUT_COURSE_002', Title: 'MOE Refresher', Standard: 'MOE', Trainer: 'Taylor_Control', CoTrainers: '', CourseDate: tutorialIso(12, 20, 0), Duration: '45 minutes', Location: 'Briefing Room', Capacity: 8, BookedSeats: 5, PendingRequests: 0, Waitlist: 0, Status: 'Scheduled', MyBookingStatus: 'Approved' },
+  ];
+  const courseBookings = [
+    { BookingID: 'TUT_BOOK_001', CourseID: 'TUT_COURSE_001', Course: 'Response Driving Assessment', Officer: 'Morgan_RCT', Rank: 'Police Constable', Status: 'Requested', Outcome: '', RequestedAt: tutorialIso(-1, 19, 20) },
+    { BookingID: 'TUT_BOOK_002', CourseID: 'TUT_COURSE_001', Course: 'Response Driving Assessment', Officer: 'ExampleOfficer123', Rank: 'Police Constable', Status: 'Approved', Outcome: '', RequestedAt: tutorialIso(-2, 19, 20) },
+  ];
+  const discipline = [{ ActionID: 'TUT_DISC_001', OfficerID: 'TUT_OFF_001', Officer: 'ExampleOfficer123', Rank: 'Police Constable', Type: 'Management Advice', Summary: 'Reminder issued around complete CAD rationale for arrests and searches.', IssuedBy: 'Sgt_River', IssuedAt: tutorialIso(-6, 20, 15), Status: 'Active' }];
+  const accountRequests = [{ RequestID: 'TUT_ACC_001', RobloxUsername: 'NewStarter_01', Callsign: '2114', Rank: 'Police Constable', DiscordID: '123456789012345678', Status: 'Pending', CreatedAt: tutorialIso(-1, 17, 40) }];
+  const incidents = [{
+    IncidentID: 'TUT_CAD_001', IncidentNumber: 'CAD-2026-0042', Title: 'Traffic stop - High Street', IncidentType: 'Traffic Stop', Priority: 'Immediate', Location: 'High Street / Market Road', PatrolArea: 'North', RadioChannel: 'MO8 Main', Status: 'Open', Description: 'Vehicle seen driving at speed through junction. Repeat vehicle marker found.', AssignedUnitIDs: ['TUT_UNIT_RP21'], AssignedUnits: 'RP-21', RequiredCapabilities: 'Response', CreatedAt: tutorialIso(0, 19, 5), UpdatedAt: tutorialIso(0, 19, 22), Logs: [{ LogID: 'TUT_LOG_001', EntryType: 'Initial', Body: 'RP-21 stopping vehicle AB12 CDE.', Author: 'Taylor_Control', CreatedAt: tutorialIso(0, 19, 6) }, { LogID: 'TUT_LOG_002', EntryType: 'Update', Body: 'Driver identified as Example Driver. Previous warning for speeding located today.', Author: 'ExampleOfficer123', CreatedAt: tutorialIso(0, 19, 15) }], Entities: [{ EntityType: 'Vehicle', EntityID: 'TUT_VEH_001', Label: 'AB12 CDE' }, { EntityType: 'Person', EntityID: 'TUT_PER_001', Label: 'Example Driver' }], Disposals: [{ DisposalID: 'TUT_DISP_001', Subject: 'Example Driver', Offence: 'Dangerous Driving', OutcomeType: 'Arrest', FineAmount: '', ArrestTime: '10 minutes', IssuingOfficer: 'ExampleOfficer123', IssuedAt: tutorialIso(0, 19, 20), Rationale: 'Repeated dangerous manner of driving after previous warning.' }], PowerUses: [{ PowerUseID: 'TUT_PWR_USE_001', PowerCode: 'PACE-S10', Power: 'Search of detained person', Subject: 'Example Driver', Officer: 'ExampleOfficer123', Outcome: 'Nothing found', OccurredAt: tutorialIso(0, 19, 17) }], Attachments: [{ AttachmentID: 'TUT_ATT_001', Title: 'Vehicle stop screenshot', FileName: 'vehicle-stop.png', FileType: 'image/png', CreatedAt: tutorialIso(0, 19, 18) }], Reviews: [], ReviewStatus: 'Pending' }];
+  const archive = [{ ...incidents[0], IncidentID: 'TUT_CAD_000', IncidentNumber: 'CAD-2026-0037', Title: 'Speeding warning - High Street', Status: 'Resolved', ClosureCode: 'Words of Advice', ClosedAt: tutorialIso(0, 18, 10), Outcome: 'Driver warned for speeding. Further similar conduct should be escalated.' }];
+  const units = [
+    { UnitID: 'TUT_UNIT_RP21', Callsign: 'RP-21', OperationalStatus: 'On Scene', PatrolArea: 'North', PatrolType: 'Traffic Vehicle', AssignedVehicleRegistration: 'MO8 21', Members: 'Lead: ExampleOfficer123, Crew: Sgt_River', MemberIDs: ['TUT_OFF_001', 'TUT_OFF_002'], Capabilities: 'Taser, MOE, Response, Supervisor', CapabilityList: ['Taser', 'MOE', 'Response', 'Supervisor'], CurrentIncidentID: 'TUT_CAD_001', CurrentIncident: 'CAD-2026-0042', CanJoin: false, IsMember: true, IsLead: true },
+    { UnitID: 'TUT_UNIT_RP23', Callsign: 'RP-23', OperationalStatus: 'Available', PatrolArea: 'South', PatrolType: 'Traffic Vehicle', AssignedVehicleRegistration: 'MO8 23', Members: 'Lead: Morgan_RCT', MemberIDs: ['TUT_OFF_003'], Capabilities: 'Blue Ticket, Advanced, Roads Crime Team', CapabilityList: ['Blue Ticket', 'Advanced', 'Roads Crime Team'], CanJoin: true, IsMember: false, IsLead: false },
+  ];
+  const offences = [
+    { OffenceID: 'TUT_OFFENCE_001', Code: 'RCOA-2024-DRIVE-03', Title: 'Dangerous Driving', Category: 'Roads', SectionReference: 'Roads Classification and Offences Act 2024', Guidance: 'Use where driving creates clear danger to the public or officers. Consider arrest where repeated or aggravated.', DefaultFine: 500, DefaultPrisonMinutes: 10, Active: true },
+    { OffenceID: 'TUT_OFFENCE_002', Code: 'FPN-2024-SPEED-01', Title: 'Excess Speed', Category: 'Roads', SectionReference: 'Fixed Penalty Notices Act 2024', Guidance: 'FPN suitable for lower level speeding. Higher amount where repeat same-day conduct is identified.', DefaultFine: 150, DefaultPrisonMinutes: 0, Active: true },
+  ];
+  const operationsHub = { ok: true, shiftStatus: { onDuty: true, activeShift: { ShiftID: 'TUT_SHIFT_001', StartedAt: tutorialIso(0, 18, 45), Status: 'On Duty' } }, units, incidents, archive, bolos: [{ BoloID: 'TUT_BOLO_001', Title: 'Stolen vehicle AB12 CDE', Subject: 'AB12 CDE', Priority: 'High', Status: 'Active', Summary: 'Vehicle linked to repeated fail-to-stop reports.', CreatedAt: tutorialIso(-1, 21, 30) }], assigned: incidents, joinRequests: [{ RequestID: 'TUT_JOIN_001', Callsign: 'RP-21', Officer: 'Morgan_RCT', Message: 'Requesting to crew for pursuit capability.', Status: 'Pending', CanReview: true }], myUnit: units[0], currentOfficerID: 'TUT_OFF_001', onDutyOfficers: officers.slice(0, 3), officerDirectory: officers, briefings: [{ BriefingID: 'TUT_BRIEF_001', Title: 'Evening roads briefing', Priority: 'High', Status: 'Active', PatrolArea: 'Borough wide', Body: 'Focus on vehicle offences and repeat ASB driving.', StartsAt: tutorialIso(0, 18, 0) }], reviews: archive, templates: [], people: [{ PersonID: 'TUT_PER_001', DisplayName: 'Example Driver', RobloxUsername: 'ExampleDriver_01', Aliases: 'Driver One', Notes: 'Linked to two vehicle stops today.', IncidentCount: 2, MarkerCount: 1, Markers: 'Repeat traffic offending' }], vehicles: [{ VehicleID: 'TUT_VEH_001', Registration: 'AB12 CDE', Make: 'Benefactor', Model: 'Schafter', Colour: 'Black', IncidentCount: 2, MarkerCount: 2, Markers: 'Stolen vehicle BOLO; repeat stop today' }], offences, markers: [{ MarkerID: 'TUT_MARKER_001', Subject: 'AB12 CDE', MarkerType: 'Warning', Details: 'Previous same-day warning for speeding.', Status: 'Active' }], officerActions: [], acknowledgements: [], afterActionReviews: [], powers: [{ PowerID: 'TUT_PWR_001', Code: 'PACE-S10', Title: 'Search of detained person', Guidance: 'Use when a person is detained and search grounds are recorded.' }], powerUses: incidents[0].PowerUses, actionReviews: [{ ActionReviewID: 'TUT_AR_001', IncidentID: 'TUT_CAD_001', IncidentNumber: 'CAD-2026-0042', Officer: 'ExampleOfficer123', ActionType: 'Arrest', Rationale: 'Repeat dangerous driving after warning.', Status: 'Pending', DueAt: tutorialDate(0) }], caseActions: [{ ActionID: 'TUT_CASE_ACT_001', OperationID: 'TUT_CASE_001', Officer: 'ExampleOfficer123', Title: 'Add evidence summary', Status: 'Open', Priority: 'High', DueAt: tutorialDate(2) }], deployments: [{ DeploymentID: 'TUT_DEP_001', Title: 'Road safety patrol', Status: 'Planned', StartsAt: tutorialIso(1, 20, 0), Location: 'North Borough', AssignedOfficers: 'RP-21, RP-23' }], controlEvents: [{ EventID: 'TUT_CTRL_001', EventType: 'Assignment', Summary: 'RP-21 assigned to CAD-2026-0042', Callsign: 'RP-21', IncidentNumber: 'CAD-2026-0042', Actor: 'Taylor_Control', CreatedAt: tutorialIso(0, 19, 7) }], messages: [{ MessageID: 'TUT_MSG_001', Channel: 'MO8 Main', Priority: 'High', MessageType: 'Broadcast', Message: 'RP units be aware AB12 CDE is linked to a live BOLO.', Sender: 'Taylor_Control', CreatedAt: tutorialIso(0, 19, 3) }], relationships: [{ RelationshipID: 'TUT_REL_001', SourceType: 'Vehicle', SourceID: 'TUT_VEH_001', TargetType: 'Person', TargetID: 'TUT_PER_001', RelationshipType: 'Registered keeper / driver', Confidence: 'Confirmed', Notes: 'Driver identified during CAD-2026-0042.' }], cidReferrals: [], controllerEligible: true, controllerSession: { Status: 'Active', Role: 'Controller', StartedAt: tutorialIso(0, 18, 30) }, callsignPresets: [{ PresetID: 'TUT_PRESET_001', Callsign: 'RP-21', Division: 'Roads Policing', UnitRole: 'Traffic Vehicle', VehicleRequirement: 'Marked traffic vehicle', RequiredCapabilities: 'Response', Available: false, UnitID: 'TUT_UNIT_RP21', UnitStatus: 'On Scene', Crew: units[0].Members, Capabilities: units[0].Capabilities }], operations: [{ OperationID: 'TUT_CASE_001', Reference: 'CASE-2026-001', Name: 'Repeat dangerous driving - Example Driver', Objectives: 'Build a clear intelligence picture for repeat roads offences.', Status: 'Open', Priority: 'High', Lead: 'Sgt_River', LinkCount: 4, LinkedIncidents: 'CAD-2026-0037, CAD-2026-0042' }], actionQueue: tasks.filter((task) => ['CAD Review', 'Shift Amendment'].includes(task.TaskType)), locationIntel: [{ Location: 'High Street / Market Road', Incidents: 2, CommonType: 'Traffic Stop', RepeatEntities: 2 }], dataQuality: [{ Severity: 'High', Title: 'Outcome reasoning missing detail', Count: 1, Detail: 'CAD-2026-0042 requires fuller rationale before sign-off.' }], analytics: { ClosedCount: 1, MedianResponse: '4m', AverageDuration: '26m', ReviewRate: 75, RepeatSubjects: 1, ByType: [{ Label: 'Traffic Stop', Value: 2 }, { Label: 'BOLO', Value: 1 }], ByOutcome: [{ Label: 'Words of Advice', Value: 1 }, { Label: 'Arrest', Value: 1 }], ByDisposal: [{ Label: 'Arrest', Value: 1 }, { Label: 'Warning', Value: 1 }], ByHour: [{ Label: '19:00', Value: 2 }, { Label: '20:00', Value: 1 }], ByUnit: [{ Label: 'RP-21', Value: 2 }, { Label: 'RP-23', Value: 1 }] }, coverage: [{ Area: 'North', Units: 1 }, { Area: 'South', Units: 1 }], stats: { ActiveUnits: 2, AvailableUnits: 1, OpenIncidents: 1, UnassignedIncidents: 0 } };
+  const myActions = [{ Group: 'Urgent', Priority: 'Critical', Type: 'CAD Review', Title: 'CAD-2026-0042 requires review', Detail: 'Review offence, power use and outcome rationale.', View: 'tasks' }, { Group: 'Due Soon', Priority: 'High', Type: 'LOA', Title: 'LOA approval waiting', Detail: 'ExampleOfficer123 / pending leave request.', View: 'requests' }, { Group: 'Information', Priority: 'Normal', Type: 'Document', Title: 'Pursuit guidance acknowledgement', Detail: 'Read and acknowledge updated policy.', View: 'documents' }];
+  const supervisorDashboard = { ok: true, counts: { assigned: 2, unassigned: 1, pendingRequests: 2, openPlans: 2 }, assigned: officers.filter((row) => ['TUT_OFF_001', 'TUT_OFF_003'].includes(row.OfficerID)).map((row) => ({ ...row, LastShift: tutorialIso(-1, 21, 0), MonthlyActivity: row.OfficerID === 'TUT_OFF_003' ? '0h 20m / On LOA' : '8h 45m', OpenTasks: row.OfficerID === 'TUT_OFF_001' ? 3 : 1, TrainingGaps: row.OfficerID === 'TUT_OFF_001' ? 'Advanced due' : 'None', DisciplineFlags: row.OfficerID === 'TUT_OFF_001' ? 1 : 0, OpenPlans: 1 })), pendingRequests: [{ RequestID: 'TUT_SUP_001', Officer: 'ExampleOfficer123', Rank: 'Police Constable', Category: 'Training', Subject: 'Response driving guidance', CreatedAt: tutorialIso(-1, 20, 0), Supervisor: 'Sgt_River' }], unassigned: [{ OfficerID: 'TUT_OFF_005', RobloxUsername: 'NewStarter_01', Callsign: '2114', Rank: 'Police Constable', DutyStatus: 'Off duty' }], workload: [{ Supervisor: 'Sgt_River', Rank: 'Sergeant', AssignedOfficers: 2, PendingRequests: 2, Coverage: 'Normal' }, { Supervisor: 'harry_ted', Rank: 'Inspector', AssignedOfficers: 1, PendingRequests: 1, Coverage: 'Command' }], developmentPlans: [{ PlanID: 'TUT_PLAN_001', Officer: 'ExampleOfficer123', OfficerID: 'TUT_OFF_001', Goal: 'Complete Response driving', Category: 'Training', Status: 'Open', DueDate: tutorialDate(21), Notes: 'Book next available assessment.' }], checkins: [{ CheckinID: 'TUT_CHECK_001', Officer: 'ExampleOfficer123', CheckinDate: tutorialDate(-7), Summary: 'Discussed activity and CAD recording.', Concerns: 'Outcome rationale needs detail.', DevelopmentGoals: 'Complete Response course.', FollowUpDate: tutorialDate(7) }], superviseeTasks: tasks };
+  const developmentRecords = { ok: true, officers, probation: [{ ProbationID: 'TUT_PROB_001', Officer: 'ExampleOfficer123', OfficerID: 'TUT_OFF_001', Rank: 'Police Constable', Stage: 'Initial Probation', Status: 'Active', Progress: 65, TargetDate: tutorialDate(14), Reviewer: 'Sgt_River' }], reviews: [{ ReviewID: 'TUT_PERF_001', Officer: 'ExampleOfficer123', OfficerID: 'TUT_OFF_001', ReviewDate: tutorialDate(-21), Rating: 'Developing', Reviewer: 'Sgt_River', NextReviewDate: tutorialDate(0), Objectives: 'Improve detail in CAD closures and power-use rationale.' }], restrictions: [{ RestrictionID: 'TUT_REST_001', Officer: 'ExampleOfficer123', OfficerID: 'TUT_OFF_001', RestrictionType: 'No pursuit authorisation', Details: 'Requires supervisor approval before pursuit involvement.', StartsOn: tutorialDate(-5), EndsOn: tutorialDate(9), Status: 'Active' }], aips: [{ AipID: 'TUT_AIP_001', Reference: 'AIP-2026-001', Officer: 'ExampleOfficer123', OfficerID: 'TUT_OFF_001', Rank: 'Police Constable', Status: 'Issued', IssueDate: tutorialDate(-7), ReviewEndDate: tutorialDate(7), LineManager: 'Sgt_River', AuthorisingManager: 'harry_ted', SignaturesLabel: 'Signed by line manager and authorising manager' }] };
+  const timelineSubjects = [
+    { Type: 'Officer', ID: 'TUT_OFF_001', Title: 'ExampleOfficer123', Subtitle: 'Police Constable / 2104', Destination: 'Officer:TUT_OFF_001' },
+    { Type: 'CAD', ID: 'TUT_CAD_001', Title: 'CAD-2026-0042', Subtitle: 'Traffic stop - High Street', Destination: 'Incident:TUT_CAD_001' },
+    { Type: 'Vehicle', ID: 'TUT_VEH_001', Title: 'AB12 CDE', Subtitle: 'Black Benefactor Schafter', Destination: 'Vehicle:TUT_VEH_001' },
+  ];
+  const timeline = [
+    { Date: tutorialIso(0, 19, 20), Area: 'Operations', Type: 'Outcome', Title: 'Arrest outcome recorded', Detail: 'Dangerous Driving outcome entered with arrest time guidance.', Reference: 'CAD-2026-0042', Actor: 'ExampleOfficer123', Severity: 'warning', OperationsTarget: 'Incident:TUT_CAD_001' },
+    { Date: tutorialIso(0, 19, 17), Area: 'Operations', Type: 'Power Use', Title: 'PACE Section 10 search recorded', Detail: 'Officer recorded grounds and search outcome.', Reference: 'CAD-2026-0042', Actor: 'ExampleOfficer123', Severity: 'information', OperationsTarget: 'Incident:TUT_CAD_001' },
+    { Date: tutorialIso(-1, 18, 30), Area: 'Personnel', Type: 'LOA', Title: 'LOA request submitted', Detail: 'ExampleOfficer123 requested leave for an upcoming period.', Reference: 'TUT_LOA_001', Actor: 'ExampleOfficer123', Severity: 'information', View: 'requests', OfficerID: 'TUT_OFF_001' },
+    { Date: tutorialIso(-6, 20, 15), Area: 'Personnel', Type: 'Discipline', Title: 'Management advice issued', Detail: 'Supervisor recorded advice around CAD rationale quality.', Reference: 'TUT_DISC_001', Actor: 'Sgt_River', Severity: 'warning', OfficerID: 'TUT_OFF_001' },
+  ];
+  const dataQualityCentre = { ok: true, score: 82, critical: 1, actionable: 3, checked: 28, rows: [
+    { Severity: 'Critical', Area: 'Operations', Check: 'CAD review', Title: 'Outcome rationale needs review', Detail: 'CAD-2026-0042 has an arrest outcome where the supervisor should confirm grounds are detailed enough.', Reference: 'CAD-2026-0042', OperationsTarget: 'Incident:TUT_CAD_001' },
+    { Severity: 'Warning', Area: 'Personnel', Check: 'Supervisor', Title: 'New starter has no supervisor', Detail: 'NewStarter_01 needs a supervisor before launch.', Reference: 'TUT_OFF_005', View: 'supervisor' },
+    { Severity: 'Information', Area: 'Training', Check: 'Acknowledgement', Title: 'Policy acknowledgement due', Detail: 'ExampleOfficer123 has not acknowledged the updated pursuit guidance.', Reference: 'TUT_DOC_001', OfficerID: 'TUT_OFF_001' },
+  ] };
+  return {
+    officers, loa, documents, announcements, calendar,
+    dashboard: { ok: true, widgets: DASHBOARD_WIDGETS.map(([key]) => key), counts: { activeOfficers: 4, currentlyOnLoa: 1, loaPending: 1, pendingAppeals: 1, trainingReviewsDue: 2, pendingAcknowledgements: 2, upcomingTraining: 2 }, activeLoa: loa.filter((row) => row.Status === 'Approved'), pendingLoa: loa.filter((row) => row.Status === 'Pending'), announcements, recentDocuments: documents, trainingReviewsDue: [{ RobloxUsername: 'Morgan_RCT', Standard: 'Response', ReviewDate: tutorialDate(7), UpdatedBy: 'Sgt_River' }], recentAudit: [{ Timestamp: tutorialIso(-1, 21, 10), Action: 'Tutorial data loaded', TargetType: 'Training Mode', TargetID: 'TUTORIAL' }], pendingAppeals: [{ Officer: 'ExampleOfficer123', Rank: 'Police Constable', SourceType: 'LOA', Reason: 'Wants denial reconsidered' }], unassignedOfficers: [{ RobloxUsername: 'NewStarter_01', Rank: 'Police Constable', DutyStatus: 'Off duty' }], lowActivity: [{ RobloxUsername: 'Morgan_RCT', Rank: 'Police Constable', Duration: '0h 20m', ActivityFlag: 'On LOA' }], documentAcknowledgements: documents.filter((row) => row.RequiresAcknowledgement === 'TRUE'), upcomingTraining: courses, myActions, pinnedOfficers: officers.slice(0, 2) },
+    personalInbox: { ok: true, rows: myActions },
+    tasks: { ok: true, myTasks: tasks, allTasks: tasks, pendingLoa: tasks.filter((row) => row.TaskType === 'LOA Approval'), pendingTransfers: [], pendingSupervisorRequests: [], pendingCourseBookings: tasks.filter((row) => row.TaskType === 'Course Booking'), pendingAppeals: [], probationReviews: [], performanceReviews: [], restrictionReviews: [], activityReviews: [], trainingNeedsReview: [], accountRequests: [], retrospectiveShifts: [], operationalReviews: tasks.filter((row) => row.TaskType === 'CAD Review'), afterActionReviews: [], actionReviews: [], counts: { mine: tasks.length, dueSoon: 4, amendments: 1, available: tasks.length, total: tasks.length, pendingLoa: 1, pendingCourseBookings: 1, operationalReviews: 1 } },
+    courses: { ok: true, rows: courses, bookings: courseBookings },
+    operationsHub, supervisorDashboard, developmentRecords, discipline, accountRequests, timelineSubjects, timeline, dataQualityCentre,
+  };
+}
+
 async function api(action, data = {}, includeToken = true) {
   if (state.accessPreview && isPreviewMutation(action)) return { ok: false, error: 'This action is disabled while Command access preview is active.' };
+  const tutorialResponse = tutorialDemoResponse(action, data);
+  if (tutorialResponse) return tutorialResponse;
   if (shouldPromptForDuty(action)) {
     const startNow = window.confirm(`You are not currently on duty.\n\nStart a shift before carrying out this operational action?\n\nSelect Cancel to continue off duty and mute this reminder for 30 minutes.`);
     if (startNow) { openStartShiftEditor('operations'); return { ok: false, error: 'Start your shift, then repeat the operational action.' }; }
@@ -15335,6 +15468,8 @@ function isTodayInRange(start, end) {
 }
 
 async function apiCached(action, data = {}, includeToken = true) {
+  const tutorialResponse = tutorialDemoResponse(action, data);
+  if (tutorialResponse) return tutorialResponse;
   const key = cacheKey(action, data, includeToken);
   const cached = state.cache[key];
   if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
