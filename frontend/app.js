@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-3';
+const APP_VERSION = '2026-08-02-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -20,7 +20,7 @@ const OFFICER_RANKS = [
 
 const SYSTEM_ROLES = ['Constable', 'Trainer', 'Sergeant', 'Inspector', 'Chief Inspector', 'Command'];
 const ACCESS_LEVELS = [...OFFICER_RANKS];
-const OFFICER_TAGS = ['Roads Crime Team', 'MO8 Command', 'Roads and Traffic Policing Team', 'Bronze Command', 'Silver Command', 'Gold Command', 'Controller', 'Control Supervisor', 'Tactical Advisor'];
+const DEFAULT_OFFICER_TAGS = ['Roads Crime Team', 'MO8 Command', 'Roads and Traffic Policing Team', 'Bronze Command', 'Silver Command', 'Gold Command', 'Controller', 'Control Supervisor', 'Tactical Advisor'];
 const SPECIALIST_TRAINING = ['Taser', 'MOE', 'Blue Ticket', 'Motorbike'];
 const DRIVING_STANDARDS = ['Basic', 'Response', 'IPP', 'Advanced', 'Advanced + TPAC'];
 const TRAINING_STANDARDS = [...SPECIALIST_TRAINING, ...DRIVING_STANDARDS];
@@ -43,6 +43,7 @@ const ALL_PERMISSIONS = [
   'VIEW_COURSES',
   'MANAGE_COURSES',
   'MANAGE_TRAINING_OPTIONS',
+  'MANAGE_OFFICER_TAGS',
   'VIEW_DISCIPLINE',
   'ADD_DISCIPLINE',
   'VIEW_LOA',
@@ -178,6 +179,7 @@ const state = {
   training: [],
   trainingSummary: [],
   trainingOptions: [],
+  officerTagOptions: [],
   courses: [],
   courseBookings: [],
   discipline: [],
@@ -488,6 +490,7 @@ document.querySelector('#bulkOfficerButton').addEventListener('click', () => ope
 document.querySelector('#newDocumentButton').addEventListener('click', () => openDocumentEditor());
 document.querySelector('#newFolderButton').addEventListener('click', () => openFolderEditor());
 document.querySelector('#newTrainingOptionButton').addEventListener('click', () => openTrainingOptionEditor());
+document.querySelector('#newOfficerTagButton')?.addEventListener('click', () => openOfficerTagOptionEditor());
 document.querySelector('#newCourseButton').addEventListener('click', () => openCourseEditor());
 document.querySelector('#newAnnouncementButton').addEventListener('click', () => openAnnouncementEditor());
 document.querySelector('#newUserButton').addEventListener('click', () => openUserEditor());
@@ -743,6 +746,7 @@ function warmCoreData() {
     ['listDocuments', {}, can('VIEW_DOCUMENTS')],
     ['listAnnouncements', {}, can('VIEW_ANNOUNCEMENTS')],
     ['listTrainingCourses', {}, can('VIEW_COURSES')],
+    ['listOfficerTagOptions', {}, true],
     ['listOfficers', {}, can('VIEW_OFFICERS')],
     ['operationalCalendar', {}, isFeatureEnabled('calendar')],
     ['shiftStatus', {}, true],
@@ -750,6 +754,13 @@ function warmCoreData() {
   window.setTimeout(() => {
     Promise.allSettled(warm.map(([action, data]) => apiCached(action, data)));
   }, 450);
+}
+
+async function ensureOfficerTagOptions() {
+  if (state.officerTagOptions.length) return state.officerTagOptions;
+  const response = await apiCached('listOfficerTagOptions', {});
+  if (response.ok) state.officerTagOptions = response.rows || [];
+  return state.officerTagOptions;
 }
 
 async function preloadFeatureFlags() {
@@ -2025,7 +2036,7 @@ function renderDataQualityCentre() {
 
 async function loadCalendar() {
   await showViewOnly('calendar');
-  const response = await apiCached('operationalCalendar', {});
+  const [response] = await Promise.all([apiCached('operationalCalendar', {}), ensureOfficerTagOptions()]);
   if (!response.ok) return renderError(document.querySelector('#calendarGrid'), response.error);
   state.operations.calendar = response.rows || [];
   const types = [...new Set(state.operations.calendar.map((row) => row.Type).filter(Boolean))];
@@ -2164,7 +2175,7 @@ async function openCalendarEventEditor(record = {}) {
     calendarAudienceField('Role', checkboxGroupField('AudienceRoles', 'System roles', SYSTEM_ROLES, record.AudienceType === 'Role' ? record.AudienceValues : ''), selectedAudience),
     calendarAudienceField('Ranks', checkboxGroupField('AudienceRanks', 'Exact ranks', OFFICER_RANKS, record.AudienceType === 'Ranks' ? record.AudienceValues : ''), selectedAudience),
     calendarAudienceField('Minimum Rank', selectField('AudienceRank', 'Minimum rank', OFFICER_RANKS, record.AudienceType === 'Minimum Rank' ? record.AudienceValues?.[0] : 'Police Constable'), selectedAudience),
-    calendarAudienceField('Tag', checkboxGroupField('AudienceTags', 'Officer tags', OFFICER_TAGS, record.AudienceType === 'Tag' ? record.AudienceValues : ''), selectedAudience),
+    calendarAudienceField('Tag', checkboxGroupField('AudienceTags', 'Officer tags', officerTagNames(), record.AudienceType === 'Tag' ? record.AudienceValues : ''), selectedAudience),
     calendarAudienceField('My Supervisees', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Select supervisees', state.officers.filter((officer) => officer.SupervisorUserID === state.user.UserID), record.AudienceType === 'My Supervisees' ? record.AssignedOfficerIDs : ''), selectedAudience),
     calendarAudienceField('Specific Officers', searchableOfficerCheckboxGroupField('AssignedOfficerIDs', 'Specific officers', state.officers, record.AudienceType === 'Specific Officers' ? record.AssignedOfficerIDs : ''), selectedAudience),
     selectField('RequiresRsvp', 'Require RSVP', ['Yes', 'No'], record.RequiresRsvp === 'FALSE' ? 'No' : 'Yes'),
@@ -5183,7 +5194,7 @@ function shiftQuery() {
 
 async function loadOfficers() {
   await showViewOnly('officers');
-  const response = await apiCached('listOfficers', {});
+  const [response] = await Promise.all([apiCached('listOfficers', {}), ensureOfficerTagOptions()]);
   if (!response.ok) return renderTable('#officersTable', [], ['Error'], response.error);
   state.officers = response.rows || [];
   renderOfficerTable();
@@ -5230,6 +5241,7 @@ async function loadTraining() {
     apiCached('listTraining', {}),
     apiCached('listOfficers', {}),
     apiCached('listTrainingOptions', {}),
+    ensureOfficerTagOptions(),
   ]);
   const trainingRows = trainingResponse.rows || [];
   const officerRows = officersResponse.rows || [];
@@ -5296,7 +5308,7 @@ function renderLoaTable(rows, selector = '#loaTable') {
 
 async function loadDocuments() {
   await showViewOnly('documents');
-  const response = await apiCached('listDocuments', {});
+  const [response] = await Promise.all([apiCached('listDocuments', {}), ensureOfficerTagOptions()]);
   if (!response.ok) {
     state.documents = [];
     document.querySelector('#documentExplorer').innerHTML = emptyState(response.error || 'Could not load documents.');
@@ -5691,11 +5703,12 @@ async function loadPermissions() {
 
 async function loadSettings() {
   await showViewOnly('settings');
-  const [accessResponse, featureResponse, bugResponse, alertResponse] = await Promise.all([
+  const [accessResponse, featureResponse, bugResponse, alertResponse, tagResponse] = await Promise.all([
     !state.permissionConfig?.permissions?.length ? apiCached('accessPreviewConfig', {}) : Promise.resolve({ ok: true, cached: true }),
     apiCached('featureFlags', {}),
     api('listBugReports', {}),
     api('discordAlertConfig', {}),
+    apiCached('listOfficerTagOptions', {}),
   ]);
   if (!state.permissionConfig?.permissions?.length) {
     const response = accessResponse;
@@ -5703,14 +5716,16 @@ async function loadSettings() {
     state.permissionConfig = response;
   }
   if (featureResponse.ok) state.featureFlags = featureResponse.rows || [];
+  if (tagResponse.ok) state.officerTagOptions = tagResponse.rows || [];
   const rankSelect = document.querySelector('#previewRank');
   if (!rankSelect.options.length) rankSelect.innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
   renderPreviewChoices('#previewRoles', 'PreviewRoles', SYSTEM_ROLES);
-  renderPreviewChoices('#previewTags', 'PreviewTags', OFFICER_TAGS);
+  renderPreviewChoices('#previewTags', 'PreviewTags', officerTagNames());
   renderPreviewChoices('#previewTraining', 'PreviewTraining', TRAINING_STANDARDS);
   updateAccessPreviewEstimate();
   renderDesignLabState();
   renderFeatureFlagPanel();
+  renderOfficerTagOptionsPanel();
   renderBugReportAdminPanel(bugResponse.ok ? bugResponse.rows || [] : []);
   renderDiscordAlertDefaultsPanel(alertResponse.ok ? alertResponse : { defaults: [] });
   renderTutorialAdminPanel();
@@ -6107,6 +6122,24 @@ function renderFeatureFlagPanel() {
   `).join('');
 }
 
+function renderOfficerTagOptionsPanel() {
+  const container = document.querySelector('#officerTagOptionsPanel');
+  if (!container) return;
+  if (!can('MANAGE_OFFICER_TAGS')) {
+    container.innerHTML = emptyState('Admin permission is required to manage officer tags.');
+    return;
+  }
+  const rows = officerTagOptionRows();
+  container.innerHTML = `
+    <div class="table-wrap compact">
+      <table id="officerTagOptionsTable"></table>
+    </div>
+  `;
+  renderTable('#officerTagOptionsTable', rows, ['Name', 'Status', 'SortOrder', 'UpdatedAt'], {
+    actions: (row) => `<button class="mini" data-edit-officer-tag-option="${escapeHtml(row.TagID)}">Edit</button>`,
+  });
+}
+
 function renderBugReportAdminPanel(rows) {
   const container = document.querySelector('#bugReportAdminPanel');
   if (!container) return;
@@ -6309,7 +6342,11 @@ applyStoredPersonnelDesign();
 setPersonnelWorkspaceMode(personnelWorkspaceEnabled());
 
 function renderPreviewChoices(selector, name, values) {
-  const container = document.querySelector(selector); if (!container || container.children.length) return;
+  const container = document.querySelector(selector);
+  if (!container) return;
+  const signature = values.join('|');
+  if (container.dataset.choiceSignature === signature) return;
+  container.dataset.choiceSignature = signature;
   container.innerHTML = values.map((value) => `<label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(value)}"><span>${escapeHtml(value)}</span></label>`).join('');
 }
 
@@ -6577,7 +6614,7 @@ function openOfficerEditor(officer = {}) {
     field('RankChangeReason', 'Rank change reason', 'textarea', true),
     selectField('Status', 'Status', OFFICER_STATUSES, officer.Status || 'Active'),
     field('JoinDate', 'Join date', 'date', false, officer.JoinDate),
-    checkboxGroupField('Tags', 'Officer tags', OFFICER_TAGS, officer.Tags),
+    checkboxGroupField('Tags', 'Officer tags', officerTagNames(), officer.Tags),
     field('Notes', 'Notes', 'textarea', true, officer.Notes),
   ], async (values) => api('saveOfficer', values));
 }
@@ -6614,6 +6651,24 @@ function openTrainingOptionEditor(option = {}) {
     field('SortOrder', 'Sort order', 'number', false, option.SortOrder),
   ], async (values) => api('saveTrainingOption', values), {
     successMessage: 'Training option saved.',
+  });
+}
+
+function openOfficerTagOptionEditor(option = {}) {
+  openEditor(option.TagID ? 'Edit officer tag' : 'Add officer tag', [
+    hiddenField('TagID', option.TagID),
+    field('Name', 'Tag name', 'text', false, option.Name),
+    selectField('Status', 'Status', ['Active', 'Archived'], option.Status || 'Active'),
+    field('SortOrder', 'Sort order', 'number', false, option.SortOrder),
+    field('Description', 'Description', 'textarea', true, option.Description),
+  ], async (values) => api('saveOfficerTagOption', values), {
+    successMessage: 'Officer tag saved.',
+    onSuccess: async () => {
+      invalidateCache('listOfficerTagOptions');
+      const response = await apiCached('listOfficerTagOptions', {});
+      if (response.ok) state.officerTagOptions = response.rows || [];
+      renderOfficerTagOptionsPanel();
+    },
   });
 }
 
@@ -7042,7 +7097,7 @@ function openDocumentEditor(document = {}) {
     fileField('DocumentFile', document.FileName ? `Replace uploaded file (${document.FileName})` : 'Upload file'),
     field('DriveURL', 'External URL', 'url', false, document.StoragePath ? '' : document.DriveURL),
     selectField('RequiredRole', 'Minimum rank', ACCESS_LEVELS, document.RequiredRole || 'Police Constable'),
-    checkboxGroupField('RequiredTags', 'Required tags', OFFICER_TAGS, document.RequiredTags),
+    checkboxGroupField('RequiredTags', 'Required tags', officerTagNames(), document.RequiredTags),
     selectField('RequiresAcknowledgement', 'Requires acknowledgement', ['FALSE', 'TRUE'], truthy(document.RequiresAcknowledgement) ? 'TRUE' : 'FALSE'),
     selectField('Status', 'Status', ['Published', 'Draft', 'Archived'], document.Status),
   ], async (values) => api('saveDocument', values));
@@ -7069,7 +7124,7 @@ async function openBulkOfficerEditor() {
     field('OfficerIDs', 'Selected officer IDs', 'textarea', true, state.selectedBulkOfficerIds.join(', ')),
     selectField('Status', 'Set status', ['No change', ...OFFICER_STATUSES], 'No change'),
     bulkSupervisorSelectField('SupervisorUserID', 'Set supervisor', options),
-    checkboxGroupField('Tags', 'Replace tags', OFFICER_TAGS, ''),
+    checkboxGroupField('Tags', 'Replace tags', officerTagNames(), ''),
     field('TrainingReviewDate', 'Training review date', 'date'),
   ], async (values) => {
     if (values.Status === 'No change') values.Status = '';
@@ -8334,6 +8389,13 @@ async function handleDocumentClick(event) {
     return;
   }
 
+  const editOfficerTagOption = event.target.closest('[data-edit-officer-tag-option]');
+  if (editOfficerTagOption) {
+    const option = officerTagOptionRows().find((row) => row.TagID === editOfficerTagOption.dataset.editOfficerTagOption);
+    if (option) openOfficerTagOptionEditor(option);
+    return;
+  }
+
   const editCourse = event.target.closest('[data-edit-course]');
   if (editCourse) {
     const course = state.courses.find((row) => row.CourseID === editCourse.dataset.editCourse);
@@ -8906,6 +8968,26 @@ function trainingOptionNames(type) {
   return options
     .filter((option) => option.Type === type && option.Status !== 'Archived')
     .sort((a, b) => Number(a.SortOrder || 0) - Number(b.SortOrder || 0) || String(a.Name).localeCompare(String(b.Name)))
+    .map((option) => option.Name);
+}
+
+function officerTagOptionRows() {
+  const rows = state.officerTagOptions.length ? state.officerTagOptions : DEFAULT_OFFICER_TAGS.map((name, index) => ({
+    TagID: `DEFAULT_${index}`,
+    Name: name,
+    Status: 'Active',
+    SortOrder: (index + 1) * 10,
+    Description: '',
+    UpdatedAt: '',
+  }));
+  return rows
+    .slice()
+    .sort((a, b) => Number(a.SortOrder || 0) - Number(b.SortOrder || 0) || String(a.Name).localeCompare(String(b.Name)));
+}
+
+function officerTagNames() {
+  return officerTagOptionRows()
+    .filter((option) => option.Status !== 'Archived')
     .map((option) => option.Name);
 }
 
@@ -9710,6 +9792,8 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       listTraining: supabaseListTraining,
       listTrainingOptions: supabaseListTrainingOptions,
       saveTrainingOption: supabaseSaveTrainingOption,
+      listOfficerTagOptions: supabaseListOfficerTagOptions,
+      saveOfficerTagOption: supabaseSaveOfficerTagOption,
       listTrainingCourses: supabaseListTrainingCourses,
       courseTrainers: supabaseCourseTrainers,
       saveTrainingCourse: supabaseSaveTrainingCourse,
@@ -11272,6 +11356,11 @@ async function supabaseListTrainingOptions() {
   return { ok: true, rows: (data || []).map(supabaseTrainingOption) };
 }
 
+async function supabaseListOfficerTagOptions() {
+  const rows = await supabaseOptionalAll('officer_tag_options');
+  return { ok: true, rows: rows.map(supabaseOfficerTagOption) };
+}
+
 async function supabaseListTrainingCourses() {
   const [courses, bookings, profiles, officers] = await Promise.all([
     supabaseAll('training_courses'),
@@ -11446,6 +11535,25 @@ async function supabaseSaveTrainingOption(data) {
     ? await supabaseClient.from('training_options').update(record).eq('option_id', data.OptionID).select().single()
     : await supabaseClient.from('training_options').insert(record).select().single();
   return result.error ? { ok: false, error: result.error.message } : { ok: true, OptionID: result.data.option_id };
+}
+
+async function supabaseSaveOfficerTagOption(data) {
+  if (!can('MANAGE_OFFICER_TAGS')) return { ok: false, error: 'You do not have permission to manage officer tags.' };
+  const record = {
+    name: String(data.Name || '').trim(),
+    status: data.Status || 'Active',
+    sort_order: Number(data.SortOrder || 0),
+    description: data.Description || '',
+    updated_by: state.user?.UserID || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (!record.name) return { ok: false, error: 'Tag name is required.' };
+  const result = data.TagID && !String(data.TagID).startsWith('DEFAULT_')
+    ? await supabaseClient.from('officer_tag_options').update(record).eq('tag_id', data.TagID).select().single()
+    : await supabaseClient.from('officer_tag_options').upsert(record, { onConflict: 'name' }).select().single();
+  if (result.error) return { ok: false, error: result.error.message };
+  await supabaseAudit(state.user?.UserID || null, 'SAVE_OFFICER_TAG_OPTION', 'OfficerTagOption', result.data.tag_id, { name: record.name, status: record.status });
+  return { ok: true, TagID: result.data.tag_id };
 }
 
 async function supabaseSaveTraining(data) {
@@ -15160,6 +15268,18 @@ function supabaseTrainingOption(row) {
     Type: row.type,
     Status: row.status,
     SortOrder: row.sort_order,
+    UpdatedBy: row.updated_by || '',
+    UpdatedAt: row.updated_at || '',
+  };
+}
+
+function supabaseOfficerTagOption(row) {
+  return {
+    TagID: row.tag_id,
+    Name: row.name,
+    Status: row.status || 'Active',
+    SortOrder: row.sort_order || 0,
+    Description: row.description || '',
     UpdatedBy: row.updated_by || '',
     UpdatedAt: row.updated_at || '',
   };

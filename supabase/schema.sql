@@ -43,6 +43,16 @@ create table public.training_options (
   updated_at timestamptz not null default now()
 );
 
+create table public.officer_tag_options (
+  tag_id text primary key default ('TAG_' || replace(gen_random_uuid()::text, '-', '')),
+  name text not null unique,
+  status text not null default 'Active',
+  sort_order integer not null default 0,
+  description text,
+  updated_by text references public.profiles(user_id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
 create table public.training_records (
   training_id text primary key default ('TRN_' || replace(gen_random_uuid()::text, '-', '')),
   officer_id text not null references public.officers(officer_id) on delete cascade,
@@ -390,6 +400,7 @@ create trigger touch_development_plans_updated_at before update on public.develo
 alter table public.profiles enable row level security;
 alter table public.officers enable row level security;
 alter table public.training_options enable row level security;
+alter table public.officer_tag_options enable row level security;
 alter table public.training_records enable row level security;
 alter table public.training_matrix enable row level security;
 alter table public.training_courses enable row level security;
@@ -446,6 +457,13 @@ using (public.has_permission('VIEW_TRAINING') or public.has_permission('VIEW_COU
 create policy "training options write" on public.training_options for all
 using (public.has_permission('MANAGE_TRAINING_OPTIONS'))
 with check (public.has_permission('MANAGE_TRAINING_OPTIONS'));
+
+create policy "officer tag options read" on public.officer_tag_options for select
+using (public.current_user_id() is not null);
+
+create policy "officer tag options write" on public.officer_tag_options for all
+using (public.has_permission('MANAGE_OFFICER_TAGS'))
+with check (public.has_permission('MANAGE_OFFICER_TAGS'));
 
 create policy "courses read" on public.training_courses for select
 using (public.has_permission('VIEW_COURSES'));
@@ -573,6 +591,18 @@ insert into public.training_options (name, type, sort_order) values
   ('Advanced + TPAC', 'Driving', 90)
 on conflict (name) do nothing;
 
+insert into public.officer_tag_options (name, sort_order) values
+  ('Roads Crime Team', 10),
+  ('MO8 Command', 20),
+  ('Roads and Traffic Policing Team', 30),
+  ('Bronze Command', 40),
+  ('Silver Command', 50),
+  ('Gold Command', 60),
+  ('Controller', 70),
+  ('Control Supervisor', 80),
+  ('Tactical Advisor', 90)
+on conflict (name) do nothing;
+
 insert into public.permissions (role, permission, allowed) values
   ('Constable', 'VIEW_DOCUMENTS', true),
   ('Constable', 'VIEW_ANNOUNCEMENTS', true),
@@ -584,6 +614,7 @@ insert into public.permissions (role, permission, allowed) values
   ('Trainer', 'VIEW_COURSES', true),
   ('Trainer', 'MANAGE_COURSES', true),
   ('Trainer', 'CHANGE_OWN_PASSWORD', true),
+  ('Command', 'MANAGE_OFFICER_TAGS', true),
   ('Sergeant', 'VIEW_DASHBOARD', true),
   ('Sergeant', 'VIEW_TASKS', true),
   ('Sergeant', 'VIEW_OFFICERS', true),

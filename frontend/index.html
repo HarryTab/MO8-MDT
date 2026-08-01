@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-08-02-3">
+    <link rel="stylesheet" href="styles.css?v=2026-08-02-4">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -622,7 +622,7 @@
           <section class="data-view settings-view" id="settingsView" hidden>
             <div class="section-head"><div><h2>Settings & Administration</h2><p>Command tools for reviewing access, navigation and system behaviour.</p></div></div>
             <section class="settings-layout">
-              <aside class="settings-menu"><button class="active" type="button" data-settings-panel="access">Access preview</button><button type="button" data-settings-panel="tutorials">Tutorials</button><button type="button" data-settings-panel="features">Launch features</button><button type="button" data-settings-panel="alerts">Discord alerts</button><button type="button" data-settings-panel="bugs">Bug reports</button><button type="button" data-settings-panel="design">Personnel Design Lab</button><span>Design experiments are stored only in this browser and do not change the live default for other users.</span></aside>
+              <aside class="settings-menu"><button class="active" type="button" data-settings-panel="access">Access preview</button><button type="button" data-settings-panel="tutorials">Tutorials</button><button type="button" data-settings-panel="features">Launch features</button><button type="button" data-settings-panel="tags">Officer tags</button><button type="button" data-settings-panel="alerts">Discord alerts</button><button type="button" data-settings-panel="bugs">Bug reports</button><button type="button" data-settings-panel="design">Personnel Design Lab</button><span>Design experiments are stored only in this browser and do not change the live default for other users.</span></aside>
               <main class="settings-workspace" data-settings-workspace="access">
                 <div class="settings-workspace-head"><span>Command tool</span><h3>View MDT as...</h3><p>Build a simulated officer profile to review visible modules and effective permissions. Preview mode is read-only and never changes the selected officer or your account.</p></div>
                 <form id="accessPreviewForm" class="access-preview-form">
@@ -662,6 +662,11 @@
               <main class="settings-workspace" data-settings-workspace="features" hidden>
                 <div class="settings-workspace-head"><span>Launch control</span><h3>Enabled features</h3><p>Turn modules on or off for the restricted launch. Disabled modules are hidden from navigation, the workstation desktop and the footer shortcuts.</p></div>
                 <div id="featureFlagPanel" class="feature-flag-panel"></div>
+              </main>
+              <main class="settings-workspace" data-settings-workspace="tags" hidden>
+                <div class="settings-workspace-head"><span>Personnel configuration</span><h3>Officer tags</h3><p>Manage the tag and sub-role options shown on officer profiles, documents, calendar assignments and access previews.</p></div>
+                <div class="section-actions"><button id="newOfficerTagButton" type="button" data-permission="MANAGE_OFFICER_TAGS">Add tag</button></div>
+                <div id="officerTagOptionsPanel" class="matrix-block"></div>
               </main>
               <main class="settings-workspace" data-settings-workspace="alerts" hidden>
                 <div class="settings-workspace-head"><span>Notification defaults</span><h3>Discord alert defaults</h3><p>Set the default DM behaviour for officers. Critical locked alerts cannot be disabled by individual users.</p></div>
@@ -975,6 +980,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-08-02-3"></script>
+    <script src="app.js?v=2026-08-02-4"></script>
   </body>
 </html>
