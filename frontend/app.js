@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-2';
+const APP_VERSION = '2026-08-02-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -6399,10 +6399,20 @@ function rolePermissionEnabled(role, permission) {
   return Boolean((state.permissionConfig.defaultPermissions?.[role] || []).includes(permission));
 }
 
+function permissionOverrideAllowed(value) {
+  return ['TRUE', 'ALLOW', 'ALLOWED', 'YES', '1'].includes(String(value || '').toUpperCase());
+}
+
+function permissionOverrideDenied(value) {
+  return ['FALSE', 'DENY', 'DENIED', 'NO', '0'].includes(String(value || '').toUpperCase());
+}
+
 function userPermissionMode(userId, permission) {
   const override = state.permissionConfig.userPermissions.find((row) => row.UserID === userId && row.Permission === permission);
   if (!override) return 'Inherit';
-  return String(override.Allowed).toUpperCase() === 'TRUE' ? 'Allow' : 'Deny';
+  if (permissionOverrideAllowed(override.Allowed)) return 'Allow';
+  if (permissionOverrideDenied(override.Allowed)) return 'Deny';
+  return 'Inherit';
 }
 
 function permissionAuditRows() {
@@ -6413,10 +6423,10 @@ function permissionAuditRows() {
     const overrides = config.userPermissions.filter((row) => row.UserID === user.UserID);
     const effective = config.permissions.filter((permission) => {
       const override = overrides.find((row) => row.Permission === permission);
-      if (override) return String(override.Allowed).toUpperCase() === 'TRUE';
+      if (override) return permissionOverrideAllowed(override.Allowed);
       return rolePermissionEnabled(user.Role, permission);
     });
-    const explicitAllows = overrides.filter((row) => String(row.Allowed).toUpperCase() === 'TRUE').map((row) => row.Permission);
+    const explicitAllows = overrides.filter((row) => permissionOverrideAllowed(row.Allowed)).map((row) => row.Permission);
     const sensitiveAccess = sensitive.filter((permission) => effective.includes(permission));
     const reasons = [];
     let Risk = 'Normal';
@@ -12556,6 +12566,9 @@ async function supabaseSetRolePermission(data) {
 
 async function supabaseSetUserPermission(data) {
   const mode = data.Mode || 'Inherit';
+  if (data.UserID === state.user?.UserID && mode === 'Deny' && ['FULL_ACCESS', 'MANAGE_PERMISSIONS'].includes(data.Permission)) {
+    return { ok: false, error: 'You cannot deny your own core administration permissions.' };
+  }
   if (mode === 'Inherit') {
     const { error } = await supabaseClient
       .from('user_permissions')
