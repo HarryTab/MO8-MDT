@@ -446,6 +446,39 @@ body:not(.is-authenticated) .topbar {
   flex-wrap: wrap;
 }
 
+.global-new-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 13px 8px 10px;
+  border: 1px solid rgba(121, 186, 255, 0.82);
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, #2d76d9, #174f9f);
+  box-shadow: 0 8px 20px rgba(17, 75, 150, 0.28);
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.global-new-button span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: #174f9f;
+  background: #fff;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.global-new-button:hover {
+  border-color: rgba(187, 220, 255, 0.96);
+  background: linear-gradient(135deg, #3b87ef, #1b5fbf);
+  transform: translateY(-1px);
+}
+
 #notificationsButton {
   position: relative;
 }
@@ -4436,6 +4469,24 @@ body.is-authenticated .ghost {
   color: #10345f;
   background: #eef5ff;
   border-color: #86b1e8;
+}
+
+body.is-authenticated .global-new-button {
+  color: #fff;
+  background: linear-gradient(135deg, #2d76d9, #174f9f);
+  border-color: rgba(121, 186, 255, 0.82);
+}
+
+.system-taskbar-new {
+  border-color: rgba(122, 187, 255, 0.74) !important;
+  background: rgba(45, 118, 217, 0.24) !important;
+}
+
+.system-taskbar-new .system-taskbar-icon {
+  color: #fff;
+  background: linear-gradient(135deg, #2d76d9, #174f9f);
+  border-color: rgba(199, 225, 255, 0.78);
+  font-size: 18px;
 }
 
 body.is-authenticated .actions button.ghost,

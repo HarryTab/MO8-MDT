@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-08-01-13">
+    <link rel="stylesheet" href="styles.css?v=2026-08-01-14">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
@@ -104,7 +104,7 @@
             <label class="workspace-command-search"><span>Search</span><input id="desktopCommandSearch" type="search" placeholder="Search officers, records, documents or commands" autocomplete="off"><kbd>Ctrl K</kbd></label>
             <div class="identity" id="identity" hidden>
               <span id="currentUser"></span>
-              <button class="ghost global-new-button" type="button" data-open-universal-new>New</button>
+              <button class="global-new-button" type="button" data-open-universal-new><span>+</span> New record</button>
               <div class="notification-shell">
                 <button class="ghost" id="notificationsButton">Notifications</button>
                 <div class="notification-menu" id="notificationMenu" hidden></div>
@@ -872,7 +872,7 @@
         <button type="button" data-system-view="myProfile" title="My Profile"><span class="system-taskbar-icon">ME</span><small>My Profile</small></button>
         <button class="system-taskbar-tasks" type="button" data-system-view="tasks" title="Tasks"><span class="system-taskbar-icon">TK</span><small>Tasks</small><b id="systemTaskCount" hidden>0</b></button>
         <button type="button" data-system-view="globalSearch" title="Search all records"><span class="system-taskbar-icon">SR</span><small>Search</small></button>
-        <button type="button" data-open-universal-new title="Create new record or request"><span class="system-taskbar-icon">+</span><small>New</small></button>
+        <button type="button" class="system-taskbar-new" data-open-universal-new title="Create new record or request"><span class="system-taskbar-icon">+</span><small>New</small></button>
         <button type="button" data-system-view="messaging" title="Messages"><span class="system-taskbar-icon">CH</span><small>Chat</small><b id="systemChatCount" hidden></b></button>
         <button type="button" data-system-view="documents" data-permission="VIEW_DOCUMENTS" title="Documents"><span class="system-taskbar-icon">DO</span><small>Documents</small></button>
         <button type="button" data-system-view="calendar" title="Calendar"><span class="system-taskbar-icon">CA</span><small>Calendar</small></button>
@@ -953,6 +953,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-08-01-13"></script>
+    <script src="app.js?v=2026-08-01-14"></script>
   </body>
 </html>
