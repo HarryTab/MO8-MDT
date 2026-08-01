@@ -99,7 +99,10 @@ body.hub-select-mode .terminal-window, body.hub-select-mode .workspace { display
 .taskbar-home span { font-size: 11px; font-weight: 950; }
 .taskbar-pinned { display: flex; gap: 3px; }
 .taskbar-session { display: flex; align-items: center; gap: 5px; color: #c4d7e3; font-size: 10px; }
-.taskbar-session > span { padding: 0 8px; }
+.taskbar-session > button:first-child { display: grid; min-width: 150px; min-height: 40px; padding: 4px 10px; color: #f3f8fc; text-align: left; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+.taskbar-session > button:first-child span,
+.taskbar-session > button:first-child small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskbar-session > button:first-child small { color: #aac5d7; font-size: 9px; font-weight: 800; }
 .taskbar-session time { min-width: 46px; padding: 0 6px; text-align: right; font-size: 12px; }
 
 body.is-authenticated:not(.hub-select-mode):not(.operations-mode) #hubSwitchButton { color: #173b58; background: #e9f1f6; border-color: #a9bfce; }
@@ -148,7 +151,7 @@ body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { 
   .desktop-taskbar { grid-template-columns: auto 1fr auto; }
   .taskbar-pinned { display: flex; }
   .taskbar-pinned button:not(.taskbar-profile) { display: none; }
-  .taskbar-session > span { display: none; }
+  .taskbar-session > button:first-child { display: none; }
   .taskbar-session time { min-width: 42px; }
   body.is-authenticated:not(.hub-select-mode):not(.is-booting) .terminal-window { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
   body.is-authenticated:not(.hub-select-mode):not(.is-booting) .system-taskbar { min-height: 62px; grid-template-columns: 42px minmax(0, 1fr); padding: 5px 8px max(7px, env(safe-area-inset-bottom)); }

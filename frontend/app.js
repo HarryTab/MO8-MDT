@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-1';
+const APP_VERSION = '2026-08-01-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -359,6 +359,7 @@ document.querySelector('#enterPersonnelHub')?.addEventListener('click', enterPer
 document.querySelector('#enterOperationsHub')?.addEventListener('click', enterOperationsHub);
 document.querySelector('#taskbarCadButton')?.addEventListener('click', enterOperationsHub);
 document.querySelector('#desktopHomeButton')?.addEventListener('click', showHubSelector);
+document.querySelector('#desktopSessionButton')?.addEventListener('click', openQuickSettings);
 document.querySelector('#desktopSignOutButton')?.addEventListener('click', () => elements.logoutButton.click());
 document.querySelector('#systemTaskbarHome')?.addEventListener('click', showHubSelector);
 document.querySelector('#systemTaskbarCad')?.addEventListener('click', enterOperationsHub);
@@ -887,12 +888,14 @@ function showHubSelector() {
   const desktopName = state.user.RobloxUsername || 'Officer';
   const welcome = document.querySelector('#desktopWelcome');
   const sessionUser = document.querySelector('#desktopSessionUser');
+  const sessionCallsign = document.querySelector('#desktopSessionCallsign');
   const systemTaskbarUser = document.querySelector('#systemTaskbarUser');
   const systemTaskbarCallsign = document.querySelector('#systemTaskbarCallsign');
   if (welcome) welcome.textContent = desktopName;
   const rankLabel = state.user.Rank || state.user.Role || 'Officer';
   const callsignLabel = state.user.Callsign || 'Callsign not set';
   if (sessionUser) sessionUser.textContent = `${desktopName} / ${rankLabel}`;
+  if (sessionCallsign) sessionCallsign.textContent = callsignLabel;
   if (systemTaskbarUser) systemTaskbarUser.textContent = desktopName;
   if (systemTaskbarCallsign) systemTaskbarCallsign.textContent = `${rankLabel} / ${callsignLabel}`;
   updateWorkstationClock();
@@ -921,7 +924,7 @@ function openQuickSettings() {
       <p>Task and profile alerts are currently sent for important MDT notifications. Per-category controls can be enabled once the launch configuration is settled.</p>
     </section>
   `;
-  dialog.showModal();
+  dialog.show();
 }
 
 async function enterPersonnelHub() {
@@ -991,6 +994,8 @@ function applyFeatureFlags() {
     if (!view) return;
     const allowedByPermission = !node.dataset.permission || can(node.dataset.permission);
     node.hidden = !allowedByPermission || !isFeatureEnabled(view);
+    const row = node.closest('.nav-item-row');
+    if (row) row.hidden = node.hidden;
   });
   document.querySelector('#enterOperationsHub')?.toggleAttribute('hidden', !isFeatureEnabled('cad'));
   document.querySelector('#taskbarCadButton')?.toggleAttribute('hidden', !isFeatureEnabled('cad'));
@@ -2359,13 +2364,14 @@ function openGeneratedTaskResolution(task) {
 }
 
 function taskCard(row) {
-  const priority = taskPriority(row); const due = taskDueLabel(row); const mine = row.IsMine || row.MySupervisee || row.AssignedToMe;
+  const priority = taskPriority(row); const due = taskDueLabel(row); const mine = row.IsMine || row.MySupervisee || row.AssignedToMe || row.CoveredByMe;
   const buttonLabel = String(row.TaskType).includes('Amendment') ? 'Complete amendments' : String(row.TaskType).includes('Review') ? 'Review' : String(row.TaskType).includes('Signature') ? 'Review and sign' : 'Open task';
   const guidance = taskCompletionGuidance(row);
+  const coverNotice = row.CoveredByMe ? `<span class="task-cover-marker">Temporary cover for ${escapeHtml(row.CoveredSupervisorName || row.Supervisor || 'another officer')} due to LOA</span>` : '';
   return `<article class="task-card priority-${escapeHtml(priority.toLowerCase())}${mine ? ' is-mine' : ''}">
-    <div class="task-card-priority"><span>${escapeHtml(priority)}</span><small>${mine ? 'My task' : 'Available'}</small></div>
+    <div class="task-card-priority"><span>${escapeHtml(priority)}</span><small>${row.CoveredByMe ? 'Cover task' : mine ? 'My task' : 'Available'}</small></div>
     <div class="task-card-main"><div class="task-card-meta"><span>${escapeHtml(row.TaskType || 'Task')}</span><span>${escapeHtml(row.Status || 'Open')}</span><span class="task-due ${escapeHtml(due.className)}">${escapeHtml(due.label)}</span></div><h3>${escapeHtml(row.Subject || row.TaskType || 'Assigned task')}</h3><p>${escapeHtml(row.Reason || 'No additional instructions recorded.')}</p><p class="task-card-guidance">${escapeHtml(guidance)}</p><div class="task-card-officer"><strong>${escapeHtml(row.Officer || 'General task')}</strong>${row.Rank ? `<span>${escapeHtml(row.Rank)}</span>` : ''}${row.Supervisor ? `<small>Supervisor: ${escapeHtml(row.Supervisor)}</small>` : ''}</div></div>
-    <div class="task-card-action"><button ${taskOpenAttr(row)}>${escapeHtml(buttonLabel)}</button></div>
+    ${coverNotice}<div class="task-card-action"><button ${taskOpenAttr(row)}>${escapeHtml(buttonLabel)}</button></div>
   </article>`;
 }
 
@@ -5886,14 +5892,10 @@ function openLoaEditor(officerIdOrRecord) {
 }
 
 async function openOwnLoaEditor() {
-  const needsCover = rankAtLeast(state.user?.Rank || state.user?.Role || '', 'Sergeant');
-  const usersResponse = needsCover ? await apiCached('listUsers', {}) : { ok: true, rows: [] };
-  const coverUsers = (usersResponse.rows || []).filter((user) => user.Status !== 'Archived' && user.UserID !== state.user?.UserID);
   openEditor('Request LOA', [
     field('StartDate', 'Start date', 'date'),
     field('EndDate', 'End date', 'date'),
     field('Reason', 'Reason', 'textarea', true),
-    ...(needsCover ? [supervisorSelectField('HandoverUserID', 'Officer covering your MDT tasks while on LOA', coverUsers), field('HandoverNotes', 'Task handover notes', 'textarea', true)] : []),
   ], async (values) => api('requestOwnLoa', values), {
     successMessage: 'LOA request submitted for review.',
   });
@@ -6188,19 +6190,47 @@ async function openEndShiftEditor(returnHub = 'personnel') {
   });
 }
 
-function openLoaReviewEditor(record, status = '') {
+async function openLoaReviewEditor(record, status = '') {
   const currentDecision = ['Approved', 'Denied'].includes(status || record.Status) ? status || record.Status : 'Approved';
+  const officerRecord = record.Officer && record.Officer !== record.OfficerID
+    ? null
+    : await resolveOfficerRecord(record.OfficerID);
+  const officerName = record.Officer && record.Officer !== record.OfficerID ? record.Officer : officerRecord?.RobloxUsername || officerRecord?.roblox_username || record.Officer || record.OfficerID;
+  const officerRank = record.Rank || officerRecord?.Rank || officerRecord?.rank || '';
+  const requester = [officerName, officerRank].filter(Boolean).join(' / ') || 'Requesting officer';
+  const needsCover = rankAtLeast(officerRank || '', 'Sergeant');
+  const usersResponse = needsCover ? await apiCached('listUsers', {}) : { ok: true, rows: [] };
+  const coverUsers = (usersResponse.rows || []).filter((user) => user.Status !== 'Archived');
   openEditor('Review LOA request', [
     hiddenField('RequestID', record.RequestID),
-    field('OfficerID', 'Officer ID', 'text', false, record.OfficerID),
+    { html: `<section class="task-brief wide"><span>Requesting officer</span><h3>${escapeHtml(requester)}</h3><p>${escapeHtml(record.Reason || 'No reason supplied.')}</p></section>` },
+    hiddenField('OfficerID', record.OfficerID),
+    { html: `<label>Officer<input value="${escapeHtml(requester)}" readonly></label>` },
     field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)),
     field('EndDate', 'End date', 'date', false, dateInputValue(record.EndDate)),
     field('Reason', 'Request reason', 'textarea', true, record.Reason),
     selectField('Status', 'Decision', ['Approved', 'Denied'], currentDecision),
     field('ReviewReason', 'Review reason', 'textarea', true, record.ReviewReason),
+    ...(needsCover ? [
+      { html: '<p class="form-notice wide">Because this officer is Sergeant or above, choose who will temporarily receive their supervisor and approval tasks while the LOA is active.</p>' },
+      searchableReferenceCheckboxGroupField('HandoverUserID', 'Temporary MDT task cover', coverUsers, record.HandoverUserID || '', 'Search username, rank or callsign'),
+      field('HandoverNotes', 'Task cover notes', 'textarea', true, record.HandoverNotes || ''),
+    ] : []),
   ], async (values) => api('reviewLoa', values), {
     successMessage: 'LOA review saved.',
   });
+}
+
+async function resolveOfficerRecord(officerId) {
+  if (!officerId) return null;
+  const cached = (state.officers || []).find((officer) => officer.OfficerID === officerId || officer.officer_id === officerId);
+  if (cached) return cached;
+  try {
+    const response = await apiCached('listOfficers', {});
+    return (response.rows || []).find((officer) => officer.OfficerID === officerId || officer.officer_id === officerId) || null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function openDocumentEditor(document = {}) {
@@ -7271,7 +7301,7 @@ async function handleDocumentClick(event) {
     const record = state.tasks.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || state.loa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || state.profileLoa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
-    if (record) openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
+    if (record) await openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
     return;
   }
 
@@ -10474,7 +10504,6 @@ async function supabaseRequestOwnLoa(data) {
     detailLine('End date', formatDisplayDate(data.EndDate)),
     detailLine('Status', 'Pending'),
     detailLine('Reason', data.Reason),
-    detailLine('Task cover', data.HandoverUserID ? 'Cover officer selected' : ''),
   ]);
   await supabaseNotify(officer.member_id, 'LOA request submitted', message, state.user?.UserID);
   if (officer.supervisor_user_id) {
@@ -10485,6 +10514,9 @@ async function supabaseRequestOwnLoa(data) {
 }
 
 async function supabaseSaveLoa(data) {
+  const existing = data.RequestID ? await supabaseById('loa_requests', 'request_id', data.RequestID) : null;
+  const hasCoverField = Object.prototype.hasOwnProperty.call(data, 'HandoverUserID');
+  const hasCoverNotesField = Object.prototype.hasOwnProperty.call(data, 'HandoverNotes');
   const record = {
     officer_id: data.OfficerID,
     start_date: data.StartDate || null,
@@ -10492,8 +10524,8 @@ async function supabaseSaveLoa(data) {
     reason: data.Reason || '',
     status: data.Status || 'Pending',
     review_reason: data.ReviewReason || '',
-    handover_user_id: data.HandoverUserID || null,
-    handover_notes: data.HandoverNotes || '',
+    handover_user_id: hasCoverField ? data.HandoverUserID || null : existing?.handover_user_id || null,
+    handover_notes: hasCoverNotesField ? data.HandoverNotes || '' : existing?.handover_notes || '',
   };
   const result = data.RequestID
     ? await supabaseClient.from('loa_requests').update(record).eq('request_id', data.RequestID).select().single()
@@ -10502,11 +10534,14 @@ async function supabaseSaveLoa(data) {
 }
 
 async function supabaseReviewLoa(data) {
+  const coverUserId = splitTags(data.HandoverUserID || '')[0] || null;
   const update = {
     status: data.Status || 'Approved',
     review_reason: data.ReviewReason || '',
     reviewed_by: state.user?.UserID || null,
     reviewed_at: new Date().toISOString(),
+    handover_user_id: data.Status === 'Approved' ? coverUserId : null,
+    handover_notes: data.Status === 'Approved' ? data.HandoverNotes || '' : '',
   };
   const { error } = await supabaseClient.from('loa_requests').update(update).eq('request_id', data.RequestID);
   if (error) return { ok: false, error: error.message };
@@ -10520,6 +10555,16 @@ async function supabaseReviewLoa(data) {
     detailLine('Reviewed by', state.user?.RobloxUsername),
     detailLine('Decision reason', update.review_reason),
   ]), state.user?.UserID);
+  if (officer && update.status === 'Approved' && coverUserId) {
+    const coverProfile = await supabaseById('profiles', 'user_id', coverUserId);
+    if (coverProfile) await supabaseNotify(coverProfile.member_id, 'Temporary MDT task cover assigned', notificationDetails([
+      detailLine('Officer on LOA', officer.roblox_username),
+      detailLine('Rank', officer.rank),
+      detailLine('Cover period', `${formatDisplayDate(loa.start_date)} to ${formatDisplayDate(loa.end_date)}`),
+      detailLine('Assigned by', state.user?.RobloxUsername),
+      detailLine('Notes', update.handover_notes),
+    ]), state.user?.UserID);
+  }
   return { ok: true };
 }
 
@@ -10641,10 +10686,19 @@ async function supabaseTasks() {
   const currentProfile = (profiles || []).find((profile) => profile.user_id === state.user?.UserID) || {};
   const currentOfficer = (officers || []).find((officer) => officer.member_id === currentProfile.member_id) || {};
   const coveredSupervisorIds = new Set();
+  const coveredSupervisorMeta = new Map();
   (loa || []).filter((row) => row.status === 'Approved' && row.handover_user_id === state.user?.UserID && isTodayInRange(row.start_date, row.end_date)).forEach((row) => {
     const loaOfficer = (officers || []).find((officer) => officer.officer_id === row.officer_id) || {};
     const loaProfile = (profiles || []).find((profile) => profile.member_id === loaOfficer.member_id) || {};
-    if (loaProfile.user_id) coveredSupervisorIds.add(loaProfile.user_id);
+    if (loaProfile.user_id) {
+      coveredSupervisorIds.add(loaProfile.user_id);
+      coveredSupervisorMeta.set(loaProfile.user_id, {
+        name: loaOfficer.roblox_username || loaProfile.roblox_username || 'another officer',
+        start: row.start_date || '',
+        end: row.end_date || '',
+        notes: row.handover_notes || '',
+      });
+    }
   });
   const involvedOfficerIds = (incident) => [...new Set([
     ...(operationalOfficerActions || []).filter((row) => row.incident_id === incident.incident_id).map((row) => row.officer_id),
@@ -10663,6 +10717,8 @@ async function supabaseTasks() {
       SupervisorUserID: supervisor.user_id || '',
       MySupervisee: supervisor.user_id === state.user?.UserID,
       CoveredByMe: coveredSupervisorIds.has(supervisor.user_id),
+      CoveredSupervisorName: coveredSupervisorMeta.get(supervisor.user_id)?.name || '',
+      CoverPeriod: coveredSupervisorMeta.get(supervisor.user_id) ? `${formatDisplayDate(coveredSupervisorMeta.get(supervisor.user_id).start)} to ${formatDisplayDate(coveredSupervisorMeta.get(supervisor.user_id).end)}` : '',
       RequestID: row.request_id,
       AppealID: row.appeal_id,
       Subject: row.subject || '',
@@ -10707,31 +10763,35 @@ async function supabaseTasks() {
       RequestedAt: booking.requested_at || '',
     };
   }).filter(Boolean);
-  const assignedOfficers = (officers || []).filter((officer) => officer.supervisor_user_id === state.user?.UserID && officer.status !== 'Archived');
+  const assignedOfficers = (officers || []).filter((officer) => (officer.supervisor_user_id === state.user?.UserID || coveredSupervisorIds.has(officer.supervisor_user_id)) && officer.status !== 'Archived');
   const supervisorName = state.user?.RobloxUsername || '';
+  const coverageFields = (officer) => {
+    const meta = coveredSupervisorMeta.get(officer.supervisor_user_id);
+    return meta ? { CoveredByMe: true, CoveredSupervisorName: meta.name, CoverPeriod: `${formatDisplayDate(meta.start)} to ${formatDisplayDate(meta.end)}`, CoverNotes: meta.notes } : {};
+  };
   const probationReviews = (probation || []).filter((row) => row.status === 'Active' && Number(row.progress || 0) < 100 && assignedOfficers.some((officer) => officer.officer_id === row.officer_id)).map((row) => {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
-    return { TaskType: 'Probation Review', ProbationID: row.probation_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.stage} / ${row.progress}% complete`, Reason: row.requirements || row.notes || 'Probation record requires completion.', Status: row.status, StartDate: row.start_date, EndDate: row.target_date, Stage: row.stage, Progress: row.progress, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes, MySupervisee: true };
+    return { TaskType: 'Probation Review', ProbationID: row.probation_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.stage} / ${row.progress}% complete`, Reason: row.requirements || row.notes || 'Probation record requires completion.', Status: row.status, StartDate: row.start_date, EndDate: row.target_date, Stage: row.stage, Progress: row.progress, TargetDate: row.target_date, Requirements: row.requirements, Notes: row.notes, MySupervisee: true, ...coverageFields(officer) };
   });
   const performanceReviews = assignedOfficers.map((officer) => {
     const latest = (performance || []).filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.review_date).localeCompare(String(a.review_date)))[0];
     if (latest?.next_review_date && new Date(latest.next_review_date) > new Date()) return null;
-    return { TaskType: 'Performance Review', ReviewID: latest?.review_id || '', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: latest ? 'Scheduled performance review due' : 'No performance review recorded', Reason: latest?.objectives || 'A performance review should be completed.', Status: latest ? 'Due' : 'Not Started', ReviewDate: latest?.review_date || '', PeriodStart: latest?.period_start || '', PeriodEnd: latest?.period_end || '', Rating: latest?.rating || 'Meets Expectations', ActivitySummary: latest?.activity_summary || '', Strengths: latest?.strengths || '', Improvements: latest?.improvements || '', Objectives: latest?.objectives || '', NextReviewDate: latest?.next_review_date || '', MySupervisee: true };
+    return { TaskType: 'Performance Review', ReviewID: latest?.review_id || '', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: latest ? 'Scheduled performance review due' : 'No performance review recorded', Reason: latest?.objectives || 'A performance review should be completed.', Status: latest ? 'Due' : 'Not Started', ReviewDate: latest?.review_date || '', PeriodStart: latest?.period_start || '', PeriodEnd: latest?.period_end || '', Rating: latest?.rating || 'Meets Expectations', ActivitySummary: latest?.activity_summary || '', Strengths: latest?.strengths || '', Improvements: latest?.improvements || '', Objectives: latest?.objectives || '', NextReviewDate: latest?.next_review_date || '', MySupervisee: true, ...coverageFields(officer) };
   }).filter(Boolean);
   const restrictionReviews = (restrictions || []).filter((row) => row.status === 'Active' && assignedOfficers.some((officer) => officer.officer_id === row.officer_id)).map((row) => {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
-    return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true };
+    return { TaskType: 'Restriction Review', RestrictionID: row.restriction_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: row.restriction_type, Reason: row.details || 'Active restriction requires oversight.', Status: row.status, StartDate: row.starts_on, EndDate: row.ends_on, RestrictionType: row.restriction_type, Details: row.details, StartsOn: row.starts_on, EndsOn: row.ends_on, MySupervisee: true, ...coverageFields(officer) };
   });
   const activityReviews = assignedOfficers.map((officer) => {
     const latest = (shifts || []).filter((row) => row.officer_id === officer.officer_id).sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))[0];
     const inactiveDays = latest?.started_at ? Math.floor((Date.now() - new Date(latest.started_at).getTime()) / 86400000) : 999;
     if (inactiveDays < 14) return null;
-    return { TaskType: 'Activity Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: inactiveDays === 999 ? 'No shift activity recorded' : `${inactiveDays} days since last shift`, Reason: 'Supervisor should review recent activity and contact the officer if needed.', Status: 'Needs Review', LastShift: latest?.started_at || '', MySupervisee: true };
+    return { TaskType: 'Activity Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: inactiveDays === 999 ? 'No shift activity recorded' : `${inactiveDays} days since last shift`, Reason: 'Supervisor should review recent activity and contact the officer if needed.', Status: 'Needs Review', LastShift: latest?.started_at || '', MySupervisee: true, ...coverageFields(officer) };
   }).filter(Boolean);
   const trainingNeedsReview = (trainingRecords || []).filter((row) => row.expiry_date && assignedOfficers.some((officer) => officer.officer_id === row.officer_id) && Math.ceil((new Date(row.expiry_date) - new Date()) / 86400000) <= 30).map((row) => {
     const officer = assignedOfficers.find((item) => item.officer_id === row.officer_id) || {};
     const days = Math.ceil((new Date(row.expiry_date) - new Date()) / 86400000);
-    return { TaskType: 'Training Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.standard} ${days < 0 ? 'expired' : 'expires soon'}`, Reason: `Expiry: ${formatDisplayDate(row.expiry_date)}`, Status: days < 0 ? 'Expired' : 'Due Soon', EndDate: row.expiry_date, MySupervisee: true };
+    return { TaskType: 'Training Review', OfficerID: officer.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Supervisor: supervisorName, Subject: `${row.standard} ${days < 0 ? 'expired' : 'expires soon'}`, Reason: `Expiry: ${formatDisplayDate(row.expiry_date)}`, Status: days < 0 ? 'Expired' : 'Due Soon', EndDate: row.expiry_date, MySupervisee: true, ...coverageFields(officer) };
   });
   const aipTasks = (aips || []).filter((row) => !row.archived_at).flatMap((row) => {
     const officer = (officers || []).find((item) => item.officer_id === row.officer_id) || {};
