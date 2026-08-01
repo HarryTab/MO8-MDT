@@ -2529,14 +2529,14 @@ dialog .section-head .ghost:hover {
 }
 
 .quick-settings-card {
-  width: min(560px, calc(100vw - 24px));
+  width: min(420px, calc(100vw - 24px));
 }
 
 #quickSettingsDialog {
   position: fixed;
   z-index: 1200;
   inset: auto 18px 70px auto;
-  width: min(620px, calc(100vw - 24px));
+  width: min(440px, calc(100vw - 24px));
   max-height: min(620px, calc(100vh - 92px));
   margin: 0;
   padding: 0;
@@ -2655,7 +2655,7 @@ dialog .section-head .ghost:hover {
 }
 
 .quick-settings-discord {
-  max-height: min(560px, calc(100vh - 240px));
+  max-height: min(330px, calc(100vh - 310px));
   overflow: auto;
   scrollbar-width: thin;
 }
@@ -2769,10 +2769,12 @@ dialog .section-head .ghost:hover {
 }
 
 .discord-alert-card.open .discord-alert-group-body {
-  max-height: 720px;
+  max-height: min(460px, calc(100vh - 360px));
   padding: 0 10px 10px;
+  overflow-y: auto;
   opacity: 1;
   transform: translateY(0);
+  scrollbar-width: thin;
 }
 
 .discord-alert-row {
@@ -2898,6 +2900,10 @@ dialog .section-head .ghost:hover {
 .discord-alert-panel .discord-alert-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
+  max-height: calc(100vh - 330px);
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-width: thin;
 }
 
 .discord-alert-panel .discord-alert-form > button {

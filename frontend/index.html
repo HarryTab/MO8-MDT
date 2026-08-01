@@ -7,11 +7,11 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-08-01-9">
+    <link rel="stylesheet" href="styles.css?v=2026-08-01-10">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
-    <link rel="stylesheet" href="workstation.css?v=2026-08-01-9">
+    <link rel="stylesheet" href="workstation.css?v=2026-08-01-10">
   </head>
   <body>
     <main class="terminal-shell">
@@ -55,7 +55,6 @@
                 <button class="nav-item" data-view="officers" data-permission="VIEW_OFFICERS"><span class="nav-symbol">OF</span><span>Officers</span></button>
                 <button class="nav-item" data-view="supervisor" data-permission="VIEW_TASKS"><span class="nav-symbol">SV</span><span>Supervision</span></button>
                 <button class="nav-item" data-view="shift"><span class="nav-symbol">SH</span><span>Shifts</span></button>
-                <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG"><span class="nav-symbol">RK</span><span>Rank Log</span></button>
               </div>
             </section>
             <section class="nav-group" data-nav-group="development">
@@ -63,8 +62,6 @@
                 <button class="nav-item" data-view="development" data-permission="VIEW_TASKS"><span class="nav-symbol">DV</span><span>Development Hub</span></button>
                 <button class="nav-item" data-view="training" data-permission="VIEW_TRAINING"><span class="nav-symbol">TR</span><span>Training</span></button>
                 <button class="nav-item" data-view="courses" data-permission="VIEW_COURSES"><span class="nav-symbol">CO</span><span>Courses</span></button>
-                <button class="nav-item" data-view="discipline" data-permission="VIEW_DISCIPLINE"><span class="nav-symbol">DS</span><span>Discipline</span></button>
-                <button class="nav-item" data-view="loa" data-permission="VIEW_LOA"><span class="nav-symbol">LO</span><span>Leave & Requests</span></button>
               </div>
             </section>
             <section class="nav-group" data-nav-group="knowledge">
@@ -78,6 +75,7 @@
             <section class="nav-group" data-nav-group="records">
               <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Records<small>Search and assurance</small></span><i>-</i></button><div class="nav-group-items">
                 <button class="nav-item" data-view="timeline"><span class="nav-symbol">TL</span><span>Timeline</span></button>
+                <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG"><span class="nav-symbol">RK</span><span>Rank Log</span></button>
                 <button class="nav-item" data-view="dataQuality" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">DQ</span><span>Data Quality</span></button>
                 <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">AU</span><span>Audit</span></button>
               </div>
@@ -426,12 +424,14 @@
 
           <section class="data-view" id="developmentView" hidden>
             <div class="section-head">
-              <h2>Officer Development</h2>
+              <div><h2>Officer Development</h2><p>Training, conduct, restrictions and improvement workflows.</p></div>
               <div class="section-actions">
                 <button id="newProbationButton">Probation record</button>
                 <button id="newReviewButton">Performance review</button>
                 <button id="newRestrictionButton">Restriction</button>
                 <button id="newAipButton">Issue AIP</button>
+                <button class="ghost" type="button" data-view-link="discipline" data-permission="VIEW_DISCIPLINE">Discipline records</button>
+                <button class="ghost" type="button" data-view-link="loa" data-permission="VIEW_LOA">LOA records</button>
               </div>
             </div>
             <input class="search-input" id="developmentSearch" placeholder="Search officer development records">
@@ -491,7 +491,11 @@
 
           <section class="data-view" id="disciplineView" hidden>
             <div class="section-head">
-              <h2>Discipline</h2>
+              <div><h2>Discipline</h2><p>Search, review, add and update discipline records.</p></div>
+              <div class="section-actions">
+                <button id="newDisciplineRecordButton" data-permission="ADD_DISCIPLINE">Add discipline record</button>
+                <button class="ghost" type="button" data-view-link="development">Development hub</button>
+              </div>
             </div>
             <input class="search-input" data-search-view="discipline" placeholder="Search discipline records">
             <div class="table-wrap">
@@ -501,7 +505,12 @@
 
           <section class="data-view" id="loaView" hidden>
             <div class="section-head">
-              <h2>Leave of Absence</h2>
+              <div><h2>Leave of Absence</h2><p>Request, create, review and manage LOA records.</p></div>
+              <div class="section-actions">
+                <button id="requestLoaFromLoaButton">Request LOA</button>
+                <button id="newLoaRecordButton" data-permission="CREATE_LOA">Add LOA record</button>
+                <button class="ghost" type="button" data-view-link="development">Development hub</button>
+              </div>
             </div>
             <input class="search-input" data-search-view="loa" placeholder="Search LOA requests">
             <div class="table-wrap">
@@ -908,6 +917,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-08-01-9"></script>
+    <script src="app.js?v=2026-08-01-10"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-9';
+const APP_VERSION = '2026-08-01-10';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -535,6 +535,9 @@ document.querySelector('#newCalendarEventButton')?.addEventListener('click', () 
 document.querySelector('#developmentSearch')?.addEventListener('input', renderDevelopmentTables);
 document.querySelector('#newProbationButton')?.addEventListener('click', () => openProbationEditor());
 document.querySelector('#newAipButton')?.addEventListener('click', () => openAipEditor());
+document.querySelector('#newDisciplineRecordButton')?.addEventListener('click', () => openDisciplineEditor());
+document.querySelector('#newLoaRecordButton')?.addEventListener('click', () => openLoaEditor());
+document.querySelector('#requestLoaFromLoaButton')?.addEventListener('click', () => openOwnLoaEditor());
 document.querySelector('#aipArchiveToggle')?.addEventListener('click', () => { state.showArchivedAips = !state.showArchivedAips; document.querySelector('#aipArchiveToggle').textContent = state.showArchivedAips ? 'Show current' : 'Show archive'; renderDevelopmentTables(); });
 document.querySelector('#newReviewButton')?.addEventListener('click', () => openPerformanceReviewEditor());
 document.querySelector('#newRestrictionButton')?.addEventListener('click', () => openRestrictionEditor());
@@ -6011,30 +6014,38 @@ function openCourseBookingReviewEditor(record) {
   });
 }
 
-function openDisciplineEditor(officerIdOrRecord) {
+async function openDisciplineEditor(officerIdOrRecord) {
   const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
   const officerId = record.OfficerID || officerIdOrRecord || '';
+  if (!officerId) await ensureOfficerRecords();
   openEditor(record.ActionID ? 'Edit discipline record' : 'Add discipline record', [
     hiddenField('ActionID', record.ActionID),
-    hiddenField('OfficerID', officerId),
+    officerId ? hiddenField('OfficerID', officerId) : officerRecordField(record.OfficerID || ''),
     selectField('Type', 'Type', DISCIPLINE_TYPES, record.Type || 'Note'),
     field('Summary', 'Summary', 'text', false, record.Summary),
     field('Details', 'Details', 'textarea', true, record.Details),
     selectField('Status', 'Status', DISCIPLINE_STATUSES, record.Status || 'Active'),
-  ], async (values) => api(values.ActionID ? 'saveDiscipline' : 'addDiscipline', values));
+  ], async (values) => api(values.ActionID ? 'saveDiscipline' : 'addDiscipline', values), {
+    successMessage: record.ActionID ? 'Discipline record updated.' : 'Discipline record added.',
+    onSuccess: async () => { invalidateCache('listDiscipline'); if (state.activeView === 'discipline') await loadDiscipline(); },
+  });
 }
 
-function openLoaEditor(officerIdOrRecord) {
+async function openLoaEditor(officerIdOrRecord) {
   const record = typeof officerIdOrRecord === 'object' ? officerIdOrRecord : {};
   const officerId = record.OfficerID || officerIdOrRecord || '';
+  if (!officerId) await ensureOfficerRecords();
   openEditor(record.RequestID ? 'Edit LOA request' : 'Add LOA request', [
     hiddenField('RequestID', record.RequestID),
-    hiddenField('OfficerID', officerId),
+    officerId ? hiddenField('OfficerID', officerId) : officerRecordField(record.OfficerID || ''),
     field('StartDate', 'Start date', 'date', false, dateInputValue(record.StartDate)),
     field('EndDate', 'End date', 'date', false, dateInputValue(record.EndDate)),
     field('Reason', 'Reason', 'textarea', true, record.Reason),
     selectField('Status', 'Status', LOA_STATUSES, record.Status || 'Pending'),
-  ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values));
+  ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values), {
+    successMessage: record.RequestID ? 'LOA request updated.' : 'LOA request added.',
+    onSuccess: async () => { invalidateCache('listLoa'); invalidateCache('tasks'); if (state.activeView === 'loa') await loadLoa(); },
+  });
 }
 
 async function openOwnLoaEditor() {
