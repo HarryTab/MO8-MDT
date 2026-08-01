@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-11';
+const APP_VERSION = '2026-08-01-12';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -539,6 +539,7 @@ document.querySelector('#newAipButton')?.addEventListener('click', () => openAip
 document.querySelector('#newDisciplineRecordButton')?.addEventListener('click', () => openDisciplineEditor());
 document.querySelector('#newLoaRecordButton')?.addEventListener('click', () => openLoaEditor());
 document.querySelector('#requestsNewLoaRecordButton')?.addEventListener('click', () => openLoaEditor());
+document.querySelector('#requestsAddOfficerLoaButton')?.addEventListener('click', () => openLoaEditor());
 document.querySelector('#requestLoaFromLoaButton')?.addEventListener('click', () => openOwnLoaEditor());
 document.querySelector('#requestsSearch')?.addEventListener('input', renderRequestsWorkspace);
 document.querySelector('#aipArchiveToggle')?.addEventListener('click', () => { state.showArchivedAips = !state.showArchivedAips; document.querySelector('#aipArchiveToggle').textContent = state.showArchivedAips ? 'Show current' : 'Show archive'; renderDevelopmentTables(); });
