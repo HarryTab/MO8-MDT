@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-2';
+const APP_VERSION = '2026-08-01-3';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -8880,8 +8880,8 @@ async function supabaseDashboard() {
       pendingAcknowledgements: 0,
       upcomingTraining: 0,
     },
-    activeLoa: activeLoa.map(supabaseLoa).slice(0, 5),
-    pendingLoa: pendingLoa.map(supabaseLoa).slice(0, 5),
+    activeLoa: activeLoa.map((row) => supabaseLoa(row, (officers.data || []).find((officer) => officer.officer_id === row.officer_id) || {}, profiles || [])).slice(0, 5),
+    pendingLoa: pendingLoa.map((row) => supabaseLoa(row, (officers.data || []).find((officer) => officer.officer_id === row.officer_id) || {}, profiles || [])).slice(0, 5),
     announcements: announcements.rows || [],
     recentDocuments: documents.rows || [],
     trainingReviewsDue: [],
