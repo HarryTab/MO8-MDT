@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-5';
+const APP_VERSION = '2026-08-02-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -2752,30 +2752,28 @@ function findTaskByKey(key) {
 function openTaskDetailPopup(task) {
   if (!task) return showInfo('Task unavailable', '<p>This task could not be found in the current queue. Refresh the Tasks page and try again.</p>');
   const due = taskDueLabel(task);
+  const priority = taskPriority(task);
   const details = [
-    ['Type', task.TaskType],
     ['Officer', [task.Officer, task.Rank].filter(Boolean).join(' / ')],
     ['Status', task.Status],
-    ['Priority', taskPriority(task)],
     ['Due', due.label],
     ['Supervisor', task.Supervisor],
     ['Reference', task.Reference || task.RequestID || task.TaskID || task.ReviewID || task.IncidentNumber || task.AipID],
-  ].filter(([, value]) => String(value || '').trim()).map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+  ].filter(([, value]) => String(value || '').trim()).map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`).join('');
   const specialistAttr = taskSpecialistOpenAttr(task);
   showInfo('Task details', `
-    <section class="task-brief wide">
-      <span>${escapeHtml(task.TaskType || 'Task')}</span>
-      <h3>${escapeHtml(task.Subject || task.Title || 'Assigned task')}</h3>
+    <section class="task-detail-popup priority-${escapeHtml(priority.toLowerCase())}">
+      <header>
+        <div><span>${escapeHtml(task.TaskType || 'Task')}</span><h3>${escapeHtml(task.Subject || task.Title || 'Assigned task')}</h3></div>
+        <strong>${escapeHtml(priority)}</strong>
+      </header>
       <p>${escapeHtml(task.Reason || task.Details || 'No additional instructions recorded.')}</p>
-      <dl class="detail-list">${details}</dl>
-      <ol class="task-clear-steps">
-        <li>${escapeHtml(taskCompletionGuidance(task))}</li>
-        <li>Use the action below to open the linked workflow, or refresh the task queue if the linked record was recently changed.</li>
-      </ol>
-      <div class="row-actions">
-        ${specialistAttr ? `<button type="button" ${specialistAttr}>Open linked workflow</button>` : ''}
-        ${task.TaskID ? `<button type="button" class="ghost" data-edit-mdt-task="${escapeHtml(task.TaskID)}">Update task status</button>` : ''}
-      </div>
+      <div class="task-detail-facts">${details}</div>
+      <section class="task-detail-next">
+        <span>What to do next</span>
+        <p>${escapeHtml(taskCompletionGuidance(task))}</p>
+      </section>
+      ${(specialistAttr || task.TaskID) ? `<div class="task-detail-actions">${specialistAttr ? `<button type="button" ${specialistAttr}>Open linked workflow</button>` : ''}${task.TaskID ? `<button type="button" class="ghost" data-edit-mdt-task="${escapeHtml(task.TaskID)}">Update task status</button>` : ''}</div>` : '<p class="task-detail-muted">No linked workflow is attached to this generated task. Refresh the task queue if it has recently changed.</p>'}
     </section>
   `);
 }
@@ -2844,6 +2842,7 @@ function taskOpenAttr(row) {
 }
 
 function taskSpecialistOpenAttr(row) {
+  if (row.TaskType === 'LOA Approval' && row.RequestID) return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
   if ((row.TaskType === 'AIP Signature' || row.TaskType === 'AIP Review') && row.AipID) return `data-open-aip="${escapeHtml(row.AipID)}"`;
   if (row.TaskType === 'Account Request' && row.RequestID) return `data-open-account-request="${escapeHtml(row.RequestID)}"`;
   if (row.TaskType === 'Retrospective Shift' && row.RequestID) return `data-open-retrospective-shift="${escapeHtml(row.RequestID)}"`;
