@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-6';
+const APP_VERSION = '2026-08-02-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -8336,12 +8336,18 @@ async function handleDocumentClick(event) {
 
   const reviewLoaOpen = event.target.closest('[data-open-loa-review]');
   if (reviewLoaOpen) {
-    const record = state.tasks.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+    const record = (state.tasks || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || (state.allTasks || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || (state.requestTasks || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
-      || state.loa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || (state.loa || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || (state.requestsLoa || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
-      || state.profileLoa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
-    if (record) await openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
+      || (state.profileLoa || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
+    if (record) {
+      if (elements.infoDialog.open) elements.infoDialog.close();
+      await openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
+    } else {
+      showInfo('LOA request unavailable', '<p>This LOA request is not loaded in the current task queue. Refresh the Tasks page and try again.</p>');
+    }
     return;
   }
 
