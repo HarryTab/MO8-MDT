@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-14';
+const APP_VERSION = '2026-08-01-15';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -73,6 +73,7 @@ const DESIGN_PRESET_STORAGE_KEY = 'mo8_personnel_design_preset';
 const DESIGN_DENSITY_STORAGE_KEY = 'mo8_personnel_design_density';
 const PERSONNEL_WORKSPACE_STORAGE_KEY = 'mo8_personnel_workspace_v2';
 const PERSONNEL_TABS_STORAGE_KEY = 'mo8_personnel_open_tabs';
+const TUTORIAL_COMPLETION_STORAGE_KEY = 'mo8_tutorial_completion';
 const USER_PERMISSION_MODES = ['Inherit', 'Allow', 'Deny'];
 const ANNOUNCEMENT_STATUSES = ['Published', 'Draft', 'Archived'];
 const DEVELOPMENT_CATEGORIES = ['Development', 'Training', 'Activity', 'Conduct', 'Career', 'Other'];
@@ -215,6 +216,7 @@ const state = {
   dashboardInteraction: null,
   calendarInstance: null,
   operations: { actions: [], search: [], savedViews: [], calendar: [], probation: [], reviews: [], restrictions: [], aips: [], handovers: [] },
+  tutorial: { active: false, steps: [], index: 0, previewProfile: null, promptShown: false },
 };
 
 const elements = {
@@ -265,6 +267,7 @@ document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
 document.addEventListener('keydown', (event) => {
+  if (handleTutorialKeydown(event)) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && document.body.classList.contains('personnel-workspace-v2') && state.activeHub === 'personnel') { event.preventDefault(); document.querySelector('#desktopCommandSearch')?.focus(); return; }
   if (event.key === 'Escape' && document.body.classList.contains('control-board-mode')) { toggleControlBoardMode(false); return; }
   const searchPreview = event.target.closest?.('[data-search-preview]');
@@ -927,6 +930,7 @@ function showHubSelector() {
   updateWorkstationClock();
   updateChatBadge();
   applyPermissions();
+  maybePromptTutorial();
 }
 
 async function openQuickSettings() {
@@ -946,6 +950,7 @@ async function openQuickSettings() {
     <div class="quick-settings-actions">
       <button type="button" data-view-link="myProfile">Open my profile</button>
       <button type="button" data-view-link="tasks">Open my tasks</button>
+      <button type="button" data-start-tutorial="auto">Replay tutorial</button>
       <button type="button" data-change-password-shortcut>Reset password</button>
       <button type="button" class="ghost" data-report-bug>Report a bug</button>
     </div>
@@ -5670,6 +5675,273 @@ async function loadSettings() {
   renderFeatureFlagPanel();
   renderBugReportAdminPanel(bugResponse.ok ? bugResponse.rows || [] : []);
   renderDiscordAlertDefaultsPanel(alertResponse.ok ? alertResponse : { defaults: [] });
+  renderTutorialAdminPanel();
+}
+
+function renderTutorialAdminPanel() {
+  const container = document.querySelector('#tutorialAdminPanel');
+  if (!container) return;
+  const profiles = tutorialPreviewProfiles();
+  const completion = tutorialCompletionState();
+  container.innerHTML = `
+    <section class="tutorial-admin-hero">
+      <div><span>Training mode</span><h3>Guided MDT walkthroughs</h3><p>Walkthroughs use overlays and mock examples. They explain the live interface, but tutorial examples do not create records or alter Supabase data.</p></div>
+      <button type="button" data-start-tutorial="auto">Preview my tutorial</button>
+    </section>
+    <section class="tutorial-preview-grid">
+      ${profiles.map((profile) => `<article><span>${escapeHtml(profile.rank)}</span><h4>${escapeHtml(profile.label)}</h4><p>${escapeHtml(profile.description)}</p><button type="button" data-start-tutorial-profile="${escapeHtml(profile.key)}">Preview as ${escapeHtml(profile.shortLabel)}</button></article>`).join('')}
+    </section>
+    <section class="tutorial-progress-admin">
+      <h3>This browser</h3>
+      <p>${completion.completedAt ? `Your current account completed the tutorial on ${escapeHtml(formatDisplayDateTime(completion.completedAt))}.` : 'Your current account has not completed the tutorial in this browser yet.'}</p>
+      <div class="row-actions"><button class="ghost" type="button" data-reset-tutorial-completion>Reset my completion</button><button class="ghost" type="button" data-show-tutorial-library>Open section library</button></div>
+    </section>
+  `;
+}
+
+function tutorialPreviewProfiles() {
+  return [
+    { key: 'constable', label: 'Constable onboarding', shortLabel: 'Constable', rank: 'Police Constable', roles: ['Constable'], description: 'Profile, documents, requests, courses, shifts, messages and personal tasks.' },
+    { key: 'sergeant', label: 'Supervisor onboarding', shortLabel: 'Sergeant', rank: 'Sergeant', roles: ['Sergeant'], description: 'Supervisor tasks, LOA reviews, shift reviews, check-ins and supervisee management.' },
+    { key: 'inspector', label: 'Inspector onboarding', shortLabel: 'Inspector', rank: 'Inspector', roles: ['Inspector'], description: 'Officer records, development, discipline, reports, recruitment and operational assurance.' },
+    { key: 'command', label: 'Command onboarding', shortLabel: 'Command', rank: 'Superintendent', roles: ['Command'], description: 'Settings, launch control, permissions, audit, data quality and command brief generation.' },
+    { key: 'controller', label: 'CAD and control onboarding', shortLabel: 'Controller', rank: 'Sergeant', roles: ['Sergeant'], tags: ['Controller'], description: 'Operations hub, CAD queue, callsigns, control board, intelligence, archive and review workflow.' },
+  ];
+}
+
+function tutorialProfileForKey(key = 'auto') {
+  if (key === 'auto') return { key: 'auto', label: 'Your account', rank: state.user?.Rank || state.user?.Role || 'Police Constable', roles: [state.user?.Role || rankToRole(state.user?.Rank || 'Police Constable')], permissions: [...state.permissions], tags: splitTags(state.user?.Tags || '') };
+  const profile = tutorialPreviewProfiles().find((item) => item.key === key) || tutorialPreviewProfiles()[0];
+  const permissions = ALL_PERMISSIONS.filter((permission) => (profile.roles || []).some((role) => rolePermissionEnabled(role, permission)));
+  if (profile.key === 'controller') permissions.push('CONTROL_OPERATIONS', 'VIEW_TASKS');
+  return { ...profile, permissions: [...new Set(permissions)] };
+}
+
+function tutorialCan(profile, permission) {
+  return (profile.permissions || state.permissions || []).includes('FULL_ACCESS') || (profile.permissions || state.permissions || []).includes(permission);
+}
+
+function tutorialCompletionKey() {
+  return `${TUTORIAL_COMPLETION_STORAGE_KEY}:${state.user?.UserID || state.user?.RobloxUsername || 'anonymous'}`;
+}
+
+function tutorialCompletionState() {
+  try { return JSON.parse(localStorage.getItem(tutorialCompletionKey()) || '{}'); }
+  catch { return {}; }
+}
+
+function setTutorialCompletion(status = 'completed') {
+  localStorage.setItem(tutorialCompletionKey(), JSON.stringify({ status, completedAt: new Date().toISOString(), version: APP_VERSION }));
+}
+
+function maybePromptTutorial() {
+  if (!state.user || state.tutorial.promptShown || state.tutorial.active) return;
+  const completion = tutorialCompletionState();
+  if (completion.status === 'completed' || completion.status === 'skipped') return;
+  state.tutorial.promptShown = true;
+  window.setTimeout(() => showTutorialWelcomePrompt(), 750);
+}
+
+function showTutorialWelcomePrompt() {
+  if (!state.user || state.tutorial.active) return;
+  showInfo('Welcome to the MDT', `<section class="tutorial-welcome"><span>New account tutorial</span><h3>Learn the system using safe example data</h3><p>This guided walkthrough highlights the real MDT interface, shows examples for your permission level and lets you practise the workflow without creating live records.</p><div class="row-actions"><button type="button" data-start-tutorial="auto">Start walkthrough</button><button class="ghost" type="button" data-skip-tutorial>Skip for now</button></div></section>`);
+}
+
+function tutorialSteps(profile) {
+  const steps = [
+    tutorialStep('Workstation desktop', 'This is the secure workstation landing page. Officers choose Personnel for records, training and requests, or CAD for live operations if the CAD module is enabled.', '.desktop-apps', { hub: 'home' }, tutorialExample('Example account', ['Roblox username: ExampleOfficer123', `Rank: ${profile.rank || 'Police Constable'}`, 'Callsign: 2104', 'No tutorial action here changes live records.'])),
+    tutorialStep('Personnel Hub', 'The Personnel Hub is your main internal workspace. It contains profile records, tasks, documents, courses, messages, requests and management tools based on your rank and permissions.', '[data-launch-personnel-app="dashboard"], [data-system-view=""]', { view: 'dashboard' }, tutorialExample('Dashboard examples', ['Active Officers: 12', 'My open tasks: 2', 'Upcoming training: Response Driving', 'Notice board: Operational standards update'])),
+    tutorialStep('Global New', 'Use New record when you need to create something. In tutorial mode, example forms are shown here only; they do not submit to the live database.', '[data-open-universal-new]', null, tutorialDemoForm('Example LOA request', ['Officer: ExampleOfficer123', 'Start: 12/08/2026', 'End: 16/08/2026', 'Reason: Pre-booked holiday'])),
+    tutorialStep('My Profile', 'My Profile is the officer-facing record: training, LOA, discipline visible to you, supervisor contact, shift activity and your own requests.', '[data-launch-personnel-app="myProfile"], [data-system-view="myProfile"]', { view: 'myProfile' }, tutorialExample('Profile data shown', ['Callsign and rank', 'Training status and course bookings', 'Discipline or AIP records issued to you', 'Shift activity and CAD involvement'])),
+    tutorialStep('Requests', 'Requests is where officers submit LOA, transfer and supervisor contact requests. Supervisors and Command also see queues they can review.', '[data-view="requests"], [data-launch-personnel-app="tasks"]', { view: 'requests' }, tutorialDemoForm('Example supervisor request', ['Category: Training', 'Subject: Response driving guidance', 'Details: Requesting advice before booking onto the next course.'])),
+    tutorialStep('Tasks', 'Tasks are generated by the system or assigned manually. Your task queue shows work for you; authorised users can also review available queues.', '[data-view="tasks"], [data-system-view="tasks"]', { view: 'tasks' }, tutorialExample('Task examples', ['Review shift debrief', 'AIP signature required', 'Course booking awaiting trainer review', 'Account request queue for Command'])),
+    tutorialStep('Documents', 'Documents work like a file explorer. Access is based on rank, tags and enabled modules, and some documents can require acknowledgement.', '[data-view="documents"], [data-launch-personnel-app="documents"]', { view: 'documents' }, tutorialExample('Example folders', ['Policies / Pursuit guidance', 'Training / Blue Ticket', 'Supervisor / Check-in standards'])),
+    tutorialStep('Courses and training', 'Courses let officers request seats and trainers manage bookings. The Training page records qualifications such as Taser, MOE, Motorbike and driving levels.', '[data-view="courses"], [data-launch-personnel-app="courses"]', { view: 'courses' }, tutorialExample('Example course', ['Title: Response Driving', 'Duration: 1 hour', 'Status: Booked', 'Trainer marks pass/fail after completion'])),
+    tutorialStep('Calendar', 'The calendar shows LOA, courses, meetings, supervisor check-ins and operational assignments. Events can be targeted to officers, ranks, tags or supervisees.', '[data-view="calendar"], [data-launch-personnel-app="calendar"]', { view: 'calendar' }, tutorialExample('Calendar examples', ['LOA: 12/08/2026 to 16/08/2026', 'Course: Response Driving at 18:00', 'Supervisor check-in due Friday'])),
+    tutorialStep('Messages and inbox', 'Inbox brings together notifications, actions, document acknowledgements, calendar items and messages. Chat is for internal communications and formal messages.', '[data-view="inbox"], [data-launch-personnel-app="messaging"]', { view: 'inbox' }, tutorialExample('Inbox examples', ['LOA approved', 'Document acknowledgement due', 'New supervisor check-in', 'Formal message from Command'])),
+  ];
+  if (tutorialCan(profile, 'VIEW_TASKS')) steps.push(
+    tutorialStep('Supervisor tools', 'Supervisors manage assigned officers, check-ins, development plans, activity, training gaps, requests and their supervisees task load.', '[data-view="supervisor"]', { view: 'supervisor' }, tutorialExample('Supervisor examples', ['Assigned officers list', 'Pending requests', 'Officer task preview', 'Monthly activity and LOA status'])),
+    tutorialStep('Development Hub', 'Development Hub brings together probation, performance reviews, restrictions, AIPs, discipline links and LOA records so managers can record actions from one place.', '[data-view="development"]', { view: 'development' }, tutorialDemoForm('Example AIP', ['Officer: ExampleOfficer123', 'Line Manager: Sgt Example', 'Review period: 2 weeks', 'Outcome: Requirements Met / Extended / No Improvement']))
+  );
+  if (tutorialCan(profile, 'VIEW_OFFICERS')) steps.push(tutorialStep('Officer records', 'Officer Records is the searchable personnel database. Profiles now summarise operational CAD links, casework, training, LOA, discipline, shifts and timelines.', '[data-view="officers"]', { view: 'officers' }, tutorialExample('Example officer', ['Username: ExampleOfficer123', 'Rank: Police Constable', 'Supervisor: Sgt Example', 'Recent CAD: MO8-2026-0042'])));
+  if (tutorialCan(profile, 'VIEW_TASKS')) steps.push(tutorialStep('Reports and command brief', 'Reports summarise activity, training expiry, development compliance and supervisor workload. Generate brief creates a Discord-ready command update.', '[data-view="reports"]', { view: 'reports' }, tutorialExample('Brief examples', ['Active officers', 'Training risks', 'Supervisor workload', 'Suggested command actions'])));
+  if (tutorialCan(profile, 'VIEW_AUDIT_LOG')) steps.push(
+    tutorialStep('Archive Centre', 'Archive Centre links historical CADs, AIP archive, audit, timeline, recruitment history and reports. It is designed for review without cluttering daily pages.', '[data-view="archiveCentre"]', { view: 'archiveCentre' }, tutorialExample('Archive examples', ['Closed CAD archive', 'Deleted AIP audit tombstone', 'Recruitment decisions', 'System audit trail'])),
+    tutorialStep('Data quality and audit', 'Data Quality flags incomplete or inconsistent records. Audit shows administrative activity, deletions, permission changes and other assurance records.', '[data-view="dataQuality"], [data-view="audit"]', { view: 'dataQuality' }, tutorialExample('Quality examples', ['Missing supervisor', 'Overdue review', 'Incomplete CAD outcome', 'Low activity exception']))
+  );
+  if (tutorialCan(profile, 'FULL_ACCESS')) steps.push(tutorialStep('Settings and launch control', 'Settings lets Command control enabled features, Discord alert defaults, access previews, tutorials, bug reports and visual experiments.', '[data-view="settings"]', { view: 'settings' }, tutorialExample('Admin controls', ['Feature on/off toggles', 'View MDT as...', 'Tutorial preview', 'Mandatory Discord alert defaults'])));
+  if (isFeatureEnabled('cad')) steps.push(
+    tutorialStep('Operations / CAD', 'The CAD side is separate from the Personnel Hub. It handles live incidents, callsigns, control, intelligence, BOLOs, casework, evidence and reviews.', '#systemTaskbarCad, #enterOperationsHub', { hub: 'operations' }, tutorialExample('CAD examples', ['Create or assign a CAD', 'Join a callsign/unit', 'Record offences and powers', 'Prepare CID package'])),
+    tutorialStep('CAD workflows', 'Guided CAD workflows help officers record people, vehicles, offences, police powers, outcomes, evidence and supervisor reviews in the correct order.', '[data-ops-workspace="live"], [data-ops-workspace="actions"]', { hub: 'operations' }, tutorialDemoForm('Example traffic stop', ['Vehicle: AB12 CDE', 'Person: Example Driver', 'Offence: Dangerous Driving', 'System suggests FPN/arrest guidance and flags repeat activity']))
+  );
+  steps.push(tutorialStep('Replay any time', 'You can replay the whole tutorial from Quick Settings, or Command can preview permission-specific versions from Settings > Tutorials.', '#systemQuickSettingsButton', null, tutorialExample('Completion', ['Tutorial completion is stored locally for this account/browser.', 'Skipping stops the first-login prompt but replay remains available.'])));
+  return steps.filter((step) => !step.onlyIf || step.onlyIf());
+}
+
+function tutorialStep(title, body, selector, beforeShow, example, onlyIf) {
+  return { title, body, selector, beforeShow, example, onlyIf };
+}
+
+function tutorialExample(title, rows) {
+  return `<section><strong>${escapeHtml(title)}</strong>${rows.map((row) => `<span>${escapeHtml(row)}</span>`).join('')}</section>`;
+}
+
+function tutorialDemoForm(title, rows) {
+  return `<section class="tutorial-demo-form"><strong>${escapeHtml(title)}</strong>${rows.map((row) => `<label>${escapeHtml(row.split(':')[0])}<input value="${escapeHtml(row.split(':').slice(1).join(':').trim())}" readonly></label>`).join('')}<em>Example only - nothing is saved.</em></section>`;
+}
+
+async function startTutorial(key = 'auto') {
+  document.querySelector('#quickSettingsDialog')?.close();
+  if (elements.infoDialog.open) elements.infoDialog.close();
+  const profile = tutorialProfileForKey(key);
+  const steps = tutorialSteps(profile);
+  if (!steps.length) return;
+  state.tutorial = { active: true, steps, index: 0, previewProfile: profile, promptShown: true };
+  document.body.classList.add('tutorial-mode');
+  const overlay = document.querySelector('#tutorialOverlay');
+  if (overlay) overlay.hidden = false;
+  await renderTutorialStep();
+}
+
+async function runTutorialBeforeShow(beforeShow) {
+  if (!beforeShow) return;
+  if (beforeShow.hub === 'home') {
+    showHubSelector();
+    await wait(130);
+    return;
+  }
+  if (beforeShow.hub === 'operations') {
+    await enterOperationsHub();
+    await wait(190);
+    return;
+  }
+  if (beforeShow.view) {
+    if (state.activeHub !== 'personnel') await enterPersonnelHub();
+    await showView(beforeShow.view);
+    await wait(190);
+  }
+}
+
+async function renderTutorialStep() {
+  if (!state.tutorial.active) return;
+  const step = state.tutorial.steps[state.tutorial.index];
+  if (!step) {
+    completeTutorial();
+    return;
+  }
+  await runTutorialBeforeShow(step.beforeShow);
+  const title = document.querySelector('#tutorialTitle');
+  const body = document.querySelector('#tutorialBody');
+  const example = document.querySelector('#tutorialExample');
+  const counter = document.querySelector('#tutorialStepCounter');
+  const prev = document.querySelector('[data-tutorial-prev]');
+  const next = document.querySelector('[data-tutorial-next]');
+  if (title) title.textContent = step.title;
+  if (body) body.textContent = step.body;
+  if (example) example.innerHTML = step.example || '';
+  if (counter) counter.textContent = `${state.tutorial.index + 1} of ${state.tutorial.steps.length}`;
+  if (prev) prev.disabled = state.tutorial.index === 0;
+  if (next) next.textContent = state.tutorial.index === state.tutorial.steps.length - 1 ? 'Finish' : 'Next';
+  await wait(80);
+  positionTutorialHighlight(step.selector);
+}
+
+function firstVisibleElement(selector) {
+  if (!selector) return null;
+  return [...document.querySelectorAll(selector)].find((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  }) || null;
+}
+
+function positionTutorialHighlight(selector) {
+  const highlight = document.querySelector('#tutorialHighlight');
+  const card = document.querySelector('#tutorialCard');
+  const target = firstVisibleElement(selector);
+  if (!highlight || !card || !target) {
+    if (highlight) highlight.hidden = true;
+    if (card) card.style.removeProperty('--tutorial-card-top');
+    return;
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  window.setTimeout(() => {
+    const rect = target.getBoundingClientRect();
+    const pad = 8;
+    highlight.hidden = false;
+    highlight.style.left = `${Math.max(8, rect.left - pad)}px`;
+    highlight.style.top = `${Math.max(8, rect.top - pad)}px`;
+    highlight.style.width = `${Math.min(window.innerWidth - 16, rect.width + pad * 2)}px`;
+    highlight.style.height = `${Math.min(window.innerHeight - 16, rect.height + pad * 2)}px`;
+    const cardTop = rect.top > window.innerHeight * 0.52 ? 72 : Math.min(window.innerHeight - 260, rect.bottom + 18);
+    card.style.setProperty('--tutorial-card-top', `${Math.max(72, cardTop)}px`);
+  }, 180);
+}
+
+async function nextTutorialStep() {
+  if (!state.tutorial.active) return;
+  if (state.tutorial.index >= state.tutorial.steps.length - 1) {
+    completeTutorial();
+    return;
+  }
+  state.tutorial.index += 1;
+  await renderTutorialStep();
+}
+
+async function previousTutorialStep() {
+  if (!state.tutorial.active || state.tutorial.index === 0) return;
+  state.tutorial.index -= 1;
+  await renderTutorialStep();
+}
+
+function closeTutorial(status = 'skipped') {
+  state.tutorial.active = false;
+  document.body.classList.remove('tutorial-mode');
+  const overlay = document.querySelector('#tutorialOverlay');
+  const highlight = document.querySelector('#tutorialHighlight');
+  if (overlay) overlay.hidden = true;
+  if (highlight) highlight.hidden = true;
+  if (status) setTutorialCompletion(status);
+  renderTutorialAdminPanel();
+}
+
+function completeTutorial() {
+  closeTutorial('completed');
+  showInfo('Tutorial complete', '<p>You have completed the guided MDT walkthrough. You can replay it any time from Quick Settings.</p>');
+}
+
+function showTutorialLibrary() {
+  const profiles = tutorialPreviewProfiles();
+  showInfo('Tutorial library', `
+    <section class="tutorial-library">
+      <p>Replay a permission-specific walkthrough. These previews use example data and do not change live records.</p>
+      <div>
+        <button type="button" data-start-tutorial="auto">My account tutorial</button>
+        ${profiles.map((profile) => `<button class="ghost" type="button" data-start-tutorial-profile="${escapeHtml(profile.key)}">${escapeHtml(profile.label)}</button>`).join('')}
+      </div>
+    </section>
+  `);
+}
+
+function handleTutorialKeydown(event) {
+  if (!state.tutorial.active) return false;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeTutorial('skipped');
+    return true;
+  }
+  if (event.key === 'ArrowRight' || event.key === 'Enter') {
+    event.preventDefault();
+    nextTutorialStep();
+    return true;
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    previousTutorialStep();
+    return true;
+  }
+  return false;
 }
 
 function renderFeatureFlagPanel() {
@@ -5971,6 +6243,12 @@ function renderUserPermissionsMatrix() {
 }
 
 function rolePermissionEnabled(role, permission) {
+  if (!state.permissionConfig?.rolePermissions || !state.permissionConfig?.defaultPermissions) {
+    if (role === 'Command') return true;
+    if (['Commissioner', 'Deputy Commissioner', 'Assistant Commissioner', 'Deputy Assistant Commissioner', 'Commander', 'Chief Superintendent', 'Superintendent', 'Chief Inspector', 'Inspector'].includes(role)) return ['VIEW_OFFICERS', 'VIEW_TASKS', 'VIEW_AUDIT_LOG'].includes(permission);
+    if (role === 'Sergeant') return ['VIEW_TASKS'].includes(permission);
+    return false;
+  }
   const explicit = state.permissionConfig.rolePermissions.find((row) => row.Role === role && row.Permission === permission);
   if (explicit) return String(explicit.Allowed).toUpperCase() === 'TRUE';
   return Boolean((state.permissionConfig.defaultPermissions?.[role] || []).includes(permission));
@@ -6912,6 +7190,44 @@ function animateDashboardGridChange(grid, mutator) {
 }
 
 async function handleDocumentClick(event) {
+  const startTutorialButton = event.target.closest('[data-start-tutorial]');
+  if (startTutorialButton) {
+    await startTutorial(startTutorialButton.dataset.startTutorial || 'auto');
+    return;
+  }
+  const startTutorialProfileButton = event.target.closest('[data-start-tutorial-profile]');
+  if (startTutorialProfileButton) {
+    await startTutorial(startTutorialProfileButton.dataset.startTutorialProfile || 'auto');
+    return;
+  }
+  if (event.target.closest('[data-tutorial-next]')) {
+    await nextTutorialStep();
+    return;
+  }
+  if (event.target.closest('[data-tutorial-prev]')) {
+    await previousTutorialStep();
+    return;
+  }
+  if (event.target.closest('[data-tutorial-close]')) {
+    closeTutorial('skipped');
+    return;
+  }
+  if (event.target.closest('[data-skip-tutorial]')) {
+    setTutorialCompletion('skipped');
+    if (elements.infoDialog.open) elements.infoDialog.close();
+    renderTutorialAdminPanel();
+    return;
+  }
+  if (event.target.closest('[data-reset-tutorial-completion]')) {
+    localStorage.removeItem(tutorialCompletionKey());
+    renderTutorialAdminPanel();
+    showInfo('Tutorial reset', '<p>Your tutorial completion has been reset for this account in this browser. The welcome prompt will appear again next time the hub opens.</p>');
+    return;
+  }
+  if (event.target.closest('[data-show-tutorial-library]')) {
+    showTutorialLibrary();
+    return;
+  }
   const universalNew = event.target.closest('[data-open-universal-new]');
   if (universalNew) {
     openUniversalNewMenu();
