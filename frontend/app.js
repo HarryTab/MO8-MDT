@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-7';
+const APP_VERSION = '2026-08-01-8';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -996,15 +996,20 @@ function normalisedDiscordAlertRows(config, adminMode = false) {
     const def = defaultMap.get(key) || {};
     const pref = prefMap.get(key) || {};
     const enabled = adminMode ? def.Enabled ?? row.Enabled : pref.Enabled ?? def.Enabled ?? row.Enabled;
-    return { ...row, ...def, Enabled: enabled, Locked: def.Locked ?? row.Locked };
+    return { ...row, ...def, Enabled: enabled, Locked: row.ScopeKey === 'critical' ? true : def.Locked ?? row.Locked };
   });
 }
 
 function discordAlertToggle(row, adminMode = false) {
   const locked = row.Locked && !adminMode;
+  const key = escapeHtml(`${row.ScopeType}:${row.ScopeKey}`);
+  const mandatoryLocked = row.ScopeKey === 'critical';
   return `<label class="discord-alert-row${row.Locked ? ' locked' : ''}">
     <span><strong>${escapeHtml(row.Label || row.ScopeKey)}</strong><small>${escapeHtml(row.Description || row.ScopeKey)}${row.Locked ? ' / locked by command' : ''}</small></span>
-    <input class="switch-input" type="checkbox" name="${escapeHtml(`${row.ScopeType}:${row.ScopeKey}`)}"${row.Enabled !== false ? ' checked' : ''}${locked ? ' disabled' : ''}>
+    <span class="discord-alert-controls">
+      <span><small>${adminMode ? 'Default' : 'DM'}</small><input class="switch-input" type="checkbox" name="${key}" data-alert-enabled="${key}"${row.Enabled !== false ? ' checked' : ''}${locked ? ' disabled' : ''}></span>
+      ${adminMode ? `<span><small>Mandatory</small><input class="switch-input lock-switch" type="checkbox" data-alert-lock="${key}"${row.Locked || mandatoryLocked ? ' checked' : ''}${mandatoryLocked ? ' disabled' : ''}></span>` : ''}
+    </span>
   </label>`;
 }
 
@@ -5485,9 +5490,11 @@ async function handleDiscordAlertSubmit(event) {
   if (!form) return;
   event.preventDefault();
   const mode = form.dataset.discordAlertForm;
-  const rows = [...form.querySelectorAll('input[type="checkbox"][name]')].map((input) => {
+  const rows = [...form.querySelectorAll('input[type="checkbox"][data-alert-enabled]')].map((input) => {
     const [ScopeType, ...rest] = input.name.split(':');
-    return { ScopeType, ScopeKey: rest.join(':'), Enabled: input.checked };
+    const scopeKey = rest.join(':');
+    const lockInput = form.querySelector(`input[data-alert-lock="${CSS.escape(input.name)}"]`);
+    return { ScopeType, ScopeKey: scopeKey, Enabled: input.checked, Locked: lockInput ? lockInput.checked : undefined };
   });
   const button = form.querySelector('button[type="submit"]');
   const original = button?.textContent || 'Save';
@@ -11723,7 +11730,7 @@ async function supabaseSaveDiscordAlertPreferences(data) {
   const locked = new Set(defaults.filter((row) => row.Locked).map((row) => `${row.ScopeType}:${row.ScopeKey}`));
   const rows = normaliseSubmittedAlertRows(data.Rows)
     .filter((row) => !locked.has(`${row.scope_type}:${row.scope_key}`))
-    .map((row) => ({ ...row, user_id: state.user.UserID, updated_at: new Date().toISOString() }));
+    .map((row) => ({ scope_type: row.scope_type, scope_key: row.scope_key, enabled: row.enabled, user_id: state.user.UserID, updated_at: new Date().toISOString() }));
   if (!rows.length) return { ok: true };
   const { error } = await supabaseClient.from('discord_alert_preferences').upsert(rows, { onConflict: 'user_id,scope_type,scope_key' });
   return error ? { ok: false, error: error.message } : { ok: true };
@@ -11739,7 +11746,7 @@ async function supabaseSaveDiscordAlertDefaults(data) {
       ...row,
       label: current.Label || row.scope_key,
       description: current.Description || '',
-      locked: current.Locked || row.scope_key === 'critical',
+      locked: row.scope_key === 'critical' || row.locked === true,
       updated_by: state.user?.UserID || null,
       updated_at: new Date().toISOString(),
     };
@@ -11753,6 +11760,7 @@ function normaliseSubmittedAlertRows(rows) {
     scope_type: row.ScopeType === 'task' ? 'task' : 'category',
     scope_key: String(row.ScopeKey || '').trim(),
     enabled: row.Enabled !== false && row.Enabled !== 'false',
+    locked: row.Locked === true || row.Locked === 'true',
   })).filter((row) => row.scope_key);
 }
 

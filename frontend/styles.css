@@ -2789,6 +2789,30 @@ dialog .section-head .ghost:hover {
   transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
+.discord-alert-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.discord-alert-controls > span {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.discord-alert-controls small {
+  color: #566f82;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.quick-settings-discord .discord-alert-controls small {
+  color: #c8d9e8;
+}
+
 .quick-settings-discord .discord-alert-row {
   color: #edf7ff;
   background: rgba(255, 255, 255, 0.08);
@@ -2851,6 +2875,10 @@ dialog .section-head .ghost:hover {
 
 .discord-alert-row .switch-input:checked {
   background: #2b7198;
+}
+
+.discord-alert-row .lock-switch:checked {
+  background: #b47a18;
 }
 
 .discord-alert-row .switch-input:checked::after {
