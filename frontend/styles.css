@@ -5226,14 +5226,15 @@ body.is-authenticated:not(.operations-mode)[data-personnel-density="compact"] .w
 /* Guided tutorial mode */
 body.tutorial-mode { overflow: hidden; }
 .tutorial-overlay[hidden], .tutorial-highlight[hidden] { display: none !important; }
-.tutorial-overlay { position: fixed; z-index: 1200; inset: 0; pointer-events: auto; }
-.tutorial-dim { position: absolute; inset: 0; background: rgba(4, 15, 24, .58); backdrop-filter: blur(1px); animation: tutorial-fade-in 160ms ease-out both; pointer-events: auto; }
-.tutorial-highlight { position: fixed; z-index: 1201; border: 2px solid #6cc7ff; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(4, 15, 24, .48), 0 0 0 6px rgba(108, 199, 255, .15), 0 14px 34px rgba(2, 12, 20, .28); transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease; pointer-events: none; }
+.tutorial-overlay { position: fixed; z-index: 1200; inset: 0; pointer-events: none; }
+.tutorial-shade { position: fixed; z-index: 1200; background: rgba(4, 15, 24, .56); backdrop-filter: blur(1.5px); animation: tutorial-fade-in 160ms ease-out both; pointer-events: auto; transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease; }
+.tutorial-highlight { position: fixed; z-index: 1201; border: 2px solid #6cc7ff; border-radius: 10px; box-shadow: 0 0 0 6px rgba(108, 199, 255, .15), 0 14px 34px rgba(2, 12, 20, .28); transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease; pointer-events: none; }
 .tutorial-card { position: fixed; z-index: 1202; top: var(--tutorial-card-top, 72px); right: var(--tutorial-card-right, 24px); left: var(--tutorial-card-left, auto); bottom: auto; display: grid; gap: 12px; width: min(430px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 18px; overflow: auto; color: #102232; background: rgba(255, 255, 255, .96); border: 1px solid rgba(180, 198, 211, .92); border-radius: 14px; box-shadow: 0 22px 55px rgba(3, 13, 22, .32); pointer-events: auto; animation: tutorial-card-in 190ms cubic-bezier(.2,.8,.2,1) both; }
 .tutorial-card header, .tutorial-card footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tutorial-card header span { color: #397394; font-size: 10px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
 .tutorial-card h2 { margin: 0; color: #0b1f31; font-size: 22px; letter-spacing: 0; }
 .tutorial-card p { margin: 0; color: #405a6e; line-height: 1.55; }
+.tutorial-action-hint { padding: 10px 12px; color: #0f3a55 !important; background: #e7f5fc; border: 1px solid #b9deef; border-radius: 8px; font-weight: 800; }
 .tutorial-card footer { padding-top: 4px; border-top: 1px solid #dce6ed; }
 .tutorial-card footer button { min-width: 92px; }
 .tutorial-example { display: grid; gap: 8px; padding: 12px; background: #eff5f8; border: 1px solid #d5e4ec; border-radius: 8px; }

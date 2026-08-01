@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-15';
+const APP_VERSION = '2026-08-01-16';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -255,6 +255,7 @@ const elements = {
 };
 
 document.addEventListener('click', handleDocumentClick);
+document.addEventListener('click', handleTutorialTargetClick, true);
 document.addEventListener('change', handleDocumentChange);
 document.addEventListener('submit', handleMessagingSubmit);
 document.addEventListener('submit', handleDiscordAlertSubmit);
@@ -266,6 +267,9 @@ document.addEventListener('pointerdown', handleDashboardPointerDown);
 document.addEventListener('pointermove', handleDashboardPointerMove);
 document.addEventListener('pointerup', handleDashboardPointerUp);
 document.addEventListener('pointercancel', handleDashboardPointerUp);
+window.addEventListener('resize', () => {
+  if (state.tutorial.active) positionTutorialHighlight(state.tutorial.steps[state.tutorial.index]?.selector);
+});
 document.addEventListener('keydown', (event) => {
   if (handleTutorialKeydown(event)) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && document.body.classList.contains('personnel-workspace-v2') && state.activeHub === 'personnel') { event.preventDefault(); document.querySelector('#desktopCommandSearch')?.focus(); return; }
@@ -5750,9 +5754,9 @@ function showTutorialWelcomePrompt() {
 function tutorialSteps(profile) {
   const steps = [
     tutorialStep('Workstation desktop', 'This is the secure workstation landing page. Officers choose Personnel for records, training and requests, or CAD for live operations if the CAD module is enabled.', '.desktop-apps', { hub: 'home' }, tutorialExample('Example account', ['Roblox username: ExampleOfficer123', `Rank: ${profile.rank || 'Police Constable'}`, 'Callsign: 2104', 'No tutorial action here changes live records.'])),
-    tutorialStep('Personnel Hub', 'The Personnel Hub is your main internal workspace. It contains profile records, tasks, documents, courses, messages, requests and management tools based on your rank and permissions.', '[data-launch-personnel-app="dashboard"], [data-system-view=""]', { view: 'dashboard' }, tutorialExample('Dashboard examples', ['Active Officers: 12', 'My open tasks: 2', 'Upcoming training: Response Driving', 'Notice board: Operational standards update'])),
-    tutorialStep('Global New', 'Use New record when you need to create something. In tutorial mode, example forms are shown here only; they do not submit to the live database.', '[data-open-universal-new]', null, tutorialDemoForm('Example LOA request', ['Officer: ExampleOfficer123', 'Start: 12/08/2026', 'End: 16/08/2026', 'Reason: Pre-booked holiday'])),
-    tutorialStep('My Profile', 'My Profile is the officer-facing record: training, LOA, discipline visible to you, supervisor contact, shift activity and your own requests.', '[data-launch-personnel-app="myProfile"], [data-system-view="myProfile"]', { view: 'myProfile' }, tutorialExample('Profile data shown', ['Callsign and rank', 'Training status and course bookings', 'Discipline or AIP records issued to you', 'Shift activity and CAD involvement'])),
+    tutorialStep('Personnel Hub', 'Click Personnel Hub to open the internal workspace. This is where officer records, tasks, documents, courses, messages and requests live.', '[data-launch-personnel-app="dashboard"], [data-system-view=""]', { hub: 'home' }, tutorialExample('Dashboard examples', ['Active Officers: 12', 'My open tasks: 2', 'Upcoming training: Response Driving', 'Notice board: Operational standards update']), null, { clickToAdvance: true, actionText: 'Click the highlighted Personnel Hub option.' }),
+    tutorialStep('Global New', 'Click New record to see the creation menu. In tutorial mode you will only see example guidance; do not submit real records unless you intentionally leave the tutorial.', '[data-open-universal-new]', { view: 'dashboard' }, tutorialDemoForm('Example LOA request', ['Officer: ExampleOfficer123', 'Start: 12/08/2026', 'End: 16/08/2026', 'Reason: Pre-booked holiday']), null, { clickToAdvance: true, actionText: 'Click New record to open the menu, then the tutorial will continue.' }),
+    tutorialStep('My Profile', 'Click My Profile to open the officer-facing record: training, LOA, discipline visible to you, supervisor contact, shift activity and your own requests.', '[data-launch-personnel-app="myProfile"], [data-system-view="myProfile"]', { view: 'dashboard' }, tutorialExample('Profile data shown', ['Callsign and rank', 'Training status and course bookings', 'Discipline or AIP records issued to you', 'Shift activity and CAD involvement']), null, { clickToAdvance: true, actionText: 'Click the highlighted My Profile shortcut.' }),
     tutorialStep('Requests', 'Requests is where officers submit LOA, transfer and supervisor contact requests. Supervisors and Command also see queues they can review.', '[data-view="requests"], [data-launch-personnel-app="tasks"]', { view: 'requests' }, tutorialDemoForm('Example supervisor request', ['Category: Training', 'Subject: Response driving guidance', 'Details: Requesting advice before booking onto the next course.'])),
     tutorialStep('Tasks', 'Tasks are generated by the system or assigned manually. Your task queue shows work for you; authorised users can also review available queues.', '[data-view="tasks"], [data-system-view="tasks"]', { view: 'tasks' }, tutorialExample('Task examples', ['Review shift debrief', 'AIP signature required', 'Course booking awaiting trainer review', 'Account request queue for Command'])),
     tutorialStep('Documents', 'Documents work like a file explorer. Access is based on rank, tags and enabled modules, and some documents can require acknowledgement.', '[data-view="documents"], [data-launch-personnel-app="documents"]', { view: 'documents' }, tutorialExample('Example folders', ['Policies / Pursuit guidance', 'Training / Blue Ticket', 'Supervisor / Check-in standards'])),
@@ -5772,15 +5776,15 @@ function tutorialSteps(profile) {
   );
   if (tutorialCan(profile, 'FULL_ACCESS')) steps.push(tutorialStep('Settings and launch control', 'Settings lets Command control enabled features, Discord alert defaults, access previews, tutorials, bug reports and visual experiments.', '[data-view="settings"]', { view: 'settings' }, tutorialExample('Admin controls', ['Feature on/off toggles', 'View MDT as...', 'Tutorial preview', 'Mandatory Discord alert defaults'])));
   if (isFeatureEnabled('cad')) steps.push(
-    tutorialStep('Operations / CAD', 'The CAD side is separate from the Personnel Hub. It handles live incidents, callsigns, control, intelligence, BOLOs, casework, evidence and reviews.', '#systemTaskbarCad, #enterOperationsHub', { hub: 'operations' }, tutorialExample('CAD examples', ['Create or assign a CAD', 'Join a callsign/unit', 'Record offences and powers', 'Prepare CID package'])),
+    tutorialStep('Operations / CAD', 'Click Operations/CAD to open the live operational side. It handles incidents, callsigns, control, intelligence, BOLOs, casework, evidence and reviews.', '#systemTaskbarCad, #enterOperationsHub', { hub: 'home' }, tutorialExample('CAD examples', ['Create or assign a CAD', 'Join a callsign/unit', 'Record offences and powers', 'Prepare CID package']), null, { clickToAdvance: true, actionText: 'Click the highlighted Operations/CAD option.' }),
     tutorialStep('CAD workflows', 'Guided CAD workflows help officers record people, vehicles, offences, police powers, outcomes, evidence and supervisor reviews in the correct order.', '[data-ops-workspace="live"], [data-ops-workspace="actions"]', { hub: 'operations' }, tutorialDemoForm('Example traffic stop', ['Vehicle: AB12 CDE', 'Person: Example Driver', 'Offence: Dangerous Driving', 'System suggests FPN/arrest guidance and flags repeat activity']))
   );
   steps.push(tutorialStep('Replay any time', 'You can replay the whole tutorial from Quick Settings, or Command can preview permission-specific versions from Settings > Tutorials.', '#systemQuickSettingsButton', null, tutorialExample('Completion', ['Tutorial completion is stored locally for this account/browser.', 'Skipping stops the first-login prompt but replay remains available.'])));
   return steps.filter((step) => !step.onlyIf || step.onlyIf());
 }
 
-function tutorialStep(title, body, selector, beforeShow, example, onlyIf) {
-  return { title, body, selector, beforeShow, example, onlyIf };
+function tutorialStep(title, body, selector, beforeShow, example, onlyIf, options = {}) {
+  return { title, body, selector, beforeShow, example, onlyIf, ...options };
 }
 
 function tutorialExample(title, rows) {
@@ -5819,6 +5823,7 @@ async function runTutorialBeforeShow(beforeShow) {
     return;
   }
   if (beforeShow.view) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
     if (state.activeHub !== 'personnel') await enterPersonnelHub();
     await showView(beforeShow.view);
     await wait(190);
@@ -5844,9 +5849,25 @@ async function renderTutorialStep() {
   if (example) example.innerHTML = step.example || '';
   if (counter) counter.textContent = `${state.tutorial.index + 1} of ${state.tutorial.steps.length}`;
   if (prev) prev.disabled = state.tutorial.index === 0;
-  if (next) next.textContent = state.tutorial.index === state.tutorial.steps.length - 1 ? 'Finish' : 'Next';
+  if (next) {
+    next.textContent = state.tutorial.index === state.tutorial.steps.length - 1 ? 'Finish' : step.clickToAdvance ? 'Skip step' : 'Next';
+    next.classList.toggle('ghost', Boolean(step.clickToAdvance));
+  }
+  renderTutorialActionHint(step);
   await wait(80);
   positionTutorialHighlight(step.selector);
+}
+
+function renderTutorialActionHint(step) {
+  const card = document.querySelector('#tutorialCard');
+  if (!card) return;
+  card.querySelector('.tutorial-action-hint')?.remove();
+  if (!step.actionText) return;
+  const hint = document.createElement('p');
+  hint.className = 'tutorial-action-hint';
+  hint.textContent = step.actionText;
+  const example = document.querySelector('#tutorialExample');
+  if (example) example.insertAdjacentElement('beforebegin', hint);
 }
 
 function firstVisibleElement(selector) {
@@ -5864,6 +5885,7 @@ function positionTutorialHighlight(selector) {
   const target = firstVisibleElement(selector);
   if (!highlight || !card || !target) {
     if (highlight) highlight.hidden = true;
+    positionTutorialShade(null);
     resetTutorialCardPosition();
     return;
   }
@@ -5876,6 +5898,12 @@ function positionTutorialHighlight(selector) {
     highlight.style.top = `${Math.max(8, rect.top - pad)}px`;
     highlight.style.width = `${Math.min(window.innerWidth - 16, rect.width + pad * 2)}px`;
     highlight.style.height = `${Math.min(window.innerHeight - 16, rect.height + pad * 2)}px`;
+    positionTutorialShade({
+      left: Math.max(8, rect.left - pad),
+      top: Math.max(8, rect.top - pad),
+      right: Math.min(window.innerWidth - 8, rect.right + pad),
+      bottom: Math.min(window.innerHeight - 8, rect.bottom + pad),
+    });
     const cardHeight = Math.min(card.offsetHeight || 260, window.innerHeight - 40);
     const belowTarget = rect.bottom + 18;
     const aboveTarget = rect.top - cardHeight - 18;
@@ -5888,12 +5916,53 @@ function positionTutorialHighlight(selector) {
   }, 180);
 }
 
+function positionTutorialShade(hole) {
+  const top = document.querySelector('.tutorial-shade-top');
+  const right = document.querySelector('.tutorial-shade-right');
+  const bottom = document.querySelector('.tutorial-shade-bottom');
+  const left = document.querySelector('.tutorial-shade-left');
+  if (!top || !right || !bottom || !left) return;
+  const safeHole = hole || { left: window.innerWidth, top: window.innerHeight, right: window.innerWidth, bottom: window.innerHeight };
+  top.style.left = '0px';
+  top.style.top = '0px';
+  top.style.width = '100vw';
+  top.style.height = `${Math.max(0, safeHole.top)}px`;
+  bottom.style.left = '0px';
+  bottom.style.top = `${Math.max(0, safeHole.bottom)}px`;
+  bottom.style.width = '100vw';
+  bottom.style.height = `${Math.max(0, window.innerHeight - safeHole.bottom)}px`;
+  left.style.left = '0px';
+  left.style.top = `${Math.max(0, safeHole.top)}px`;
+  left.style.width = `${Math.max(0, safeHole.left)}px`;
+  left.style.height = `${Math.max(0, safeHole.bottom - safeHole.top)}px`;
+  right.style.left = `${Math.max(0, safeHole.right)}px`;
+  right.style.top = `${Math.max(0, safeHole.top)}px`;
+  right.style.width = `${Math.max(0, window.innerWidth - safeHole.right)}px`;
+  right.style.height = `${Math.max(0, safeHole.bottom - safeHole.top)}px`;
+}
+
 function resetTutorialCardPosition() {
   const card = document.querySelector('#tutorialCard');
   if (!card) return;
   card.style.setProperty('--tutorial-card-top', '72px');
   card.style.setProperty('--tutorial-card-left', 'auto');
   card.style.setProperty('--tutorial-card-right', '24px');
+}
+
+function targetMatchesTutorialStep(target, step) {
+  if (!target || !step?.selector) return false;
+  return Boolean(target.closest?.(step.selector));
+}
+
+function handleTutorialTargetClick(event) {
+  if (!state.tutorial.active) return;
+  if (event.target.closest?.('#tutorialCard')) return;
+  const step = state.tutorial.steps[state.tutorial.index];
+  if (!step?.clickToAdvance || !targetMatchesTutorialStep(event.target, step)) return;
+  window.setTimeout(() => {
+    if (!state.tutorial.active || state.tutorial.steps[state.tutorial.index] !== step) return;
+    nextTutorialStep();
+  }, step.afterClickDelay || 420);
 }
 
 async function nextTutorialStep() {
