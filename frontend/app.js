@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-6';
+const APP_VERSION = '2026-08-01-7';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -94,7 +94,6 @@ const DASHBOARD_WIDGETS = [
 ];
 const DISCORD_ALERT_CATEGORIES = [
   ['critical', 'Critical alerts', 'Urgent or safety-critical alerts. These always send.'],
-  ['task', 'Task alerts', 'Assigned work, reviews, approvals and amendments.'],
   ['profile', 'Profile updates', 'Training, discipline, supervisor, AIP and officer-record changes.'],
   ['calendar', 'Calendar alerts', 'Calendar assignments, reminders and changes.'],
   ['course', 'Training course alerts', 'Course booking requests, approvals, waitlists and cancellations.'],
@@ -954,17 +953,29 @@ async function openQuickSettings() {
 
 function renderDiscordAlertPreferences(config, adminMode = false) {
   const rows = normalisedDiscordAlertRows(config, adminMode);
-  const categoryRows = rows.filter((row) => row.ScopeType === 'category');
+  const categoryRows = rows.filter((row) => row.ScopeType === 'category' && row.ScopeKey !== 'task');
   const taskRows = rows.filter((row) => row.ScopeType === 'task');
   return `
     <form class="discord-alert-form" data-discord-alert-form="${adminMode ? 'defaults' : 'user'}">
-      <section class="discord-alert-group">
-        <h4>Alert categories</h4>
+      <section class="discord-alert-group discord-alert-card">
+        <button class="discord-alert-group-head" type="button" data-discord-alert-expand aria-expanded="false">
+          <span><strong>Alert categories</strong><small>${adminMode ? 'Default categories enabled for officers' : 'General non-task DM groups'}</small></span>
+          <b>${categoryRows.filter((row) => row.Enabled !== false).length}/${categoryRows.length}</b>
+          <i aria-hidden="true"></i>
+        </button>
+        <div class="discord-alert-group-body">
         ${categoryRows.map((row) => discordAlertToggle(row, adminMode)).join('')}
+        </div>
       </section>
-      <section class="discord-alert-group">
-        <h4>Specific task alerts</h4>
+      <section class="discord-alert-group discord-alert-card open">
+        <button class="discord-alert-group-head" type="button" data-discord-alert-expand aria-expanded="true">
+          <span><strong>Specific task alerts</strong><small>Choose exact task types that can DM you</small></span>
+          <b>${taskRows.filter((row) => row.Enabled !== false).length}/${taskRows.length}</b>
+          <i aria-hidden="true"></i>
+        </button>
+        <div class="discord-alert-group-body">
         ${taskRows.map((row) => discordAlertToggle(row, adminMode)).join('')}
+        </div>
       </section>
       <button type="submit">${adminMode ? 'Save default alerts' : 'Save my alerts'}</button>
     </form>
@@ -993,7 +1004,7 @@ function discordAlertToggle(row, adminMode = false) {
   const locked = row.Locked && !adminMode;
   return `<label class="discord-alert-row${row.Locked ? ' locked' : ''}">
     <span><strong>${escapeHtml(row.Label || row.ScopeKey)}</strong><small>${escapeHtml(row.Description || row.ScopeKey)}${row.Locked ? ' / locked by command' : ''}</small></span>
-    <input type="checkbox" name="${escapeHtml(`${row.ScopeType}:${row.ScopeKey}`)}"${row.Enabled !== false ? ' checked' : ''}${locked ? ' disabled' : ''}>
+    <input class="switch-input" type="checkbox" name="${escapeHtml(`${row.ScopeType}:${row.ScopeKey}`)}"${row.Enabled !== false ? ' checked' : ''}${locked ? ' disabled' : ''}>
   </label>`;
 }
 
@@ -7333,6 +7344,13 @@ async function handleDocumentClick(event) {
   if (resetDashboardLayout) {
     localStorage.removeItem(DASHBOARD_LAYOUT_STORAGE_KEY);
     await loadDashboard();
+    return;
+  }
+  const discordExpand = event.target.closest('[data-discord-alert-expand]');
+  if (discordExpand) {
+    const card = discordExpand.closest('.discord-alert-card');
+    card?.classList.toggle('open');
+    discordExpand.setAttribute('aria-expanded', card?.classList.contains('open') ? 'true' : 'false');
     return;
   }
 
@@ -14068,7 +14086,7 @@ async function shouldSendDiscordAlert(memberId, title, options = {}) {
       const def = defaults.find((row) => `${row.ScopeType}:${row.ScopeKey}` === key);
       return def ? def.Enabled !== false : true;
     };
-    if (!enabledFor('category', category)) return false;
+    if (category !== 'task' && !enabledFor('category', category)) return false;
     if (category === 'task' && taskType && !enabledFor('task', taskType)) return false;
     return true;
   } catch {
