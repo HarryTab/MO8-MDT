@@ -1480,6 +1480,158 @@ dialog .section-head .ghost:hover {
   gap: 12px;
 }
 
+.workspace-dashboard-cards,
+.officer-portal-strip,
+.officer-command-strip,
+.officer-operational-summary,
+.archive-centre-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.workspace-card,
+.officer-portal-strip button,
+.officer-command-strip button,
+.archive-centre-card {
+  display: grid;
+  gap: 5px;
+  min-height: 112px;
+  padding: 14px;
+  border: 1px solid rgba(176, 195, 210, 0.82);
+  border-radius: 8px;
+  color: #092038;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 18px rgba(30, 54, 73, 0.06);
+  text-align: left;
+}
+
+.workspace-card:hover,
+.officer-portal-strip button:hover,
+.officer-command-strip button:hover,
+.archive-centre-card:hover {
+  border-color: rgba(71, 115, 147, 0.58);
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.workspace-card span,
+.officer-portal-strip span,
+.officer-command-strip span,
+.archive-centre-card span {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #285171;
+  background: #e8f1f7;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.workspace-card strong,
+.officer-portal-strip strong,
+.officer-command-strip strong,
+.archive-centre-card h3 {
+  color: #061625;
+  font-size: 15px;
+}
+
+.workspace-card small,
+.workspace-card em,
+.officer-portal-strip small,
+.officer-command-strip small,
+.archive-centre-card p {
+  margin: 0;
+  color: #405568;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.officer-operational-summary article {
+  display: grid;
+  gap: 6px;
+  min-height: 120px;
+  padding: 14px;
+  border: 1px solid rgba(188, 202, 215, 0.9);
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.officer-operational-summary span {
+  color: #577087;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.officer-operational-summary h3 {
+  margin: 0;
+  color: #08192b;
+}
+
+.officer-operational-summary p {
+  margin: 0;
+  color: #31485d;
+  line-height: 1.45;
+}
+
+.universal-new-menu {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.universal-new-menu section {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.universal-new-menu h3 {
+  margin: 0 0 2px;
+  color: #18344d;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.universal-new-menu button {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  padding: 10px;
+  border-color: rgba(169, 190, 207, 0.8);
+  color: #10263a;
+  background: #fff;
+  text-align: left;
+}
+
+.universal-new-menu button small {
+  color: #526a7e;
+  font-size: 12px;
+}
+
+.brief-output {
+  width: min(760px, 100%);
+  min-height: 430px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #0a1724;
+  background: #f8fbfd;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.archive-centre-card {
+  min-height: 150px;
+}
+
 .dashboard-widget-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: stretch;

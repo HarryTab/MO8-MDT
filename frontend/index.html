@@ -76,6 +76,7 @@
             <section class="nav-group" data-nav-group="records">
               <button class="nav-group-toggle" type="button" aria-expanded="true"><span>Records<small>Search and assurance</small></span><i>-</i></button><div class="nav-group-items">
                 <button class="nav-item" data-view="timeline"><span class="nav-symbol">TL</span><span>Timeline</span></button>
+                <button class="nav-item" data-view="archiveCentre"><span class="nav-symbol">AR</span><span>Archive Centre</span></button>
                 <button class="nav-item" data-view="rankChanges" data-permission="VIEW_RANK_LOG"><span class="nav-symbol">RK</span><span>Rank Log</span></button>
                 <button class="nav-item" data-view="dataQuality" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">DQ</span><span>Data Quality</span></button>
                 <button class="nav-item" data-view="audit" data-permission="VIEW_AUDIT_LOG"><span class="nav-symbol">AU</span><span>Audit</span></button>
@@ -103,6 +104,7 @@
             <label class="workspace-command-search"><span>Search</span><input id="desktopCommandSearch" type="search" placeholder="Search officers, records, documents or commands" autocomplete="off"><kbd>Ctrl K</kbd></label>
             <div class="identity" id="identity" hidden>
               <span id="currentUser"></span>
+              <button class="ghost global-new-button" type="button" data-open-universal-new>New</button>
               <div class="notification-shell">
                 <button class="ghost" id="notificationsButton">Notifications</button>
                 <div class="notification-menu" id="notificationMenu" hidden></div>
@@ -170,6 +172,7 @@
                 <button class="desktop-app app-chat" data-launch-personnel-app="messaging" type="button"><span class="app-icon">CH</span><strong>Chat</strong><small>Internal communications</small><i class="desktop-app-badge" id="desktopChatUnread" hidden></i></button>
                 <button class="desktop-app app-documents" data-launch-personnel-app="documents" data-permission="VIEW_DOCUMENTS" type="button"><span class="app-icon">DOC</span><strong>Documents</strong><small>Policies and guidance</small></button>
                 <button class="desktop-app app-calendar" data-launch-personnel-app="calendar" type="button"><span class="app-icon">CAL</span><strong>Calendar</strong><small>Courses, LOA and events</small></button>
+                <button class="desktop-app app-archive" data-launch-personnel-app="archiveCentre" type="button"><span class="app-icon">ARC</span><strong>Archive</strong><small>Historical records</small></button>
                 <button class="desktop-app app-training" data-launch-personnel-app="courses" data-permission="VIEW_COURSES" type="button"><span class="app-icon">TR</span><strong>Training</strong><small>Courses and bookings</small></button>
               <button class="desktop-app app-tasks" data-launch-personnel-app="tasks" type="button"><span class="app-icon">TK</span><strong>My Tasks</strong><small>Actions and approvals</small><i class="desktop-app-badge" id="desktopTaskCount" hidden></i></button>
                 <a class="desktop-app app-careers" href="careers/"><span class="app-icon">JOB</span><strong>Careers</strong><small>Public recruitment site</small></a>
@@ -677,6 +680,8 @@
             </div>
           </section>
 
+          <section class="data-view" id="archiveCentreView" hidden></section>
+
           <section class="data-view" id="reportsView" hidden></section>
 
           <section class="data-view" id="handoverView" hidden>
@@ -867,6 +872,7 @@
         <button type="button" data-system-view="myProfile" title="My Profile"><span class="system-taskbar-icon">ME</span><small>My Profile</small></button>
         <button class="system-taskbar-tasks" type="button" data-system-view="tasks" title="Tasks"><span class="system-taskbar-icon">TK</span><small>Tasks</small><b id="systemTaskCount" hidden>0</b></button>
         <button type="button" data-system-view="globalSearch" title="Search all records"><span class="system-taskbar-icon">SR</span><small>Search</small></button>
+        <button type="button" data-open-universal-new title="Create new record or request"><span class="system-taskbar-icon">+</span><small>New</small></button>
         <button type="button" data-system-view="messaging" title="Messages"><span class="system-taskbar-icon">CH</span><small>Chat</small><b id="systemChatCount" hidden></b></button>
         <button type="button" data-system-view="documents" data-permission="VIEW_DOCUMENTS" title="Documents"><span class="system-taskbar-icon">DO</span><small>Documents</small></button>
         <button type="button" data-system-view="calendar" title="Calendar"><span class="system-taskbar-icon">CA</span><small>Calendar</small></button>

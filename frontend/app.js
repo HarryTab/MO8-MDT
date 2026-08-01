@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-12';
+const APP_VERSION = '2026-08-01-13';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -117,6 +117,7 @@ const FEATURE_MODULES = [
   ['tasks', 'Tasks', 'Home', ['tasks']],
   ['calendar', 'Calendar', 'Home', ['calendar']],
   ['timeline', 'Timeline', 'Home', ['timeline']],
+  ['archiveCentre', 'Archive Centre', 'Home', ['archiveCentre']],
   ['shift', 'Shift Logging', 'Personnel', ['shift']],
   ['supervisor', 'Supervisor', 'Personnel', ['supervisor']],
   ['officers', 'Officer Records', 'Personnel', ['officers', 'officerProfile']],
@@ -1196,6 +1197,7 @@ async function showView(view) {
     permissions: ['Permissions', 'Role defaults and individual overrides'],
     settings: ['Settings', 'Command access preview and system administration'],
     reports: ['Reports', 'Command performance and compliance reporting'],
+    archiveCentre: ['Archive Centre', 'Archived records, audit trails and historical searches'],
     handover: ['Command Handover', 'Outstanding operational matters and ownership'],
     audit: ['Audit Log', 'System activity trail'],
     dataQuality: ['Data Quality', 'Incomplete, inconsistent and overdue records'],
@@ -1244,6 +1246,7 @@ async function showView(view) {
     permissions: loadPermissions,
     settings: loadSettings,
     reports: loadReports,
+    archiveCentre: loadArchiveCentre,
     handover: loadHandover,
     audit: loadAudit,
     dataQuality: loadDataQualityCentre,
@@ -1445,6 +1448,7 @@ async function loadDashboard() {
       </div>
     </div>
     ${rankHomeStrip(response)}
+    ${workspaceDashboardCards(response)}
     <div class="stat-row">
       ${[
     stat('Active Officers', counts.activeOfficers || 0),
@@ -1475,6 +1479,62 @@ function rankHomeStrip(response) {
     <article data-view-link="messaging"><small>Unread chat</small><strong>${escapeHtml(String(state.unreadChatMessages || 0))}</strong><span>Open communications</span></article>
     <article data-view-link="tasks"><small>My actions</small><strong>${escapeHtml(String((response.myActions || []).length))}</strong><span>Review assigned work</span></article>
     <article data-view-link="calendar"><small>Upcoming training</small><strong>${escapeHtml(String(response.counts?.upcomingTraining || 0))}</strong><span>View your calendar</span></article>
+  </section>`;
+}
+
+function workspaceDashboardCards(response) {
+  const counts = response.counts || {};
+  const cards = [
+    ['Requests', 'LOA, transfers and account queues', 'requests', 'RQ', `${counts.loaPending || 0} pending LOA`],
+    ['Personnel', 'Officer records and supervision', 'officers', 'OF', `${counts.activeOfficers || 0} active officers`],
+    ['Development', 'Reviews, restrictions and AIPs', 'development', 'DV', `${counts.trainingReviewsDue || 0} reviews due`],
+    ['Operations', 'Open CAD and control room tools', 'operations', 'CAD', 'Launch CAD'],
+    ['Knowledge', 'Documents, notices and handovers', 'documents', 'DO', `${counts.pendingAcknowledgements || 0} docs to ack`],
+    ['Records', 'Timeline, archive and audit checks', 'archiveCentre', 'AR', `${counts.pendingAppeals || 0} appeals pending`],
+  ].filter(([, , view]) => view === 'operations' ? isFeatureEnabled('cad') : isFeatureEnabled(view));
+  return `<section class="workspace-dashboard-cards" aria-label="Workspace dashboards">
+    ${cards.map(([title, detail, view, symbol, meta]) => `<button class="workspace-card" type="button" ${view === 'operations' ? 'data-enter-operations-hub' : `data-view-link="${escapeHtml(view)}"`}>
+      <span>${escapeHtml(symbol)}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <small>${escapeHtml(detail)}</small>
+      <em>${escapeHtml(meta)}</em>
+    </button>`).join('')}
+  </section>`;
+}
+
+function myProfilePortal(response) {
+  const upcoming = response.upcomingTraining || [];
+  const loa = response.loa || [];
+  const supervisorRequests = response.supervisorRequests || [];
+  const openRequests = [...loa, ...(response.transfers || []), ...supervisorRequests].filter((row) => ['Pending', 'Submitted', 'Under Review', 'Open'].includes(row.Status)).length;
+  return `<section class="officer-portal-strip">
+    <button type="button" data-request-loa><span>Leave</span><strong>Request LOA</strong><small>${escapeHtml(String(loa.filter((row) => row.Status === 'Pending').length))} pending</small></button>
+    <button type="button" data-view-link="calendar"><span>Calendar</span><strong>Upcoming duties</strong><small>${escapeHtml(String(upcoming.length))} course/event item${upcoming.length === 1 ? '' : 's'}</small></button>
+    <button type="button" data-view-link="requests"><span>Requests</span><strong>My requests</strong><small>${escapeHtml(String(openRequests))} open</small></button>
+    <button type="button" data-view-link="tasks"><span>Tasks</span><strong>Assigned work</strong><small>Open your queue</small></button>
+    <button type="button" data-request-supervisor><span>Supervisor</span><strong>Contact supervisor</strong><small>${escapeHtml(response.officer?.Supervisor || 'Supervisor channel')}</small></button>
+  </section>`;
+}
+
+function officerProfileCommandStrip(officer, data) {
+  const openTasks = (data.tasks || data.assignedTasks || []).filter((row) => !['Completed', 'Cancelled', 'Closed'].includes(row.Status)).length;
+  const activeLoa = (data.loa || []).filter((row) => row.Status === 'Approved').length;
+  return `<section class="officer-command-strip">
+    <button type="button" data-add-loa="${escapeHtml(officer.OfficerID)}" data-permission="CREATE_LOA"><span>Leave</span><strong>Add LOA</strong><small>${activeLoa ? 'Currently has approved LOA' : 'Record leave or absence'}</small></button>
+    <button type="button" data-add-aip="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS"><span>AIP</span><strong>Issue AIP</strong><small>Activity improvement workflow</small></button>
+    <button type="button" data-view-officer-cads><span>CAD</span><strong>CAD history</strong><small>${escapeHtml(String((data.operationalCadHistory || []).length))} linked records</small></button>
+    <button type="button" data-supervisee-tasks="${escapeHtml(officer.OfficerID)}" data-permission="VIEW_TASKS"><span>Tasks</span><strong>Task preview</strong><small>${escapeHtml(String(openTasks))} outstanding</small></button>
+  </section>`;
+}
+
+function officerOperationalSummary(data) {
+  const history = data.operationalCadHistory || [];
+  const latest = history.slice(0, 3);
+  const casework = data.casework || [];
+  return `<section class="officer-operational-summary">
+    <article><span>Operational footprint</span><h3>${escapeHtml(String(history.length))} CAD link${history.length === 1 ? '' : 's'}</h3><p>${latest.map((row) => `${row.CAD || 'CAD'} / ${row.Outcome || row.Status || 'Recorded'}`).join(' • ') || 'No operational CAD history recorded.'}</p></article>
+    <article><span>Casework</span><h3>${escapeHtml(String(casework.filter((row) => row.Status !== 'Completed').length))} open action${casework.filter((row) => row.Status !== 'Completed').length === 1 ? '' : 's'}</h3><p>${casework.slice(0, 2).map((row) => `${row.Reference || 'Case'} / ${row.Action || row.Status || 'Action'}`).join(' • ') || 'No assigned casework.'}</p></article>
+    <article><span>Recent activity</span><h3>${escapeHtml(String((data.shifts || []).length))} shift record${(data.shifts || []).length === 1 ? '' : 's'}</h3><p>${(data.shifts || []).slice(0, 2).map((row) => `${formatDisplayDateTime(row.StartedAt)} / ${row.Summary || row.Status || 'Recorded'}`).join(' • ') || 'No shift activity recorded.'}</p></article>
   </section>`;
 }
 
@@ -2248,10 +2308,120 @@ async function loadReports() {
   const response = await apiCached('commandReports', {});
   if (!response.ok) return renderError(container, response.error);
   const metrics = response.metrics || {};
-  container.innerHTML = `<div class="section-head"><h2>Command Reports</h2><button class="ghost" data-export-report>Export CSV</button></div>
+  container.innerHTML = `<div class="section-head"><div><h2>Command Reports</h2><p>Operational, staffing and compliance reporting for command briefings.</p></div><div class="section-actions"><button data-generate-command-brief>Generate brief</button><button class="ghost" data-export-report>Export CSV</button></div></div>
     <div class="stat-row">${[stat('Active Officers', metrics.ActiveOfficers || 0), stat('On LOA', metrics.OnLoa || 0), stat('Training Expiring', metrics.TrainingExpiring || 0), stat('Reviews Due', metrics.ReviewsDue || 0), stat('Active Restrictions', metrics.ActiveRestrictions || 0), stat('Open Handovers', metrics.OpenHandovers || 0)].join('')}</div>
     <section class="report-grid">${reportPanel('Training expiry', response.trainingExpiry || [], ['Officer', 'Standard', 'ExpiryDate', 'DaysRemaining'])}${reportPanel('Officer activity', response.activity || [], ['Officer', 'Rank', 'Shifts', 'Hours', 'LastShift', 'Status'])}${reportPanel('Development compliance', response.development || [], ['Officer', 'Probation', 'LastReview', 'NextReview', 'Restriction'])}${reportPanel('Supervisor workload', response.supervisors || [], ['Supervisor', 'AssignedOfficers', 'OpenActions'])}</section>`;
   state.operations.report = response;
+}
+
+async function loadArchiveCentre() {
+  await showViewOnly('archiveCentre');
+  const container = document.querySelector('#archiveCentreView');
+  container.innerHTML = `
+    <div class="section-head"><div><h2>Archive Centre</h2><p>Historical records, retained audit trails and searchable closed work.</p></div><button class="ghost" data-view-link="globalSearch">Search all records</button></div>
+    <section class="archive-centre-grid">
+      ${archiveCentreCard('CAD Archive', 'Search closed incidents by CAD number, officer, location, outcome or date.', 'Open CAD archive', 'data-open-ops-archive', 'Operational records')}
+      ${archiveCentreCard('AIP Archive', 'Review withdrawn or completed Activity Improvement Notices and permanent deletion audit notes.', 'Open AIP archive', 'data-view-link="development" data-open-aip-archive-shortcut', 'Personnel development')}
+      ${archiveCentreCard('Audit Log', 'Review system actions, deletions, access changes and administrative history.', 'Open audit log', 'data-view-link="audit"', 'Assurance')}
+      ${archiveCentreCard('Timeline', 'Search any officer, CAD, case, person or vehicle and view its chronological history.', 'Open timeline', 'data-view-link="timeline"', 'Chronology')}
+      ${archiveCentreCard('Recruitment History', 'Review historic vacancies, applications and account request decisions.', 'Open recruitment', 'data-view-link="recruitment"', 'People pipeline')}
+      ${archiveCentreCard('Command Reports', 'Generate a concise current position or export reporting data for records.', 'Open reports', 'data-view-link="reports"', 'Briefing')}
+    </section>
+  `;
+}
+
+function archiveCentreCard(title, detail, action, attrs, label) {
+  return `<article class="archive-centre-card"><span>${escapeHtml(label)}</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p><button class="ghost" type="button" ${attrs}>${escapeHtml(action)}</button></article>`;
+}
+
+function openUniversalNewMenu() {
+  const actions = [
+    ['ownLoa', 'Request LOA', 'Submit your own leave request', 'Requests', true],
+    ['transfer', 'Request transfer', 'Submit a division transfer request', 'Requests', true],
+    ['supervisorContact', 'Contact supervisor', 'Send a supervised request or message', 'Requests', true],
+    ['task', 'Assign task', 'Create work for one or more officers', 'Management', can('VIEW_TASKS')],
+    ['officerLoa', 'Add LOA for officer', 'Record leave for any officer', 'Management', can('CREATE_LOA')],
+    ['officer', 'Add officer', 'Create an officer and linked user where permitted', 'Personnel', can('ADD_OFFICERS')],
+    ['discipline', 'Add discipline', 'Record conduct action against an officer', 'Development', can('ADD_DISCIPLINE')],
+    ['aip', 'Issue AIP', 'Create an Activity Improvement Notice', 'Development', can('VIEW_TASKS')],
+    ['probation', 'Probation record', 'Create a probation or competency record', 'Development', can('VIEW_TASKS')],
+    ['performance', 'Performance review', 'Record a performance review', 'Development', can('VIEW_TASKS')],
+    ['restriction', 'Restriction', 'Add a temporary duties restriction', 'Development', can('VIEW_TASKS')],
+    ['course', 'Training course', 'Create a course session', 'Learning', can('MANAGE_COURSES')],
+    ['trainingOption', 'Training option', 'Add a training standard to the matrix', 'Learning', can('MANAGE_TRAINING_OPTIONS')],
+    ['document', 'Document', 'Upload or link a document', 'Knowledge', can('MANAGE_DOCUMENTS')],
+    ['notice', 'Notice board post', 'Publish a notice or announcement', 'Knowledge', can('MANAGE_ANNOUNCEMENTS')],
+    ['handover', 'Handover', 'Create an owned handover entry', 'Knowledge', can('VIEW_TASKS')],
+    ['vacancy', 'Recruitment vacancy', 'Create an internal or public vacancy', 'Recruitment', can('VIEW_TASKS')],
+    ['calendar', 'Calendar assignment', 'Add a calendar item', 'Planning', can('VIEW_TASKS')],
+    ['cad', 'New CAD', 'Open Operations and create a CAD', 'Operations', isFeatureEnabled('cad')],
+    ['case', 'New case', 'Open Operations and create casework', 'Operations', isFeatureEnabled('cad') && can('VIEW_TASKS')],
+    ['bolo', 'BOLO', 'Issue an operational BOLO', 'Operations', isFeatureEnabled('cad') && can('VIEW_TASKS')],
+    ['bug', 'Bug report', 'Report an issue with the MDT', 'System', true],
+  ].filter(([, , , , allowed]) => allowed);
+  const groups = [...new Set(actions.map(([, , , group]) => group))];
+  showInfo('New record or request', `<div class="universal-new-menu">${groups.map((group) => `<section><h3>${escapeHtml(group)}</h3>${actions.filter((item) => item[3] === group).map(([key, title, detail]) => `<button type="button" data-universal-new="${escapeHtml(key)}"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></button>`).join('')}</section>`).join('')}</div>`);
+}
+
+async function runUniversalNewAction(action) {
+  if (action === 'ownLoa') return openOwnLoaEditor();
+  if (action === 'transfer') return openTransferRequestEditor();
+  if (action === 'supervisorContact') return openSupervisorRequestEditor();
+  if (action === 'task') return openMdtTaskEditor();
+  if (action === 'officerLoa') return openLoaEditor();
+  if (action === 'officer') return openOfficerEditor();
+  if (action === 'discipline') return openDisciplineEditor('');
+  if (action === 'aip') return openAipEditor();
+  if (action === 'probation') return openProbationEditor();
+  if (action === 'performance') return openPerformanceReviewEditor();
+  if (action === 'restriction') return openRestrictionEditor();
+  if (action === 'course') return openCourseEditor();
+  if (action === 'trainingOption') return openTrainingOptionEditor();
+  if (action === 'document') return openDocumentEditor();
+  if (action === 'notice') return openAnnouncementEditor();
+  if (action === 'handover') return openHandoverEditor();
+  if (action === 'vacancy') return openVacancyEditor();
+  if (action === 'calendar') return openCalendarEventEditor();
+  if (action === 'bug') return openBugReportEditor();
+  if (action === 'cad') { await enterOperationsHub(); return openOpsIncidentEditor(); }
+  if (action === 'case') { await enterOperationsHub(); switchOpsWorkspace('casework'); return openOpsOperationEditor(); }
+  if (action === 'bolo') { await enterOperationsHub(); switchOpsWorkspace('intel'); return openOpsBoloEditor(); }
+}
+
+function generateCommandBrief() {
+  const report = state.operations.report || {};
+  const metrics = report.metrics || {};
+  const topActivity = (report.activity || []).slice(0, 5).map((row) => `- ${row.Officer || 'Officer'}: ${row.Hours || '0h'} across ${row.Shifts || 0} shift(s), last shift ${formatDisplayDateTime(row.LastShift || '') || 'not recorded'}`).join('\n') || '- No activity records returned.';
+  const training = (report.trainingExpiry || []).slice(0, 5).map((row) => `- ${row.Officer || 'Officer'}: ${row.Standard || 'Training'} expires ${formatDisplayDate(row.ExpiryDate || '') || 'unknown'} (${row.DaysRemaining || 0} days)`).join('\n') || '- No training expiry risks returned.';
+  const development = (report.development || []).slice(0, 5).map((row) => `- ${row.Officer || 'Officer'}: probation ${row.Probation || 'not recorded'}, next review ${formatDisplayDate(row.NextReview || '') || 'not set'}, restriction ${row.Restriction || 'none'}`).join('\n') || '- No development compliance records returned.';
+  const supervisors = (report.supervisors || []).slice(0, 5).map((row) => `- ${row.Supervisor || 'Supervisor'}: ${row.AssignedOfficers || 0} officer(s), ${row.OpenActions || 0} open action(s)`).join('\n') || '- No supervisor workload records returned.';
+  const brief = `**MO8 Command Brief / ${formatDisplayDate(new Date().toISOString())}**
+
+**Headline Position**
+- Active officers: ${metrics.ActiveOfficers || 0}
+- Currently on LOA: ${metrics.OnLoa || 0}
+- Training expiring: ${metrics.TrainingExpiring || 0}
+- Reviews due: ${metrics.ReviewsDue || 0}
+- Active restrictions: ${metrics.ActiveRestrictions || 0}
+- Open handovers: ${metrics.OpenHandovers || 0}
+
+**Activity Snapshot**
+${topActivity}
+
+**Training Risks**
+${training}
+
+**Development / Compliance**
+${development}
+
+**Supervisor Workload**
+${supervisors}
+
+**Suggested Command Actions**
+- Review overdue development or activity actions.
+- Confirm any open handovers have a named owner.
+- Check training expiry risks before operational deployment.`;
+  showInfo('Command brief', `<textarea class="brief-output" readonly>${escapeHtml(brief)}</textarea><div class="row-actions"><button type="button" data-copy-command-brief>Copy brief</button></div>`);
 }
 
 function reportPanel(title, rows, columns) {
@@ -2344,6 +2514,7 @@ async function loadMyProfile() {
       ${detailCard('Discord ID', user.DiscordID || 'Not set')}
       ${detailCard('Unread notices', String(notifications.filter((item) => !item.ReadAt).length))}
     </section>
+    ${myProfilePortal(response)}
     ${officer ? tagList('Officer Tags', officer.Tags) : ''}
     ${officer ? trainingChecklist(officer.OfficerID, response.training || []) : ''}
     ${profileTable('My Upcoming Training', response.upcomingTraining || [], ['Title', 'Standard', 'CourseDate', 'Status', 'Location'])}
@@ -5903,6 +6074,8 @@ function renderOfficerProfile(data) {
       ${stat('FPNs', data.operationalStats?.['FPN Issued'] || 0)}
       ${stat('Warnings', data.operationalStats?.['Warning Issued'] || 0)}
     </section>
+    ${officerProfileCommandStrip(officer, data)}
+    ${officerOperationalSummary(data)}
     ${tagList('Officer Tags', officer.Tags)}
 
     ${trainingChecklist(officer.OfficerID, data.training)}
@@ -6739,6 +6912,36 @@ function animateDashboardGridChange(grid, mutator) {
 }
 
 async function handleDocumentClick(event) {
+  const universalNew = event.target.closest('[data-open-universal-new]');
+  if (universalNew) {
+    openUniversalNewMenu();
+    return;
+  }
+  const universalAction = event.target.closest('[data-universal-new]');
+  if (universalAction) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
+    await runUniversalNewAction(universalAction.dataset.universalNew);
+    return;
+  }
+  const enterOperations = event.target.closest('[data-enter-operations-hub]');
+  if (enterOperations) {
+    await enterOperationsHub();
+    return;
+  }
+  const openOpsArchive = event.target.closest('[data-open-ops-archive]');
+  if (openOpsArchive) {
+    if (elements.infoDialog.open) elements.infoDialog.close();
+    await enterOperationsHub();
+    switchOpsWorkspace('archive');
+    return;
+  }
+  const openAipArchiveShortcut = event.target.closest('[data-open-aip-archive-shortcut]');
+  if (openAipArchiveShortcut) {
+    await showView('development');
+    document.querySelector('#aipArchiveToggle')?.click();
+    document.querySelector('#aipTable')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   const reportBug = event.target.closest('[data-report-bug]');
   if (reportBug) {
     document.querySelector('#quickSettingsDialog')?.close();
@@ -7419,6 +7622,16 @@ async function handleDocumentClick(event) {
   }
   if (event.target.closest('[data-export-report]')) {
     exportCommandReport();
+    return;
+  }
+  if (event.target.closest('[data-generate-command-brief]')) {
+    generateCommandBrief();
+    return;
+  }
+  if (event.target.closest('[data-copy-command-brief]')) {
+    const text = document.querySelector('.brief-output')?.value || '';
+    if (text) await navigator.clipboard.writeText(text);
+    showInfo('Command brief copied', '<p>The brief has been copied to your clipboard.</p>');
     return;
   }
 
