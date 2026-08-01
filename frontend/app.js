@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-3';
+const APP_VERSION = '2026-08-01-4';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -898,20 +898,24 @@ function showHubSelector() {
   if (sessionCallsign) sessionCallsign.textContent = callsignLabel;
   if (systemTaskbarUser) systemTaskbarUser.textContent = desktopName;
   if (systemTaskbarCallsign) systemTaskbarCallsign.textContent = `${rankLabel} / ${callsignLabel}`;
+  syncAccountFooterIdentity();
   updateWorkstationClock();
   updateChatBadge();
   applyPermissions();
 }
 
-function openQuickSettings() {
+async function openQuickSettings() {
   const dialog = document.querySelector('#quickSettingsDialog');
   const content = document.querySelector('#quickSettingsContent');
   if (!dialog || !content) return;
+  const officer = await currentUserOfficerRecord();
+  const rank = officer?.Rank || state.user?.Rank || state.user?.Role || 'Officer';
+  const callsign = officer?.Callsign || state.user?.Callsign || 'Callsign not set';
   content.innerHTML = `
     <section class="quick-settings-profile">
       <span>${escapeHtml(state.user?.RobloxUsername || 'Officer')}</span>
-      <strong>${escapeHtml(state.user?.Rank || state.user?.Role || 'Officer')}</strong>
-      <small>${escapeHtml(state.user?.Callsign || 'Callsign not set')}</small>
+      <strong>${escapeHtml(rank)}</strong>
+      <small>${escapeHtml(callsign)}</small>
     </section>
     <div class="quick-settings-actions">
       <button type="button" data-view-link="myProfile">Open my profile</button>
@@ -924,7 +928,32 @@ function openQuickSettings() {
       <p>Task and profile alerts are currently sent for important MDT notifications. Per-category controls can be enabled once the launch configuration is settled.</p>
     </section>
   `;
-  dialog.show();
+  if (typeof dialog.show === 'function' && !dialog.open) dialog.show();
+  else dialog.setAttribute('open', '');
+}
+
+async function currentUserOfficerRecord() {
+  if (!state.user) return null;
+  const username = String(state.user.RobloxUsername || '').toLowerCase();
+  const fromState = (state.officers || []).find((officer) => String(officer.RobloxUsername || '').toLowerCase() === username || officer.MemberID === state.user.MemberID || officer.UserID === state.user.UserID);
+  if (fromState) return fromState;
+  try {
+    const response = await apiCached('listOfficers', {});
+    return (response.rows || []).find((officer) => String(officer.RobloxUsername || '').toLowerCase() === username || officer.MemberID === state.user.MemberID || officer.UserID === state.user.UserID) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function syncAccountFooterIdentity() {
+  const officer = await currentUserOfficerRecord();
+  if (!officer) return;
+  const rank = officer.Rank || state.user?.Rank || state.user?.Role || 'Officer';
+  const callsign = officer.Callsign || state.user?.Callsign || 'Callsign not set';
+  const sessionCallsign = document.querySelector('#desktopSessionCallsign');
+  const systemTaskbarCallsign = document.querySelector('#systemTaskbarCallsign');
+  if (sessionCallsign) sessionCallsign.textContent = callsign;
+  if (systemTaskbarCallsign) systemTaskbarCallsign.textContent = `${rank} / ${callsign}`;
 }
 
 async function enterPersonnelHub() {
@@ -6413,11 +6442,14 @@ function openUserEditor(user = {}) {
 function handleDashboardPointerDown(event) {
   const dragHandle = event.target.closest('[data-widget-drag]');
   const resizeHandle = event.target.closest('[data-widget-resize]');
-  if (!dragHandle && !resizeHandle) return;
+  const headerDrag = event.target.closest('.dashboard-widget-head');
+  if (!dragHandle && !resizeHandle && !headerDrag) return;
 
   const card = event.target.closest('[data-dashboard-widget]');
   if (!card) return;
+  if (headerDrag && event.target.closest('button:not([data-widget-drag])')) return;
   event.preventDefault();
+  event.target.setPointerCapture?.(event.pointerId);
 
   const mode = resizeHandle ? 'resize' : 'drag';
   const activeWidgets = getCachedResponse('dashboard', {})?.widgets || DASHBOARD_WIDGETS.map(([item]) => item);
@@ -6428,6 +6460,7 @@ function handleDashboardPointerDown(event) {
     key: card.dataset.dashboardWidget,
     startX: event.clientX,
     startY: event.clientY,
+    moved: false,
     startSize: layout.sizes[card.dataset.dashboardWidget] || 'normal',
   };
   card.classList.add(mode === 'resize' ? 'is-resizing' : 'is-dragging');
@@ -6452,7 +6485,10 @@ function handleDashboardPointerMove(event) {
 
   const targetBox = target.getBoundingClientRect();
   const before = event.clientY < targetBox.top + targetBox.height / 2;
-  grid.insertBefore(interaction.card, before ? target : target.nextSibling);
+  animateDashboardGridChange(grid, () => {
+    grid.insertBefore(interaction.card, before ? target : target.nextSibling);
+  });
+  interaction.moved = true;
   saveDashboardDomOrder();
 }
 
@@ -6480,6 +6516,27 @@ function resizeDashboardWidget(interaction, clientX) {
   });
   const label = interaction.card.querySelector('.dashboard-widget-title small');
   if (label) label.textContent = nextSize === 'large' ? 'Large widget' : nextSize === 'wide' ? 'Wide widget' : 'Standard widget';
+}
+
+function animateDashboardGridChange(grid, mutator) {
+  const cards = [...grid.querySelectorAll('[data-dashboard-widget]')];
+  const first = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+  mutator();
+  cards.forEach((card) => {
+    const before = first.get(card);
+    const after = card.getBoundingClientRect();
+    if (!before) return;
+    const dx = before.left - after.left;
+    const dy = before.top - after.top;
+    if (!dx && !dy) return;
+    card.animate([
+      { transform: `translate(${dx}px, ${dy}px)` },
+      { transform: 'translate(0, 0)' },
+    ], {
+      duration: 190,
+      easing: 'cubic-bezier(.2, .8, .2, 1)',
+    });
+  });
 }
 
 async function handleDocumentClick(event) {
@@ -7788,7 +7845,7 @@ function dashboardWidget(key, title, body, layout) {
   const size = layout.sizes[key] || 'normal';
   const sizeLabel = size === 'large' ? 'Large widget' : size === 'wide' ? 'Wide widget' : 'Standard widget';
   return `
-    <article class="dashboard-panel dashboard-widget widget-${escapeHtml(size)}" data-dashboard-widget="${escapeHtml(key)}">
+    <article class="dashboard-panel dashboard-widget widget-${escapeHtml(size)}" data-dashboard-widget="${escapeHtml(key)}" data-widget-size="${escapeHtml(size)}">
       <div class="dashboard-widget-head">
         <button class="dashboard-drag-handle" data-widget-drag type="button" aria-label="Move ${escapeHtml(title)} widget">
           <span></span>

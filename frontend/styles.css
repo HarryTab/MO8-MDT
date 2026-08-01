@@ -1645,7 +1645,8 @@ dialog .section-head .ghost:hover {
 }
 
 .dashboard-widget {
-  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  will-change: transform;
+  transition: transform 190ms cubic-bezier(.2, .8, .2, 1), border-color 160ms ease, background 160ms ease, box-shadow 190ms ease;
 }
 
 .dashboard-widget.is-dragging,
@@ -1653,7 +1654,8 @@ dialog .section-head .ghost:hover {
   z-index: 10;
   border-color: rgba(18, 103, 216, 0.58);
   background: #fff;
-  transform: scale(1.01);
+  box-shadow: 0 18px 44px rgba(20, 38, 59, 0.18);
+  transform: scale(1.015);
 }
 
 .dashboard-layout-active {
@@ -1674,6 +1676,12 @@ dialog .section-head .ghost:hover {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
+  cursor: grab;
+  user-select: none;
+}
+
+.dashboard-widget-head:active {
+  cursor: grabbing;
 }
 
 .dashboard-panel h3 {
@@ -1699,16 +1707,23 @@ dialog .section-head .ghost:hover {
   display: grid;
   place-items: center;
   gap: 3px;
-  width: 32px;
-  min-height: 32px;
+  width: 30px;
+  min-height: 30px;
   padding: 0;
-  border-radius: 9px;
-  color: #24517f;
-  background: #eef5ff;
-  border-color: rgba(134, 177, 232, 0.86);
+  border-radius: 999px;
+  color: #49687c;
+  background: transparent;
+  border-color: transparent;
   box-shadow: none;
   cursor: grab;
   touch-action: none;
+}
+
+.dashboard-widget:hover .dashboard-drag-handle,
+.dashboard-widget.is-dragging .dashboard-drag-handle {
+  color: #174d72;
+  background: #eaf4fa;
+  border-color: #bdd4e4;
 }
 
 .dashboard-drag-handle:active {
@@ -1716,7 +1731,7 @@ dialog .section-head .ghost:hover {
 }
 
 .dashboard-drag-handle span {
-  width: 14px;
+  width: 12px;
   height: 2px;
   border-radius: 999px;
   background: currentColor;
@@ -1726,17 +1741,29 @@ dialog .section-head .ghost:hover {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  width: 22px;
-  min-height: 22px;
+  width: 34px;
+  min-height: 34px;
   padding: 0;
-  border: 0;
-  border-radius: 6px;
+  opacity: 0;
+  border: 1px solid #bdd4e4;
+  border-radius: 999px;
   background:
-    linear-gradient(135deg, transparent 0 45%, rgba(36, 81, 127, 0.56) 45% 52%, transparent 52%),
-    linear-gradient(135deg, transparent 0 62%, rgba(36, 81, 127, 0.56) 62% 69%, transparent 69%);
-  box-shadow: none;
+    linear-gradient(135deg, transparent 0 45%, rgba(23, 77, 114, 0.72) 45% 52%, transparent 52%),
+    linear-gradient(135deg, transparent 0 62%, rgba(23, 77, 114, 0.72) 62% 69%, transparent 69%),
+    #eef7fc;
+  box-shadow: 0 8px 18px rgba(23, 50, 72, 0.12);
   cursor: ew-resize;
   touch-action: none;
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.dashboard-widget:hover .dashboard-resize-handle,
+.dashboard-widget.is-resizing .dashboard-resize-handle {
+  opacity: 1;
+}
+
+.dashboard-resize-handle:hover {
+  transform: scale(1.06);
 }
 
 .mini-button {
@@ -2493,6 +2520,7 @@ dialog .section-head .ghost:hover {
 
 #quickSettingsDialog {
   position: fixed;
+  z-index: 1200;
   inset: auto 18px 70px auto;
   width: min(440px, calc(100vw - 24px));
   max-height: min(620px, calc(100vh - 92px));
