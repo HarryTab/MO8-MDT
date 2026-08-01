@@ -5794,6 +5794,7 @@ function tutorialDemoForm(title, rows) {
 async function startTutorial(key = 'auto') {
   document.querySelector('#quickSettingsDialog')?.close();
   if (elements.infoDialog.open) elements.infoDialog.close();
+  resetTutorialCardPosition();
   const profile = tutorialProfileForKey(key);
   const steps = tutorialSteps(profile);
   if (!steps.length) return;
@@ -5808,6 +5809,7 @@ async function runTutorialBeforeShow(beforeShow) {
   if (!beforeShow) return;
   if (beforeShow.hub === 'home') {
     showHubSelector();
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     await wait(130);
     return;
   }
@@ -5862,7 +5864,7 @@ function positionTutorialHighlight(selector) {
   const target = firstVisibleElement(selector);
   if (!highlight || !card || !target) {
     if (highlight) highlight.hidden = true;
-    if (card) card.style.removeProperty('--tutorial-card-top');
+    resetTutorialCardPosition();
     return;
   }
   target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
@@ -5874,9 +5876,24 @@ function positionTutorialHighlight(selector) {
     highlight.style.top = `${Math.max(8, rect.top - pad)}px`;
     highlight.style.width = `${Math.min(window.innerWidth - 16, rect.width + pad * 2)}px`;
     highlight.style.height = `${Math.min(window.innerHeight - 16, rect.height + pad * 2)}px`;
-    const cardTop = rect.top > window.innerHeight * 0.52 ? 72 : Math.min(window.innerHeight - 260, rect.bottom + 18);
-    card.style.setProperty('--tutorial-card-top', `${Math.max(72, cardTop)}px`);
+    const cardHeight = Math.min(card.offsetHeight || 260, window.innerHeight - 40);
+    const belowTarget = rect.bottom + 18;
+    const aboveTarget = rect.top - cardHeight - 18;
+    const preferredTop = rect.top > window.innerHeight * 0.55 && aboveTarget > 20 ? aboveTarget : belowTarget;
+    const clampedTop = Math.min(Math.max(16, preferredTop), Math.max(16, window.innerHeight - cardHeight - 16));
+    const placeLeft = rect.left > window.innerWidth * 0.52;
+    card.style.setProperty('--tutorial-card-top', `${clampedTop}px`);
+    card.style.setProperty('--tutorial-card-left', placeLeft ? '24px' : 'auto');
+    card.style.setProperty('--tutorial-card-right', placeLeft ? 'auto' : '24px');
   }, 180);
+}
+
+function resetTutorialCardPosition() {
+  const card = document.querySelector('#tutorialCard');
+  if (!card) return;
+  card.style.setProperty('--tutorial-card-top', '72px');
+  card.style.setProperty('--tutorial-card-left', 'auto');
+  card.style.setProperty('--tutorial-card-right', '24px');
 }
 
 async function nextTutorialStep() {
