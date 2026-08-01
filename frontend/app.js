@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-4';
+const APP_VERSION = '2026-08-01-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -925,7 +925,12 @@ async function openQuickSettings() {
     </div>
     <section class="quick-settings-note">
       <strong>Discord alerts</strong>
-      <p>Task and profile alerts are currently sent for important MDT notifications. Per-category controls can be enabled once the launch configuration is settled.</p>
+      <p>DM alerts are active for important profile updates, assigned tasks, calendar changes and operational actions when your Discord ID is linked.</p>
+      <div class="quick-settings-alerts">
+        <span><b></b> Critical tasks always alert</span>
+        <span><b></b> Routine task alerts enabled</span>
+        <span><b></b> Profile and calendar alerts enabled</span>
+      </div>
     </section>
   `;
   if (typeof dialog.show === 'function' && !dialog.open) dialog.show();
@@ -6504,16 +6509,25 @@ function resizeDashboardWidget(interaction, clientX) {
   const sizes = ['normal', 'wide', 'large'];
   const startIndex = Math.max(0, sizes.indexOf(interaction.startSize));
   const moved = clientX - interaction.startX;
-  const nextIndex = Math.max(0, Math.min(sizes.length - 1, startIndex + Math.round(moved / 140)));
+  const nextIndex = Math.max(0, Math.min(sizes.length - 1, startIndex + Math.round(moved / 220)));
   const nextSize = sizes[nextIndex];
   if (interaction.card.dataset.widgetSize === nextSize) return;
 
-  interaction.card.dataset.widgetSize = nextSize;
-  sizes.forEach((size) => interaction.card.classList.toggle(`widget-${size}`, size === nextSize));
+  const grid = interaction.card.closest('.dashboard-widget-grid');
+  if (grid) {
+    animateDashboardGridChange(grid, () => {
+      interaction.card.dataset.widgetSize = nextSize;
+      sizes.forEach((size) => interaction.card.classList.toggle(`widget-${size}`, size === nextSize));
+    });
+  } else {
+    interaction.card.dataset.widgetSize = nextSize;
+    sizes.forEach((size) => interaction.card.classList.toggle(`widget-${size}`, size === nextSize));
+  }
   updateDashboardWidget(interaction.key, (layout, key) => {
     layout.sizes[key] = nextSize;
     layout.order = [...document.querySelectorAll('[data-dashboard-widget]')].map((card) => card.dataset.dashboardWidget);
   });
+  interaction.card.dataset.sizeLabel = nextSize === 'large' ? 'Large' : nextSize === 'wide' ? 'Wide' : 'Standard';
   const label = interaction.card.querySelector('.dashboard-widget-title small');
   if (label) label.textContent = nextSize === 'large' ? 'Large widget' : nextSize === 'wide' ? 'Wide widget' : 'Standard widget';
 }

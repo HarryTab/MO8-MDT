@@ -1658,6 +1658,20 @@ dialog .section-head .ghost:hover {
   transform: scale(1.015);
 }
 
+.dashboard-widget.is-resizing::after {
+  content: attr(data-size-label);
+  position: absolute;
+  right: 34px;
+  bottom: 8px;
+  padding: 4px 7px;
+  color: #214158;
+  background: rgba(239, 247, 252, 0.92);
+  border: 1px solid rgba(188, 211, 226, 0.82);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .dashboard-layout-active {
   user-select: none;
 }
@@ -1707,11 +1721,11 @@ dialog .section-head .ghost:hover {
   display: grid;
   place-items: center;
   gap: 3px;
-  width: 30px;
-  min-height: 30px;
+  width: 22px;
+  min-height: 22px;
   padding: 0;
   border-radius: 999px;
-  color: #49687c;
+  color: #6c8290;
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -1721,9 +1735,9 @@ dialog .section-head .ghost:hover {
 
 .dashboard-widget:hover .dashboard-drag-handle,
 .dashboard-widget.is-dragging .dashboard-drag-handle {
-  color: #174d72;
-  background: #eaf4fa;
-  border-color: #bdd4e4;
+  color: #285c7b;
+  background: rgba(234, 244, 250, 0.72);
+  border-color: rgba(189, 212, 228, 0.62);
 }
 
 .dashboard-drag-handle:active {
@@ -1731,7 +1745,7 @@ dialog .section-head .ghost:hover {
 }
 
 .dashboard-drag-handle span {
-  width: 12px;
+  width: 10px;
   height: 2px;
   border-radius: 999px;
   background: currentColor;
@@ -1739,19 +1753,18 @@ dialog .section-head .ghost:hover {
 
 .dashboard-resize-handle {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 34px;
-  min-height: 34px;
+  right: 9px;
+  bottom: 9px;
+  width: 18px;
+  min-height: 18px;
   padding: 0;
-  opacity: 0;
-  border: 1px solid #bdd4e4;
-  border-radius: 999px;
+  opacity: 0.16;
+  border: 0;
+  border-radius: 0;
   background:
-    linear-gradient(135deg, transparent 0 45%, rgba(23, 77, 114, 0.72) 45% 52%, transparent 52%),
-    linear-gradient(135deg, transparent 0 62%, rgba(23, 77, 114, 0.72) 62% 69%, transparent 69%),
-    #eef7fc;
-  box-shadow: 0 8px 18px rgba(23, 50, 72, 0.12);
+    linear-gradient(135deg, transparent 0 45%, rgba(28, 75, 103, 0.72) 45% 52%, transparent 52%),
+    linear-gradient(135deg, transparent 0 62%, rgba(28, 75, 103, 0.72) 62% 69%, transparent 69%);
+  box-shadow: none;
   cursor: ew-resize;
   touch-action: none;
   transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
@@ -1759,11 +1772,12 @@ dialog .section-head .ghost:hover {
 
 .dashboard-widget:hover .dashboard-resize-handle,
 .dashboard-widget.is-resizing .dashboard-resize-handle {
-  opacity: 1;
+  opacity: 0.72;
 }
 
 .dashboard-resize-handle:hover {
-  transform: scale(1.06);
+  opacity: 1;
+  transform: scale(1.12);
 }
 
 .mini-button {
@@ -2615,6 +2629,29 @@ dialog .section-head .ghost:hover {
 .quick-settings-note p {
   margin: 6px 0 0;
   color: #d9e7f7;
+}
+
+.quick-settings-alerts {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.quick-settings-alerts span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #edf7ff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.quick-settings-alerts b {
+  width: 8px;
+  height: 8px;
+  background: #66d08d;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(102, 208, 141, 0.14);
 }
 
 .task-cover-marker {
