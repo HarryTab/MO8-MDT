@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-4';
+const APP_VERSION = '2026-08-02-5';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -2742,6 +2742,44 @@ function generatedTaskKey(row) {
   return `${row.TaskType || 'task'}:${row.RequestID || row.ReviewID || row.TaskID || row.OfficerID || row.Subject || ''}`.toLowerCase().replace(/[^a-z0-9:_-]+/g, '-');
 }
 
+function findTaskByKey(key) {
+  return [...(state.tasks || []), ...(state.allTasks || []), ...(state.requestTasks || [])].find((row) => {
+    const candidates = [row.TaskKey, generatedTaskKey(row), row.TaskID, row.RequestID, row.ReviewID, row.AipID, row.IncidentID, row.ActionReviewID].filter(Boolean);
+    return candidates.includes(key);
+  });
+}
+
+function openTaskDetailPopup(task) {
+  if (!task) return showInfo('Task unavailable', '<p>This task could not be found in the current queue. Refresh the Tasks page and try again.</p>');
+  const due = taskDueLabel(task);
+  const details = [
+    ['Type', task.TaskType],
+    ['Officer', [task.Officer, task.Rank].filter(Boolean).join(' / ')],
+    ['Status', task.Status],
+    ['Priority', taskPriority(task)],
+    ['Due', due.label],
+    ['Supervisor', task.Supervisor],
+    ['Reference', task.Reference || task.RequestID || task.TaskID || task.ReviewID || task.IncidentNumber || task.AipID],
+  ].filter(([, value]) => String(value || '').trim()).map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+  const specialistAttr = taskSpecialistOpenAttr(task);
+  showInfo('Task details', `
+    <section class="task-brief wide">
+      <span>${escapeHtml(task.TaskType || 'Task')}</span>
+      <h3>${escapeHtml(task.Subject || task.Title || 'Assigned task')}</h3>
+      <p>${escapeHtml(task.Reason || task.Details || 'No additional instructions recorded.')}</p>
+      <dl class="detail-list">${details}</dl>
+      <ol class="task-clear-steps">
+        <li>${escapeHtml(taskCompletionGuidance(task))}</li>
+        <li>Use the action below to open the linked workflow, or refresh the task queue if the linked record was recently changed.</li>
+      </ol>
+      <div class="row-actions">
+        ${specialistAttr ? `<button type="button" ${specialistAttr}>Open linked workflow</button>` : ''}
+        ${task.TaskID ? `<button type="button" class="ghost" data-edit-mdt-task="${escapeHtml(task.TaskID)}">Update task status</button>` : ''}
+      </div>
+    </section>
+  `);
+}
+
 function openGeneratedTaskResolution(task) {
   const activity = task.TaskType === 'Activity Review';
   const outcomes = activity ? ['Officer contacted', 'No action required', 'Development support agreed', 'AIP considered', 'Referred to command', 'Other'] : ['Renewal arranged', 'Officer contacted', 'No action required', 'Training record corrected', 'Referred to training lead', 'Other'];
@@ -2800,25 +2838,32 @@ function taskCompletionGuidance(row) {
 }
 
 function taskOpenAttr(row) {
-  if (row.TaskType === 'AIP Signature' || row.TaskType === 'AIP Review') return `data-open-aip="${escapeHtml(row.AipID)}"`;
-  if (row.TaskType === 'Account Request') return `data-open-account-request="${escapeHtml(row.RequestID)}"`;
-  if (row.TaskType === 'Retrospective Shift') return `data-open-retrospective-shift="${escapeHtml(row.RequestID)}"`;
-  if (row.TaskType === 'Probation Review') return `data-edit-probation="${escapeHtml(row.ProbationID)}"`;
-  if (row.TaskType === 'Performance Review') return `data-task-performance-review="${escapeHtml(row.OfficerID)}"${row.ReviewID ? ` data-review-id="${escapeHtml(row.ReviewID)}"` : ''}`;
-  if (row.TaskType === 'Restriction Review') return `data-edit-restriction="${escapeHtml(row.RestrictionID)}"`;
-  if (row.TaskType === 'Transfer Request') return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
-  if (row.TaskType === 'Supervisor Request') return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
-  if (row.TaskType === 'Appeal / Review') return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
-  if (row.TaskType === 'Course Booking') return `data-task-course-bookings="${escapeHtml(row.CourseID)}"`;
+  const fallback = `data-open-task-detail="${escapeHtml(row.TaskKey || generatedTaskKey(row))}"`;
+  const specialist = taskSpecialistOpenAttr(row);
+  return specialist || fallback;
+}
+
+function taskSpecialistOpenAttr(row) {
+  if ((row.TaskType === 'AIP Signature' || row.TaskType === 'AIP Review') && row.AipID) return `data-open-aip="${escapeHtml(row.AipID)}"`;
+  if (row.TaskType === 'Account Request' && row.RequestID) return `data-open-account-request="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Retrospective Shift' && row.RequestID) return `data-open-retrospective-shift="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Probation Review' && row.ProbationID) return `data-edit-probation="${escapeHtml(row.ProbationID)}"`;
+  if (row.TaskType === 'Performance Review' && row.OfficerID) return `data-task-performance-review="${escapeHtml(row.OfficerID)}"${row.ReviewID ? ` data-review-id="${escapeHtml(row.ReviewID)}"` : ''}`;
+  if (row.TaskType === 'Restriction Review' && row.RestrictionID) return `data-edit-restriction="${escapeHtml(row.RestrictionID)}"`;
+  if (row.TaskType === 'Transfer Request' && row.RequestID) return `data-open-transfer-review="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Supervisor Request' && row.RequestID) return `data-open-supervisor-review="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Appeal / Review' && row.AppealID) return `data-open-appeal-review="${escapeHtml(row.AppealID)}"`;
+  if (row.TaskType === 'Course Booking' && row.CourseID) return `data-task-course-bookings="${escapeHtml(row.CourseID)}"`;
   if (row.TaskType === 'Activity Review' || row.TaskType === 'Training Review') return `data-resolve-generated-task="${escapeHtml(row.TaskKey || generatedTaskKey(row))}"`;
-  if (row.TaskType === 'CAD Review' || row.TaskType === 'After Action Review') return `data-open-cad-review-task="${escapeHtml(row.IncidentID)}"`;
-  if (row.TaskType === 'Operational Action Review') return `data-open-action-review="${escapeHtml(row.ActionReviewID)}"`;
-  if (row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
-  if (row.TaskType === 'Assigned Task') return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
-  if (row.TaskType === 'Shift Review' || row.TaskType === 'Shift Amendment') return `data-open-shift-review-task="${escapeHtml(row.ShiftID || row.SourceID || row.TaskID || '')}"`;
-  if (row.TaskType === 'Casework Action') return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
+  if ((row.TaskType === 'CAD Review' || row.TaskType === 'After Action Review') && row.IncidentID) return `data-open-cad-review-task="${escapeHtml(row.IncidentID)}"`;
+  if (row.TaskType === 'Operational Action Review' && row.ActionReviewID) return `data-open-action-review="${escapeHtml(row.ActionReviewID)}"`;
+  if ((row.TaskType === 'CAD Amendment' || row.TaskType === 'Operational Action Amendment') && row.AmendmentType && row.ReviewID && row.IncidentID) return `data-open-operational-amendment="${escapeHtml(row.AmendmentType)}:${escapeHtml(row.ReviewID)}:${escapeHtml(row.IncidentID)}"`;
+  if (row.TaskType === 'Assigned Task' && row.TaskID) return `data-edit-mdt-task="${escapeHtml(row.TaskID)}"`;
+  if ((row.TaskType === 'Shift Review' || row.TaskType === 'Shift Amendment') && (row.ShiftID || row.SourceID || row.TaskID)) return `data-open-shift-review-task="${escapeHtml(row.ShiftID || row.SourceID || row.TaskID)}"`;
+  if (row.TaskType === 'Casework Action' && row.OperationID) return `data-open-ops-search="Case:${escapeHtml(row.OperationID)}"`;
   if (row.TaskType === 'Recruitment Application') return 'data-view-link="recruitment"';
-  return `data-open-loa-review="${escapeHtml(row.RequestID)}"`;
+  if (row.TaskType === 'Document Acknowledgement') return 'data-view-link="documents"';
+  return '';
 }
 
 async function openMdtTaskEditor(task = {}) {
@@ -7584,8 +7629,9 @@ async function handleDocumentClick(event) {
   }
   const editMdtTask = event.target.closest('[data-edit-mdt-task]');
   if (editMdtTask) {
-    const task = [...state.tasks, ...state.allTasks].find((row) => row.TaskID === editMdtTask.dataset.editMdtTask);
+    const task = findTaskByKey(editMdtTask.dataset.editMdtTask);
     if (task) openMdtTaskEditor(task);
+    else openTaskDetailPopup(null);
     return;
   }
   const shiftReviewTask = event.target.closest('[data-open-shift-review-task]');
@@ -7601,8 +7647,14 @@ async function handleDocumentClick(event) {
   }
   const resolveGeneratedTask = event.target.closest('[data-resolve-generated-task]');
   if (resolveGeneratedTask) {
-    const task = [...state.tasks, ...state.allTasks].find((row) => (row.TaskKey || generatedTaskKey(row)) === resolveGeneratedTask.dataset.resolveGeneratedTask);
+    const task = findTaskByKey(resolveGeneratedTask.dataset.resolveGeneratedTask);
     if (task) openGeneratedTaskResolution(task);
+    else openTaskDetailPopup(null);
+    return;
+  }
+  const openTaskDetail = event.target.closest('[data-open-task-detail]');
+  if (openTaskDetail) {
+    openTaskDetailPopup(findTaskByKey(openTaskDetail.dataset.openTaskDetail));
     return;
   }
   const opsSearchResult = event.target.closest('[data-open-ops-search]');
