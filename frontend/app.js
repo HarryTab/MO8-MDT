@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-02-1';
+const APP_VERSION = '2026-08-02-2';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -185,6 +185,7 @@ const state = {
   tasks: [],
   allTasks: [],
   taskScope: 'mine',
+  profileTab: 'overview',
   showArchivedAips: false,
   profileAppeals: [],
   profileDiscipline: [],
@@ -647,6 +648,7 @@ async function boot() {
   if (hasWarmBootCache()) {
     showHubSelector();
     backgroundPreload();
+    warmCoreData();
     return;
   }
   await initializeSession();
@@ -684,6 +686,7 @@ async function initializeSession() {
   showHubSelector();
   sessionStorage.setItem(BOOT_STORAGE_KEY, String(Date.now()));
   backgroundPreload();
+  warmCoreData();
 }
 
 function hasWarmBootCache() {
@@ -726,8 +729,27 @@ function bootTasks() {
   if (can('VIEW_TASKS')) tasks.push({ label: 'Preparing supervisor dashboard', run: () => apiCached('supervisorDashboard', {}) });
   if (can('VIEW_TASKS')) tasks.push({ label: 'Processing calendar reminders', run: () => api('processCalendarReminders', {}) });
   if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
+  if (can('VIEW_OFFICERS')) tasks.push({ label: 'Indexing officer records', run: () => apiCached('listOfficers', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
+}
+
+function warmCoreData() {
+  const warm = [
+    ['dashboard', {}, can('VIEW_DASHBOARD')],
+    ['personalInbox', {}, true],
+    ['tasks', {}, true],
+    ['listNotifications', {}, true],
+    ['listDocuments', {}, can('VIEW_DOCUMENTS')],
+    ['listAnnouncements', {}, can('VIEW_ANNOUNCEMENTS')],
+    ['listTrainingCourses', {}, can('VIEW_COURSES')],
+    ['listOfficers', {}, can('VIEW_OFFICERS')],
+    ['operationalCalendar', {}, isFeatureEnabled('calendar')],
+    ['shiftStatus', {}, true],
+  ].filter(([, , enabled]) => enabled);
+  window.setTimeout(() => {
+    Promise.allSettled(warm.map(([action, data]) => apiCached(action, data)));
+  }, 450);
 }
 
 async function preloadFeatureFlags() {
@@ -2573,7 +2595,7 @@ async function loadTasks() {
     ...(response.afterActionReviews || []),
     ...(response.actionReviews || []),
   ];
-  state.allTasks = response.allTasks || legacyRows;
+  state.allTasks = filterAvailableTasks(response.allTasks || legacyRows);
   state.tasks = response.myTasks || state.allTasks.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee);
   updateTaskNavBadge(response.counts?.mine ?? state.tasks.length);
   const counts = response.counts || {};
@@ -2584,6 +2606,18 @@ async function loadTasks() {
     stat('Available Queue', counts.available || state.allTasks.length),
   ].join('');
   renderTaskView();
+}
+
+function filterAvailableTasks(rows = []) {
+  return rows.filter((row) => {
+    if (row.IsMine || row.AssignedToMe || row.MySupervisee || row.CoveredByMe) return true;
+    if (!can('VIEW_TASKS')) return false;
+    if (row.TaskType === 'Assigned Task' && row.AssignedOfficerID && row.AssignedOfficerID !== state.user?.OfficerID) return false;
+    if (['Account Request'].includes(row.TaskType) && !can('REVIEW_ACCOUNT_REQUESTS')) return false;
+    if (['LOA Approval'].includes(row.TaskType) && !can('APPROVE_LOA')) return false;
+    if (['Course Booking'].includes(row.TaskType) && !can('MANAGE_COURSES') && !can('VIEW_TASKS')) return false;
+    return true;
+  });
 }
 
 async function loadRequests() {
@@ -6428,6 +6462,8 @@ function renderOfficerProfile(data) {
   state.profileDevelopmentPlans = data.developmentPlans || [];
   state.profileOfficerNotes = data.officerNotes || [];
   state.officerOperationalHistory = data.operationalCadHistory || [];
+  const tabs = officerProfileTabs(data);
+  if (!tabs.some((tab) => tab.key === state.profileTab)) state.profileTab = 'overview';
   container.innerHTML = `
     <div class="profile-head">
       <button class="ghost" data-view-link="officers">Back</button>
@@ -6467,54 +6503,28 @@ function renderOfficerProfile(data) {
     ${officerOperationalSummary(data)}
     ${tagList('Officer Tags', officer.Tags)}
 
-    ${trainingChecklist(officer.OfficerID, data.training)}
-
-    <section class="profile-notes">
-      <h3>Notes</h3>
-      <p>${escapeHtml(officer.Notes || 'No notes recorded.')}</p>
-    </section>
-
-    <section class="profile-columns">
-      ${officerCadHistoryPanel(data.operationalCadHistory || [])}
-      ${profileTable('Assigned Casework', data.casework || [], ['Reference', 'Case', 'Action', 'Priority', 'Status', 'DueAt'], { actions: (row) => `<button class="mini ghost" data-open-ops-search="Case:${escapeHtml(row.OperationID)}">Open case</button>` })}
-      ${profileTable('Scoped Notes', data.officerNotes || [], ['Visibility', 'Title', 'Body', 'Author', 'CreatedAt'], {
-        actions: (row) => can('VIEW_TASKS') || can('FULL_ACCESS') ? `<button class="mini" data-edit-officer-note="${escapeHtml(row.NoteID)}">Edit</button><button class="mini ghost" data-delete-officer-note="${escapeHtml(row.NoteID)}">Delete</button>` : '',
-      })}
-      ${profileTable('Training History', data.training, ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}
-      ${profileTable('Rank History', data.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}
-      ${profileTable('Discipline', data.discipline, ['Type', 'Summary', 'IssuedAt', 'Status'], {
-        actions: (row) => can('ADD_DISCIPLINE') ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>` : '',
-      })}
-      ${profileTable('LOA', data.loa, ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'], {
-        actions: (row) => [
-          can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
-          can('APPROVE_LOA') ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
-          row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="LOA" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
-          can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : '',
-        ].join(''),
-      })}
-      ${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'], {
-        actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="Transfer" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '',
-      })}
-      ${profileTable('Supervisor Requests', data.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'], {
-        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>` : '',
-      })}
-      ${profileTable('Appeals / Reviews', data.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'], {
-        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-appeal-review="${escapeHtml(row.AppealID)}">Review</button>` : '',
-      })}
-      ${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], {
-        actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '',
-      })}
-      ${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` : '' })}
-      ${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` : '' })}
-      ${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` : '' })}
-      ${profileTable('Activity Improvement Notices', (data.aips || []).filter((row) => !row.ArchivedAt), ['Reference', 'Status', 'IssueDate', 'ReviewEndDate', 'Reason', 'ReviewOutcome'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button>` })}
-      ${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}
-      ${profileTimeline(data.timeline || [])}
-      ${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}
+    <nav class="profile-tabbar" aria-label="Officer profile sections">
+      ${tabs.map((tab) => `<button type="button" data-profile-tab="${escapeHtml(tab.key)}" class="${tab.key === state.profileTab ? 'active' : ''}"><span>${escapeHtml(tab.label)}</span><b>${escapeHtml(String(tab.count))}</b></button>`).join('')}
+    </nav>
+    <section class="profile-tab-panels">
+      ${tabs.map((tab) => `<section class="profile-tab-panel${tab.key === state.profileTab ? ' active' : ''}" data-profile-panel="${escapeHtml(tab.key)}">${tab.content}</section>`).join('')}
     </section>
   `;
   applyPermissions();
+}
+
+function officerProfileTabs(data) {
+  const officer = data.officer || {};
+  const conductCount = (data.discipline || []).length + (data.restrictions || []).length + (data.aips || []).filter((row) => !row.ArchivedAt).length;
+  return [
+    { key: 'overview', label: 'Overview', count: 3, content: `${officerOperationalSummary(data)}<section class="profile-notes"><h3>Notes</h3><p>${escapeHtml(officer.Notes || 'No notes recorded.')}</p></section>${profileTable('Scoped Notes', data.officerNotes || [], ['Visibility', 'Title', 'Body', 'Author', 'CreatedAt'], { actions: (row) => can('VIEW_TASKS') || can('FULL_ACCESS') ? `<button class="mini" data-edit-officer-note="${escapeHtml(row.NoteID)}">Edit</button><button class="mini ghost" data-delete-officer-note="${escapeHtml(row.NoteID)}">Delete</button>` : '' })}` },
+    { key: 'training', label: 'Training', count: (data.training || []).length, content: `${trainingChecklist(officer.OfficerID, data.training)}${profileTable('Training History', data.training || [], ['Standard', 'Status', 'Assessor', 'DateCompleted', 'ExpiryDate'])}` },
+    { key: 'requests', label: 'Requests', count: (data.loa || []).length + (data.transfers || []).length + (data.supervisorRequests || []).length + (data.appeals || []).length, content: `${profileTable('LOA', data.loa || [], ['Officer', 'Rank', 'StartDate', 'EndDate', 'Status', 'ReviewReason'], { actions: (row) => [can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '', can('APPROVE_LOA') ? `<button class="mini" data-open-loa-review="${escapeHtml(row.RequestID)}">Review</button>` : '', row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="LOA" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '', can('APPROVE_LOA') ? `<button class="mini ghost" data-delete-loa="${escapeHtml(row.RequestID)}">Delete</button>` : ''].join('') })}${profileTable('Transfer Requests', data.transfers || [], ['TargetDivision', 'TimeInMO8', 'Reason', 'HasPermission', 'Status', 'ReviewReason'], { actions: (row) => row.Status === 'Denied' ? `<button class="mini" data-request-appeal-source="Transfer" data-request-appeal-id="${escapeHtml(row.RequestID)}">Appeal</button>` : '' })}${profileTable('Supervisor Requests', data.supervisorRequests || [], ['Category', 'Subject', 'Details', 'Supervisor', 'Status', 'ReviewReason'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-supervisor-review="${escapeHtml(row.RequestID)}">Review</button>` : '' })}${profileTable('Appeals / Reviews', data.appeals || [], ['SourceType', 'SourceID', 'Reason', 'Status', 'ReviewReason'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-open-appeal-review="${escapeHtml(row.AppealID)}">Review</button>` : '' })}` },
+    { key: 'development', label: 'Development', count: (data.developmentPlans || []).length + (data.probation || []).length + (data.performanceReviews || []).length + (data.checkins || []).length, content: `${profileTable('Development Plans', data.developmentPlans || [], ['Goal', 'Category', 'Status', 'DueDate', 'Supervisor', 'Notes'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-plan="${escapeHtml(row.PlanID)}">Edit</button>` : '' })}${profileTable('Probation / Competency', data.probation || [], ['Stage', 'Status', 'Progress', 'StartDate', 'TargetDate', 'Requirements', 'Notes'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-probation="${escapeHtml(row.ProbationID)}">Edit</button><button class="mini ghost" data-delete-probation="${escapeHtml(row.ProbationID)}">Delete</button>` : '' })}${profileTable('Performance Reviews', data.performanceReviews || [], ['ReviewDate', 'Rating', 'Strengths', 'Improvements', 'Objectives', 'NextReviewDate'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-performance-review="${escapeHtml(row.ReviewID)}">Edit</button><button class="mini ghost" data-delete-performance-review="${escapeHtml(row.ReviewID)}">Delete</button>` : '' })}${profileTable('Supervisor Check-ins', data.checkins || [], ['CheckinDate', 'Supervisor', 'Summary', 'Concerns', 'DevelopmentGoals', 'FollowUpDate'])}` },
+    { key: 'conduct', label: 'Conduct', count: conductCount, content: `${profileTable('Discipline', data.discipline || [], ['Type', 'Summary', 'IssuedAt', 'Status'], { actions: (row) => can('ADD_DISCIPLINE') ? `<button class="mini" data-edit-discipline="${escapeHtml(row.ActionID)}">Edit</button><button class="mini ghost" data-delete-discipline="${escapeHtml(row.ActionID)}">Delete</button>` : '' })}${profileTable('Temporary Restrictions', data.restrictions || [], ['RestrictionType', 'Details', 'StartsOn', 'EndsOn', 'Status'], { actions: (row) => can('VIEW_TASKS') ? `<button class="mini" data-edit-restriction="${escapeHtml(row.RestrictionID)}">Edit</button><button class="mini ghost" data-delete-restriction="${escapeHtml(row.RestrictionID)}">Delete</button>` : '' })}${profileTable('Activity Improvement Notices', (data.aips || []).filter((row) => !row.ArchivedAt), ['Reference', 'Status', 'IssueDate', 'ReviewEndDate', 'Reason', 'ReviewOutcome'], { actions: (row) => `<button class="mini" data-open-aip="${escapeHtml(row.AipID)}">Open</button><button class="mini ghost" data-download-aip="${escapeHtml(row.AipID)}">PDF</button>` })}` },
+    { key: 'operations', label: 'Operations', count: (data.operationalCadHistory || []).length + (data.casework || []).length + (data.shifts || []).length, content: `${officerCadHistoryPanel(data.operationalCadHistory || [])}${profileTable('Assigned Casework', data.casework || [], ['Reference', 'Case', 'Action', 'Priority', 'Status', 'DueAt'], { actions: (row) => `<button class="mini ghost" data-open-ops-search="Case:${escapeHtml(row.OperationID)}">Open case</button>` })}${profileTable('Shift Activity', data.shifts || [], ['StartedAt', 'EndedAt', 'Status', 'Summary'])}` },
+    { key: 'timeline', label: 'Timeline', count: (data.timeline || []).length + (data.rankChanges || []).length, content: `${profileTimeline(data.timeline || [])}${profileTable('Rank History', data.rankChanges || [], ['ChangedAt', 'PreviousRank', 'NewRank', 'Reason', 'ChangedByName'])}` },
+  ];
 }
 
 function officerCadHistoryPanel(rows) {
@@ -7348,6 +7358,13 @@ async function handleDocumentClick(event) {
   if (universalAction) {
     if (elements.infoDialog.open) elements.infoDialog.close();
     await runUniversalNewAction(universalAction.dataset.universalNew);
+    return;
+  }
+  const profileTab = event.target.closest('[data-profile-tab]');
+  if (profileTab) {
+    state.profileTab = profileTab.dataset.profileTab || 'overview';
+    document.querySelectorAll('[data-profile-tab]').forEach((button) => button.classList.toggle('active', button.dataset.profileTab === state.profileTab));
+    document.querySelectorAll('[data-profile-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.profilePanel === state.profileTab));
     return;
   }
   const enterOperations = event.target.closest('[data-enter-operations-hub]');
@@ -8456,6 +8473,13 @@ function renderOpsContextTab() {
 }
 
 async function handleDocumentChange(event) {
+  const tableColumnToggle = event.target.closest('[data-table-column-toggle]');
+  if (tableColumnToggle) {
+    const table = tableColumnToggle.closest('table');
+    const index = tableColumnToggle.dataset.tableColumnToggle;
+    table?.querySelectorAll(`[data-col-index="${CSS.escape(index)}"]`).forEach((cell) => cell.classList.toggle('column-hidden', !tableColumnToggle.checked));
+    return;
+  }
   const featureToggle = event.target.closest('[data-feature-toggle]');
   if (featureToggle) {
     featureToggle.disabled = true;
@@ -8948,19 +8972,22 @@ function renderTrainingOverview(rows) {
 
 function renderTable(selector, rows, columns, options = {}) {
   const table = document.querySelector(selector);
+  if (!table) return;
+  table.classList.add('data-rich-table');
   if (!rows.length) {
     table.innerHTML = `<tbody><tr><td>${escapeHtml(options.emptyMessage || 'No records found.')}</td></tr></tbody>`;
     return;
   }
 
   const actionHeader = options.actions ? '<th>Actions</th>' : '';
-  const head = `<thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}${actionHeader}</tr></thead>`;
+  const tools = columns.length > 4 ? `<caption class="table-tools"><details><summary>Table view</summary><div><span>Show columns</span>${columns.map((column, index) => `<label><input type="checkbox" data-table-column-toggle="${index}" checked> ${escapeHtml(column)}</label>`).join('')}</div></details></caption>` : '';
+  const head = `<thead><tr>${columns.map((column, index) => `<th data-col-index="${index}">${escapeHtml(column)}</th>`).join('')}${actionHeader}</tr></thead>`;
   const body = rows.map((row) => {
     const attrs = options.rowAction ? options.rowAction(row) : '';
     const actionCell = options.actions ? `<td class="actions" data-label="Actions">${options.actions(row)}</td>` : '';
-    return `<tr ${attrs}>${columns.map((column) => `<td data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
+    return `<tr ${attrs}>${columns.map((column, index) => `<td data-col-index="${index}" data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
   }).join('');
-  table.innerHTML = `${head}<tbody>${body}</tbody>`;
+  table.innerHTML = `${tools}${head}<tbody>${body}</tbody>`;
 }
 
 function renderError(container, message) {
@@ -9042,13 +9069,19 @@ function positiveNotice(notice) {
 
 async function confirmDelete(message, action, payload, onSuccess) {
   if (!window.confirm(message)) return;
-  const response = await api(action, payload);
+  const recentDeletes = JSON.parse(localStorage.getItem('mo8_recent_deletes') || '[]').filter((time) => Date.now() - Number(time) < 10 * 60 * 1000);
+  if (recentDeletes.length >= 4 && !window.confirm('Several delete/archive actions have been recorded in this browser recently. Continue with this change?')) return;
+  const reason = window.prompt('Record a reason for this delete/archive action. This is kept with the audit trail where supported.', '');
+  if (reason === null) return;
+  const response = await api(action, { ...payload, Reason: reason, DeletionReason: reason, AuditReason: reason });
   if (!response.ok) {
     showInfo('Delete failed', `<p>${escapeHtml(response.error || 'The record could not be deleted.')}</p>`);
     return;
   }
+  recentDeletes.push(Date.now());
+  localStorage.setItem('mo8_recent_deletes', JSON.stringify(recentDeletes.slice(-12)));
   invalidateCache();
-  await onSuccess();
+  if (onSuccess) await onSuccess();
 }
 
 function showInfo(title, content) {
