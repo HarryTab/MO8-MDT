@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-10';
+const APP_VERSION = '2026-08-01-11';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -113,6 +113,7 @@ const FEATURE_MODULES = [
   ['dashboard', 'Dashboard', 'Home', ['dashboard']],
   ['inbox', 'Inbox', 'Home', ['inbox']],
   ['messaging', 'Chat and Messages', 'Home', ['messaging']],
+  ['requests', 'Requests', 'Home', ['requests']],
   ['tasks', 'Tasks', 'Home', ['tasks']],
   ['calendar', 'Calendar', 'Home', ['calendar']],
   ['timeline', 'Timeline', 'Home', ['timeline']],
@@ -537,7 +538,9 @@ document.querySelector('#newProbationButton')?.addEventListener('click', () => o
 document.querySelector('#newAipButton')?.addEventListener('click', () => openAipEditor());
 document.querySelector('#newDisciplineRecordButton')?.addEventListener('click', () => openDisciplineEditor());
 document.querySelector('#newLoaRecordButton')?.addEventListener('click', () => openLoaEditor());
+document.querySelector('#requestsNewLoaRecordButton')?.addEventListener('click', () => openLoaEditor());
 document.querySelector('#requestLoaFromLoaButton')?.addEventListener('click', () => openOwnLoaEditor());
+document.querySelector('#requestsSearch')?.addEventListener('input', renderRequestsWorkspace);
 document.querySelector('#aipArchiveToggle')?.addEventListener('click', () => { state.showArchivedAips = !state.showArchivedAips; document.querySelector('#aipArchiveToggle').textContent = state.showArchivedAips ? 'Show current' : 'Show archive'; renderDevelopmentTables(); });
 document.querySelector('#newReviewButton')?.addEventListener('click', () => openPerformanceReviewEditor());
 document.querySelector('#newRestrictionButton')?.addEventListener('click', () => openRestrictionEditor());
@@ -1174,6 +1177,7 @@ async function showView(view) {
     calendar: ['Calendar', 'LOA, courses, reviews and operational events'],
     myProfile: ['My Profile', 'Your officer record, training, LOA and notifications'],
     shift: ['Shift Log', 'Duty status and team activity'],
+    requests: ['Requests', 'LOA, transfers, appeals and account request queues'],
     tasks: ['Tasks', 'Outstanding approvals and command actions'],
     supervisor: ['Supervisor', 'Assigned officers, check-ins, development plans and workload'],
     officers: ['Officers', 'MO8 officer database'],
@@ -1221,6 +1225,7 @@ async function showView(view) {
     calendar: loadCalendar,
     myProfile: loadMyProfile,
     shift: loadShift,
+    requests: loadRequests,
     tasks: loadTasks,
     supervisor: loadSupervisor,
     officers: loadOfficers,
@@ -1331,6 +1336,7 @@ function renderViewLoading(view) {
     myProfile: 'Loading officer profile...',
     shift: 'Loading shift activity...',
     officerProfile: 'Loading officer profile...',
+    requests: 'Loading requests workspace...',
     tasks: 'Loading task queue...',
     officers: 'Loading officer database...',
     rankChanges: 'Loading rank change log...',
@@ -1372,6 +1378,7 @@ function loaderActionForView(view) {
     calendar: 'operationalCalendar',
     myProfile: 'myProfile',
     shift: 'teamShifts',
+    requests: 'tasks',
     tasks: 'tasks',
     supervisor: 'supervisorDashboard',
     officers: 'listOfficers',
@@ -2396,6 +2403,53 @@ async function loadTasks() {
     stat('Available Queue', counts.available || state.allTasks.length),
   ].join('');
   renderTaskView();
+}
+
+async function loadRequests() {
+  await showViewOnly('requests');
+  const [tasksResponse, loaResponse, accountResponse] = await Promise.all([
+    apiCached('tasks', {}),
+    apiCached('listLoa', {}),
+    can('REVIEW_ACCOUNT_REQUESTS') ? api('listAccountRequests', {}) : Promise.resolve({ ok: true, rows: [] }),
+  ]);
+  state.requestTasks = tasksResponse.ok ? requestRelatedTasks(tasksResponse.allTasks || [
+    ...(tasksResponse.pendingLoa || []),
+    ...(tasksResponse.pendingTransfers || []),
+    ...(tasksResponse.pendingSupervisorRequests || []),
+    ...(tasksResponse.pendingAppeals || []),
+    ...(tasksResponse.accountRequests || []),
+    ...(tasksResponse.retrospectiveShifts || []),
+  ]) : [];
+  state.requestsLoa = loaResponse.rows || [];
+  state.requestsAccountRequests = accountResponse.rows || [];
+  renderRequestsWorkspace();
+}
+
+function requestRelatedTasks(rows = []) {
+  const requestTypes = new Set(['LOA Approval', 'Transfer Request', 'Supervisor Request', 'Appeal / Review', 'Account Request', 'Retrospective Shift', 'Course Booking']);
+  return rows.filter((row) => requestTypes.has(row.TaskType));
+}
+
+function renderRequestsWorkspace() {
+  const query = String(document.querySelector('#requestsSearch')?.value || '').trim().toLowerCase();
+  const matches = (row) => !query || Object.values(row || {}).some((value) => String(value || '').toLowerCase().includes(query));
+  const loaRows = (state.requestsLoa || []).filter(matches);
+  const taskRows = (state.requestTasks || []).filter(matches);
+  const accountRows = (state.requestsAccountRequests || []).filter((row) => (!row.Status || row.Status === 'Pending') && matches(row));
+  const pendingLoa = (state.requestsLoa || []).filter((row) => row.Status === 'Pending').length;
+  document.querySelector('#requestsSummary').innerHTML = [
+    stat('Pending LOA', pendingLoa),
+    stat('Request Tasks', state.requestTasks?.length || 0),
+    stat('Account Requests', accountRows.length),
+    stat('Visible Results', loaRows.length + taskRows.length + accountRows.length),
+  ].join('');
+  renderLoaTable(loaRows, '#requestsLoaTable');
+  renderTable('#requestsQueueTable', taskRows, ['TaskType', 'Officer', 'Rank', 'Subject', 'Status', 'EndDate'], {
+    actions: (row) => `<button class="mini" ${taskOpenAttr(row)}>Open</button>`,
+  });
+  renderTable('#requestsAccountTable', accountRows, ['RobloxUsername', 'Callsign', 'Rank', 'DiscordID', 'Status', 'CreatedAt'], {
+    actions: (row) => can('REVIEW_ACCOUNT_REQUESTS') ? `<button class="mini" data-open-account-request="${escapeHtml(row.RequestID)}">Review</button>` : '',
+  });
 }
 
 function renderTaskView() {
@@ -5013,8 +5067,8 @@ async function loadLoa() {
   renderSearchableView('loa');
 }
 
-function renderLoaTable(rows) {
-  renderTable('#loaTable', rows, ['Officer', 'Rank', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'], {
+function renderLoaTable(rows, selector = '#loaTable') {
+  renderTable(selector, rows, ['Officer', 'Rank', 'StartDate', 'EndDate', 'Reason', 'Status', 'ReviewReason'], {
     actions: (row) => [
       can('CREATE_LOA') ? `<button class="mini" data-edit-loa="${escapeHtml(row.RequestID)}">Edit</button>` : '',
       can('APPROVE_LOA') && row.Status === 'Pending'
@@ -6044,7 +6098,7 @@ async function openLoaEditor(officerIdOrRecord) {
     selectField('Status', 'Status', LOA_STATUSES, record.Status || 'Pending'),
   ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values), {
     successMessage: record.RequestID ? 'LOA request updated.' : 'LOA request added.',
-    onSuccess: async () => { invalidateCache('listLoa'); invalidateCache('tasks'); if (state.activeView === 'loa') await loadLoa(); },
+    onSuccess: async () => { invalidateCache('listLoa'); invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); else if (state.activeView === 'loa') await loadLoa(); },
   });
 }
 
@@ -6055,6 +6109,7 @@ async function openOwnLoaEditor() {
     field('Reason', 'Reason', 'textarea', true),
   ], async (values) => api('requestOwnLoa', values), {
     successMessage: 'LOA request submitted for review.',
+    onSuccess: async () => { invalidateCache('listLoa'); invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); else if (state.activeView === 'loa') await loadLoa(); },
   });
 }
 
@@ -6067,6 +6122,7 @@ function openTransferRequestEditor() {
     field('Notes', 'Additional notes', 'textarea', true),
   ], async (values) => api('requestTransfer', values), {
     successMessage: 'Transfer request submitted for review.',
+    onSuccess: async () => { invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); },
   });
 }
 
@@ -6077,6 +6133,7 @@ function openSupervisorRequestEditor() {
     field('Details', 'Details', 'textarea', true),
   ], async (values) => api('requestSupervisorSupport', values), {
     successMessage: 'Supervisor request submitted.',
+    onSuccess: async () => { invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); },
   });
 }
 
@@ -6090,6 +6147,7 @@ function openSupervisorReviewEditor(record) {
     field('ReviewReason', 'Response / notes', 'textarea', true, record.ReviewReason),
   ], async (values) => api('reviewSupervisorRequest', values), {
     successMessage: 'Supervisor request updated.',
+    onSuccess: async () => { invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); else await loadTasks(); },
   });
 }
 
@@ -6149,6 +6207,7 @@ function openTransferReviewEditor(record) {
     field('ReviewReason', 'Review reason', 'textarea', true, record.ReviewReason),
   ], async (values) => api('reviewTransfer', values), {
     successMessage: 'Transfer review saved.',
+    onSuccess: async () => { invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); else await loadTasks(); },
   });
 }
 
@@ -6193,7 +6252,8 @@ function openAccountRequestReview(record) {
     successMessage: 'Account request reviewed.',
     onSuccess: async (response) => {
       invalidateCache('tasks');
-      if (state.activeView === 'users') await loadUsers();
+      if (state.activeView === 'requests') await loadRequests();
+      else if (state.activeView === 'users') await loadUsers();
       else await loadTasks();
       if (response?.temporaryPassword) showInfo('Account created', `<p>The account was created and its temporary credentials were sent by Discord.</p>`);
     },
@@ -6375,6 +6435,7 @@ async function openLoaReviewEditor(record, status = '') {
     ] : []),
   ], async (values) => api('reviewLoa', values), {
     successMessage: 'LOA review saved.',
+    onSuccess: async () => { invalidateCache('listLoa'); invalidateCache('tasks'); if (state.activeView === 'requests') await loadRequests(); else if (state.activeView === 'loa') await loadLoa(); else await loadTasks(); },
   });
 }
 
@@ -7344,7 +7405,9 @@ async function handleDocumentClick(event) {
       return;
     }
     const record = state.tasks.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest)
-      || state.accountRequests.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
+      || (state.requestTasks || []).find((row) => row.RequestID === accountRequest.dataset.openAccountRequest)
+      || state.accountRequests.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest)
+      || (state.requestsAccountRequests || []).find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
     if (record) openAccountRequestReview(record);
     return;
   }
@@ -7500,7 +7563,9 @@ async function handleDocumentClick(event) {
   const reviewLoaOpen = event.target.closest('[data-open-loa-review]');
   if (reviewLoaOpen) {
     const record = state.tasks.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || (state.requestTasks || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || state.loa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
+      || (state.requestsLoa || []).find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview)
       || state.profileLoa.find((row) => row.RequestID === reviewLoaOpen.dataset.openLoaReview);
     if (record) await openLoaReviewEditor(record, reviewLoaOpen.dataset.status || '');
     return;
@@ -7508,7 +7573,8 @@ async function handleDocumentClick(event) {
 
   const reviewTransferOpen = event.target.closest('[data-open-transfer-review]');
   if (reviewTransferOpen) {
-    const record = state.tasks.find((row) => row.RequestID === reviewTransferOpen.dataset.openTransferReview);
+    const record = state.tasks.find((row) => row.RequestID === reviewTransferOpen.dataset.openTransferReview)
+      || (state.requestTasks || []).find((row) => row.RequestID === reviewTransferOpen.dataset.openTransferReview);
     if (record) openTransferReviewEditor(record);
     return;
   }
@@ -7541,6 +7607,8 @@ async function handleDocumentClick(event) {
     await confirmDelete('Delete this LOA request?', 'deleteLoa', { RequestID: deleteLoa.dataset.deleteLoa }, async () => {
       if (state.activeView === 'tasks') {
         await loadTasks();
+      } else if (state.activeView === 'requests') {
+        await loadRequests();
       } else if (state.activeView === 'officerProfile') {
         await loadOfficerProfile(state.selectedOfficerId);
       } else {

@@ -7,11 +7,11 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MO8 MDT</title>
-    <link rel="stylesheet" href="styles.css?v=2026-08-01-10">
+    <link rel="stylesheet" href="styles.css?v=2026-08-01-11">
     <link rel="stylesheet" href="cad-refinement.css?v=2026-07-01-2">
     <link rel="stylesheet" href="messaging.css?v=2026-07-05-1">
     <link rel="stylesheet" href="recruitment.css?v=2026-06-29-6">
-    <link rel="stylesheet" href="workstation.css?v=2026-08-01-10">
+    <link rel="stylesheet" href="workstation.css?v=2026-08-01-11">
   </head>
   <body>
     <main class="terminal-shell">
@@ -46,6 +46,7 @@
                 <button class="nav-item" data-view="inbox"><span class="nav-symbol">IN</span><span>Inbox</span></button>
                 <button class="nav-item" data-view="messaging"><span class="nav-symbol">CH</span><span>Chat</span><span class="nav-unread" id="chatNavUnread" hidden></span></button>
                 <button class="nav-item" data-view="myProfile"><span class="nav-symbol">ME</span><span>My Profile</span></button>
+                <button class="nav-item" data-view="requests"><span class="nav-symbol">RQ</span><span>Requests</span></button>
                 <button class="nav-item" data-view="tasks"><span class="nav-symbol">TK</span><span>Tasks</span><span class="nav-count-badge" id="taskNavCount" hidden>0</span></button>
                 <button class="nav-item" data-view="calendar"><span class="nav-symbol">CA</span><span>Calendar</span></button>
               </div>
@@ -370,6 +371,34 @@
             <div id="tasksFilterSummary" class="task-filter-summary"></div>
             <div id="tasksBoard" class="task-board"></div>
             <table id="tasksTable" hidden></table>
+          </section>
+
+          <section class="data-view requests-view" id="requestsView" hidden>
+            <div class="section-head">
+              <div><h2>Requests</h2><p>LOA, transfers, appeals, supervisor contact and account request queues.</p></div>
+              <div class="section-actions">
+                <button type="button" data-request-loa>Request LOA</button>
+                <button type="button" data-request-transfer>Request transfer</button>
+                <button type="button" data-request-supervisor>Contact supervisor</button>
+                <button class="ghost" type="button" data-view-link="loa" data-permission="VIEW_LOA">Open LOA records</button>
+              </div>
+            </div>
+            <input id="requestsSearch" class="search-input" type="search" placeholder="Search officer, request type, status, date or reason">
+            <div id="requestsSummary" class="stat-row"></div>
+            <section class="dashboard-grid requests-grid">
+              <article class="dashboard-panel supervisor-wide">
+                <div class="section-head"><div><h3>LOA records</h3><p>Current and recent leave requests.</p></div><button class="ghost mini" id="requestsNewLoaRecordButton" data-permission="CREATE_LOA" type="button">Add LOA</button></div>
+                <div class="table-wrap compact"><table id="requestsLoaTable"></table></div>
+              </article>
+              <article class="dashboard-panel supervisor-wide">
+                <div class="section-head"><div><h3>Request queue</h3><p>Approvals and reviews you can action.</p></div><button class="ghost mini" type="button" data-view-link="tasks">All tasks</button></div>
+                <div class="table-wrap compact"><table id="requestsQueueTable"></table></div>
+              </article>
+              <article class="dashboard-panel supervisor-wide" data-permission="REVIEW_ACCOUNT_REQUESTS">
+                <div class="section-head"><div><h3>Account creation</h3><p>Outstanding account requests.</p></div><button class="ghost mini" type="button" data-view-link="users">Users</button></div>
+                <div class="table-wrap compact"><table id="requestsAccountTable"></table></div>
+              </article>
+            </section>
           </section>
 
           <section class="data-view" id="supervisorView" hidden>
@@ -917,6 +946,6 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="supabase-config.js?v=2026-05-07-6"></script>
-    <script src="app.js?v=2026-08-01-10"></script>
+    <script src="app.js?v=2026-08-01-11"></script>
   </body>
 </html>
