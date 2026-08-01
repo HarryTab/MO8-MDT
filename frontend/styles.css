@@ -2654,6 +2654,93 @@ dialog .section-head .ghost:hover {
   box-shadow: 0 0 0 3px rgba(102, 208, 141, 0.14);
 }
 
+.quick-settings-discord {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.discord-alert-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.discord-alert-group {
+  display: grid;
+  gap: 7px;
+}
+
+.discord-alert-group h4 {
+  margin: 0 0 2px;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.discord-alert-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  color: #173047;
+  background: #f7fbff;
+  border: 1px solid #d6e4ef;
+  border-radius: 8px;
+}
+
+.quick-settings-discord .discord-alert-row {
+  color: #edf7ff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(186, 209, 232, 0.20);
+}
+
+.discord-alert-row strong,
+.discord-alert-row small {
+  display: block;
+}
+
+.discord-alert-row strong {
+  font-size: 12px;
+}
+
+.discord-alert-row small {
+  margin-top: 2px;
+  color: #4c6174;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.quick-settings-discord .discord-alert-row small {
+  color: #bed3e5;
+}
+
+.discord-alert-row.locked {
+  border-color: #e2c36c;
+}
+
+.discord-alert-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2b7198;
+}
+
+.discord-alert-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.discord-alert-panel .discord-alert-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.discord-alert-panel .discord-alert-form > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .task-cover-marker {
   align-self: center;
   display: inline-flex;

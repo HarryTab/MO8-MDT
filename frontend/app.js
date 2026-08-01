@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-08-01-5';
+const APP_VERSION = '2026-08-01-6';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -91,6 +91,23 @@ const DASHBOARD_WIDGETS = [
   ['unassignedOfficers', 'Unassigned Officers'],
   ['lowActivity', 'Low Activity'],
   ['documentAcknowledgements', 'Document Acknowledgements'],
+];
+const DISCORD_ALERT_CATEGORIES = [
+  ['critical', 'Critical alerts', 'Urgent or safety-critical alerts. These always send.'],
+  ['task', 'Task alerts', 'Assigned work, reviews, approvals and amendments.'],
+  ['profile', 'Profile updates', 'Training, discipline, supervisor, AIP and officer-record changes.'],
+  ['calendar', 'Calendar alerts', 'Calendar assignments, reminders and changes.'],
+  ['course', 'Training course alerts', 'Course booking requests, approvals, waitlists and cancellations.'],
+  ['loa', 'LOA and transfer alerts', 'Leave, task-cover and transfer request decisions.'],
+  ['cad', 'CAD and operations alerts', 'CAD assignments, BOLOs, callsign and operational actions.'],
+  ['message', 'Messages and handovers', 'Formal messages, chat acknowledgements and command handovers.'],
+  ['recruitment', 'Recruitment alerts', 'Applications, vacancies and account request updates.'],
+];
+const DISCORD_TASK_ALERT_TYPES = [
+  'LOA Approval', 'Transfer Request', 'Supervisor Request', 'Appeal / Review', 'Course Booking', 'Account Request',
+  'Retrospective Shift', 'Probation Review', 'Performance Review', 'Restriction Review', 'Activity Review', 'Training Review',
+  'AIP Signature', 'AIP Review', 'CAD Review', 'After Action Review', 'Operational Action Review', 'CAD Amendment',
+  'Operational Action Amendment', 'Shift Review', 'Shift Amendment', 'Casework Action', 'Recruitment Application', 'Assigned Task',
 ];
 const FEATURE_MODULES = [
   ['personnelHub', 'Personnel Hub', 'Core', ['dashboard', 'globalSearch', 'myProfile']],
@@ -237,6 +254,7 @@ const elements = {
 document.addEventListener('click', handleDocumentClick);
 document.addEventListener('change', handleDocumentChange);
 document.addEventListener('submit', handleMessagingSubmit);
+document.addEventListener('submit', handleDiscordAlertSubmit);
 document.addEventListener('change', handleBulkOfficerSelection);
 document.addEventListener('input', handleSearchableOfficerInput);
 document.addEventListener('input', handleSearchableReferenceInput);
@@ -909,6 +927,7 @@ async function openQuickSettings() {
   const content = document.querySelector('#quickSettingsContent');
   if (!dialog || !content) return;
   const officer = await currentUserOfficerRecord();
+  const alertConfig = await api('discordAlertConfig', {});
   const rank = officer?.Rank || state.user?.Rank || state.user?.Role || 'Officer';
   const callsign = officer?.Callsign || state.user?.Callsign || 'Callsign not set';
   content.innerHTML = `
@@ -923,18 +942,59 @@ async function openQuickSettings() {
       <button type="button" data-change-password-shortcut>Reset password</button>
       <button type="button" class="ghost" data-report-bug>Report a bug</button>
     </div>
-    <section class="quick-settings-note">
+    <section class="quick-settings-note quick-settings-discord">
       <strong>Discord alerts</strong>
-      <p>DM alerts are active for important profile updates, assigned tasks, calendar changes and operational actions when your Discord ID is linked.</p>
-      <div class="quick-settings-alerts">
-        <span><b></b> Critical tasks always alert</span>
-        <span><b></b> Routine task alerts enabled</span>
-        <span><b></b> Profile and calendar alerts enabled</span>
-      </div>
+      <p>Choose which MDT notifications can send you Discord DMs. In-app notifications still appear either way.</p>
+      ${alertConfig.ok ? renderDiscordAlertPreferences(alertConfig, false) : `<p>${escapeHtml(alertConfig.error || 'Could not load Discord alert preferences.')}</p>`}
     </section>
   `;
   if (typeof dialog.show === 'function' && !dialog.open) dialog.show();
   else dialog.setAttribute('open', '');
+}
+
+function renderDiscordAlertPreferences(config, adminMode = false) {
+  const rows = normalisedDiscordAlertRows(config, adminMode);
+  const categoryRows = rows.filter((row) => row.ScopeType === 'category');
+  const taskRows = rows.filter((row) => row.ScopeType === 'task');
+  return `
+    <form class="discord-alert-form" data-discord-alert-form="${adminMode ? 'defaults' : 'user'}">
+      <section class="discord-alert-group">
+        <h4>Alert categories</h4>
+        ${categoryRows.map((row) => discordAlertToggle(row, adminMode)).join('')}
+      </section>
+      <section class="discord-alert-group">
+        <h4>Specific task alerts</h4>
+        ${taskRows.map((row) => discordAlertToggle(row, adminMode)).join('')}
+      </section>
+      <button type="submit">${adminMode ? 'Save default alerts' : 'Save my alerts'}</button>
+    </form>
+  `;
+}
+
+function normalisedDiscordAlertRows(config, adminMode = false) {
+  const defaults = config.defaults || [];
+  const prefs = config.preferences || [];
+  const defaultMap = new Map(defaults.map((row) => [`${row.ScopeType}:${row.ScopeKey}`, row]));
+  const prefMap = new Map(prefs.map((row) => [`${row.ScopeType}:${row.ScopeKey}`, row]));
+  const base = [
+    ...DISCORD_ALERT_CATEGORIES.map(([key, label, description]) => ({ ScopeType: 'category', ScopeKey: key, Label: label, Description: description, Enabled: true, Locked: key === 'critical' })),
+    ...DISCORD_TASK_ALERT_TYPES.map((task) => ({ ScopeType: 'task', ScopeKey: task, Label: task, Description: task === 'Assigned Task' ? 'Tasks manually assigned by another officer.' : `Discord DMs for ${task.toLowerCase()} tasks.`, Enabled: true, Locked: false })),
+  ];
+  return base.map((row) => {
+    const key = `${row.ScopeType}:${row.ScopeKey}`;
+    const def = defaultMap.get(key) || {};
+    const pref = prefMap.get(key) || {};
+    const enabled = adminMode ? def.Enabled ?? row.Enabled : pref.Enabled ?? def.Enabled ?? row.Enabled;
+    return { ...row, ...def, Enabled: enabled, Locked: def.Locked ?? row.Locked };
+  });
+}
+
+function discordAlertToggle(row, adminMode = false) {
+  const locked = row.Locked && !adminMode;
+  return `<label class="discord-alert-row${row.Locked ? ' locked' : ''}">
+    <span><strong>${escapeHtml(row.Label || row.ScopeKey)}</strong><small>${escapeHtml(row.Description || row.ScopeKey)}${row.Locked ? ' / locked by command' : ''}</small></span>
+    <input type="checkbox" name="${escapeHtml(`${row.ScopeType}:${row.ScopeKey}`)}"${row.Enabled !== false ? ' checked' : ''}${locked ? ' disabled' : ''}>
+  </label>`;
 }
 
 async function currentUserOfficerRecord() {
@@ -5343,10 +5403,11 @@ async function loadPermissions() {
 
 async function loadSettings() {
   await showViewOnly('settings');
-  const [accessResponse, featureResponse, bugResponse] = await Promise.all([
+  const [accessResponse, featureResponse, bugResponse, alertResponse] = await Promise.all([
     !state.permissionConfig?.permissions?.length ? apiCached('accessPreviewConfig', {}) : Promise.resolve({ ok: true, cached: true }),
     apiCached('featureFlags', {}),
     api('listBugReports', {}),
+    api('discordAlertConfig', {}),
   ]);
   if (!state.permissionConfig?.permissions?.length) {
     const response = accessResponse;
@@ -5363,6 +5424,7 @@ async function loadSettings() {
   renderDesignLabState();
   renderFeatureFlagPanel();
   renderBugReportAdminPanel(bugResponse.ok ? bugResponse.rows || [] : []);
+  renderDiscordAlertDefaultsPanel(alertResponse.ok ? alertResponse : { defaults: [] });
 }
 
 function renderFeatureFlagPanel() {
@@ -5397,6 +5459,38 @@ function renderBugReportAdminPanel(rows) {
       <div class="row-actions"><button class="mini" data-review-bug-report="${escapeHtml(row.ReportID)}">Update</button></div>
     </article>
   `).join('') : emptyState('No bug reports submitted yet.');
+}
+
+function renderDiscordAlertDefaultsPanel(config) {
+  const container = document.querySelector('#discordAlertDefaultsPanel');
+  if (!container) return;
+  container.innerHTML = can('FULL_ACCESS')
+    ? renderDiscordAlertPreferences(config, true)
+    : emptyState('Full access is required to change Discord alert defaults.');
+}
+
+async function handleDiscordAlertSubmit(event) {
+  const form = event.target.closest('[data-discord-alert-form]');
+  if (!form) return;
+  event.preventDefault();
+  const mode = form.dataset.discordAlertForm;
+  const rows = [...form.querySelectorAll('input[type="checkbox"][name]')].map((input) => {
+    const [ScopeType, ...rest] = input.name.split(':');
+    return { ScopeType, ScopeKey: rest.join(':'), Enabled: input.checked };
+  });
+  const button = form.querySelector('button[type="submit"]');
+  const original = button?.textContent || 'Save';
+  if (button) { button.disabled = true; button.textContent = 'Saving...'; }
+  const response = await api(mode === 'defaults' ? 'saveDiscordAlertDefaults' : 'saveDiscordAlertPreferences', { Rows: rows });
+  if (button) { button.disabled = false; button.textContent = original; }
+  if (!response.ok) {
+    showInfo('Discord alerts', `<p>${escapeHtml(response.error || 'Could not save Discord alert settings.')}</p>`);
+    return;
+  }
+  invalidateCache('discordAlertConfig');
+  showInfo('Discord alerts', '<p>Discord alert settings saved.</p>');
+  if (mode === 'defaults') await loadSettings();
+  else document.querySelector('#quickSettingsDialog')?.close();
 }
 
 function openBugReportEditor() {
@@ -8748,6 +8842,9 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       setUserPermission: supabaseSetUserPermission,
       resetUserPassword: supabaseResetUserPassword,
       changePassword: supabaseChangePassword,
+      discordAlertConfig: supabaseDiscordAlertConfig,
+      saveDiscordAlertPreferences: supabaseSaveDiscordAlertPreferences,
+      saveDiscordAlertDefaults: supabaseSaveDiscordAlertDefaults,
       auditLog: supabaseAuditLog,
       rankChangeLog: supabaseRankChangeLog,
       shiftStatus: supabaseShiftStatus,
@@ -10988,7 +11085,7 @@ async function supabaseSaveMdtTask(data) {
   const notifyIds = existing ? (record.assigned_officer_id !== existing.assigned_officer_id ? [record.assigned_officer_id] : []) : assignedOfficerIds;
   for (const officerId of notifyIds) {
     const officer = await supabaseById('officers', 'officer_id', officerId);
-    if (officer) await supabaseNotify(officer.member_id, 'New task assigned', notificationDetails([detailLine('Task', record.title), detailLine('Category', record.category), detailLine('Priority', record.priority), detailLine('Due', record.due_at ? formatDisplayDateTime(record.due_at) : 'No deadline'), detailLine('Assigned by', me.user.RobloxUsername)]), me.user.UserID);
+    if (officer) await supabaseNotify(officer.member_id, 'New task assigned', notificationDetails([detailLine('Task', record.title), detailLine('Category', record.category), detailLine('Priority', record.priority), detailLine('Due', record.due_at ? formatDisplayDateTime(record.due_at) : 'No deadline'), detailLine('Assigned by', me.user.RobloxUsername)]), me.user.UserID, { category: 'task', taskType: 'Assigned Task', critical: record.priority === 'Critical' });
   }
   return { ok: true, createdCount: existing ? 0 : records.length };
 }
@@ -11571,6 +11668,74 @@ async function supabaseResetUserPassword(data) {
 
 async function supabaseChangePassword(data) {
   return supabaseInvokeAdminUsers({ action: 'changePassword', NewPassword: data.NewPassword || '' });
+}
+
+async function supabaseDiscordAlertConfig() {
+  const defaults = await supabaseDiscordAlertDefaults();
+  const preferences = state.user?.UserID ? await supabaseOptionalRows('discord_alert_preferences', 'user_id', state.user.UserID) : [];
+  return {
+    ok: true,
+    defaults,
+    preferences: (preferences || []).map((row) => ({
+      UserID: row.user_id,
+      ScopeType: row.scope_type,
+      ScopeKey: row.scope_key,
+      Enabled: row.enabled,
+      UpdatedAt: row.updated_at,
+    })),
+  };
+}
+
+async function supabaseDiscordAlertDefaults() {
+  const rows = await supabaseOptionalAll('discord_alert_defaults');
+  if (rows.length) return rows.map((row) => ({
+    ScopeType: row.scope_type,
+    ScopeKey: row.scope_key,
+    Label: row.label,
+    Enabled: row.enabled,
+    Locked: row.locked,
+    Description: row.description || '',
+  }));
+  return normalisedDiscordAlertRows({ defaults: [], preferences: [] }, true);
+}
+
+async function supabaseSaveDiscordAlertPreferences(data) {
+  if (!state.user?.UserID) return { ok: false, error: 'You must be signed in.' };
+  const defaults = await supabaseDiscordAlertDefaults();
+  const locked = new Set(defaults.filter((row) => row.Locked).map((row) => `${row.ScopeType}:${row.ScopeKey}`));
+  const rows = normaliseSubmittedAlertRows(data.Rows)
+    .filter((row) => !locked.has(`${row.scope_type}:${row.scope_key}`))
+    .map((row) => ({ ...row, user_id: state.user.UserID, updated_at: new Date().toISOString() }));
+  if (!rows.length) return { ok: true };
+  const { error } = await supabaseClient.from('discord_alert_preferences').upsert(rows, { onConflict: 'user_id,scope_type,scope_key' });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseSaveDiscordAlertDefaults(data) {
+  if (!can('FULL_ACCESS')) return { ok: false, error: 'Full access is required.' };
+  const existing = await supabaseDiscordAlertDefaults();
+  const existingMap = new Map(existing.map((row) => [`${row.ScopeType}:${row.ScopeKey}`, row]));
+  const rows = normaliseSubmittedAlertRows(data.Rows).map((row) => {
+    const current = existingMap.get(`${row.scope_type}:${row.scope_key}`) || {};
+    return {
+      ...row,
+      label: current.Label || row.scope_key,
+      description: current.Description || '',
+      locked: current.Locked || row.scope_key === 'critical',
+      updated_by: state.user?.UserID || null,
+      updated_at: new Date().toISOString(),
+    };
+  });
+  const { error } = await supabaseClient.from('discord_alert_defaults').upsert(rows, { onConflict: 'scope_type,scope_key' });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+function normaliseSubmittedAlertRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    scope_type: row.ScopeType === 'task' ? 'task' : 'category',
+    scope_key: String(row.ScopeKey || '').trim(),
+    enabled: row.Enabled !== false && row.Enabled !== 'false',
+  })).filter((row) => row.scope_key);
 }
 
 async function supabaseInvokeAdminUsers(payload) {
@@ -13872,7 +14037,7 @@ async function supabaseAudit(actorUserId, action, targetType, targetId, details 
   }
 }
 
-async function supabaseNotify(memberId, title, message, actorUserId) {
+async function supabaseNotify(memberId, title, message, actorUserId, options = {}) {
   if (!memberId) return;
   try {
     const { data } = await supabaseClient.from('notifications').insert({
@@ -13881,10 +14046,52 @@ async function supabaseNotify(memberId, title, message, actorUserId) {
       message,
       actor_user_id: actorUserId || null,
     }).select('notification_id').maybeSingle();
-    if (data?.notification_id) await sendDiscordNotification(data.notification_id);
+    if (data?.notification_id && await shouldSendDiscordAlert(memberId, title, options)) await sendDiscordNotification(data.notification_id);
   } catch (error) {
     // Notification failure should not block the user action.
   }
+}
+
+async function shouldSendDiscordAlert(memberId, title, options = {}) {
+  if (!USE_SUPABASE || !memberId) return false;
+  const category = options.critical ? 'critical' : options.category || discordCategoryForTitle(title);
+  const taskType = options.taskType || discordTaskTypeForTitle(title);
+  if (category === 'critical') return true;
+  try {
+    const profile = await supabaseOfficerProfile(memberId);
+    const defaults = await supabaseDiscordAlertDefaults();
+    const preferences = profile?.user_id ? await supabaseOptionalRows('discord_alert_preferences', 'user_id', profile.user_id) : [];
+    const enabledFor = (scopeType, scopeKey) => {
+      const key = `${scopeType}:${scopeKey}`;
+      const pref = preferences.find((row) => `${row.scope_type}:${row.scope_key}` === key);
+      if (pref) return pref.enabled !== false;
+      const def = defaults.find((row) => `${row.ScopeType}:${row.ScopeKey}` === key);
+      return def ? def.Enabled !== false : true;
+    };
+    if (!enabledFor('category', category)) return false;
+    if (category === 'task' && taskType && !enabledFor('task', taskType)) return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function discordCategoryForTitle(title = '') {
+  const text = String(title).toLowerCase();
+  if (/urgent|critical|assistance|bolo/.test(text)) return 'critical';
+  if (/task|review|approval|amendment|signature|assigned/.test(text)) return 'task';
+  if (/calendar|event|rsvp|reminder/.test(text)) return 'calendar';
+  if (/course|training course|booking/.test(text)) return 'course';
+  if (/loa|leave|transfer|task cover/.test(text)) return 'loa';
+  if (/cad|operational|unit|callsign|incident|supervisor requested/.test(text)) return 'cad';
+  if (/message|chat|handover/.test(text)) return 'message';
+  if (/recruitment|application|vacancy|account request|account creation/.test(text)) return 'recruitment';
+  return 'profile';
+}
+
+function discordTaskTypeForTitle(title = '') {
+  const text = String(title).toLowerCase();
+  return DISCORD_TASK_ALERT_TYPES.find((type) => text.includes(type.toLowerCase().replace(' / ', ' ')) || text.includes(type.toLowerCase())) || '';
 }
 
 async function sendDiscordNotification(notificationId) {
