@@ -1,5 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwsRocB7bsQLfXiazKGI-O158ppsRnQPVsrtvzVaoyUUgMdanidkOJc_pg--lddbDGPhQ/exec';
-const APP_VERSION = '2026-07-08-7';
+const APP_VERSION = '2026-08-01-1';
 const SUPABASE_CONFIG = window.MO8_SUPABASE || {};
 const USE_SUPABASE = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase);
 const supabaseClient = USE_SUPABASE ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey) : null;
@@ -92,11 +92,42 @@ const DASHBOARD_WIDGETS = [
   ['lowActivity', 'Low Activity'],
   ['documentAcknowledgements', 'Document Acknowledgements'],
 ];
+const FEATURE_MODULES = [
+  ['personnelHub', 'Personnel Hub', 'Core', ['dashboard', 'globalSearch', 'myProfile']],
+  ['dashboard', 'Dashboard', 'Home', ['dashboard']],
+  ['inbox', 'Inbox', 'Home', ['inbox']],
+  ['messaging', 'Chat and Messages', 'Home', ['messaging']],
+  ['tasks', 'Tasks', 'Home', ['tasks']],
+  ['calendar', 'Calendar', 'Home', ['calendar']],
+  ['timeline', 'Timeline', 'Home', ['timeline']],
+  ['shift', 'Shift Logging', 'Personnel', ['shift']],
+  ['supervisor', 'Supervisor', 'Personnel', ['supervisor']],
+  ['officers', 'Officer Records', 'Personnel', ['officers', 'officerProfile']],
+  ['development', 'Development and AIP', 'Personnel', ['development']],
+  ['rankChanges', 'Rank Log', 'Personnel', ['rankChanges']],
+  ['discipline', 'Discipline', 'Personnel', ['discipline']],
+  ['loa', 'Leave of Absence', 'Personnel', ['loa']],
+  ['handover', 'Handover', 'Personnel', ['handover']],
+  ['courses', 'Courses', 'Learning', ['courses']],
+  ['training', 'Training Matrix', 'Learning', ['training']],
+  ['documents', 'Documents', 'Learning', ['documents']],
+  ['announcements', 'Notice Board', 'Management', ['announcements']],
+  ['recruitment', 'Recruitment', 'Management', ['recruitment']],
+  ['reports', 'Reports', 'Management', ['reports']],
+  ['users', 'Users and Account Requests', 'Management', ['users']],
+  ['permissions', 'Permissions', 'Management', ['permissions']],
+  ['audit', 'Audit Log', 'Management', ['audit']],
+  ['dataQuality', 'Data Quality', 'Management', ['dataQuality']],
+  ['settings', 'Settings', 'Management', ['settings']],
+  ['cad', 'Control and CAD', 'Operations', ['operations']],
+];
 
 const state = {
   token: localStorage.getItem('mo8_token') || '',
   user: null,
   permissions: [],
+  featureFlags: [],
+  showReviewedAccountRequests: false,
   accessPreview: null,
   unreadNotifications: 0,
   unreadChatMessages: 0,
@@ -269,18 +300,29 @@ document.querySelector('#accountRequestForm')?.addEventListener('submit', async 
     document.querySelector('#accountRequestDialog').close();
     return;
   }
+  if (event.currentTarget.dataset.submitting === 'true') return;
   const status = document.querySelector('#accountRequestStatus');
+  const submitButton = event.currentTarget.querySelector('button[value="submit"]');
+  event.currentTarget.dataset.submitting = 'true';
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
   status.textContent = 'Sending request...';
   const values = Object.fromEntries(new FormData(event.currentTarget));
   const response = await api('requestAccount', values, false);
   if (!response.ok) {
     status.textContent = response.error || 'Could not send account request.';
+    submitButton.disabled = false;
+    submitButton.textContent = 'Submit request';
+    delete event.currentTarget.dataset.submitting;
     return;
   }
   event.currentTarget.reset();
   document.querySelector('#accountRequestDialog').close();
   elements.loginStatus.classList.add('success');
   elements.loginStatus.textContent = `Account request successfully sent${response.RequestID ? ` (${response.RequestID})` : ''}.${response.dmSent ? ' A Discord confirmation has also been sent.' : ''}`;
+  submitButton.disabled = false;
+  submitButton.textContent = 'Submit request';
+  delete event.currentTarget.dataset.submitting;
 });
 
 elements.logoutButton.addEventListener('click', async () => {
@@ -308,6 +350,8 @@ elements.passwordButton.addEventListener('click', () => {
   });
 });
 elements.notificationsButton.addEventListener('click', toggleNotifications);
+document.querySelector('#systemQuickSettingsButton')?.addEventListener('click', openQuickSettings);
+document.querySelector('#quickSettingsCloseButton')?.addEventListener('click', () => document.querySelector('#quickSettingsDialog')?.close());
 elements.infoCloseButton.addEventListener('click', () => elements.infoDialog.close());
 elements.mobileMenuButton?.addEventListener('click', () => toggleMobileNav());
 elements.hubSwitchButton?.addEventListener('click', showHubSelector);
@@ -423,6 +467,10 @@ document.querySelector('#accessPreviewForm')?.addEventListener('submit', startAc
 document.querySelector('#accessPreviewForm')?.addEventListener('change', updateAccessPreviewEstimate);
 document.querySelector('#resetAccessPreviewForm')?.addEventListener('click', resetAccessPreviewForm);
 document.querySelectorAll('[data-settings-panel]').forEach((button) => button.addEventListener('click', () => switchSettingsPanel(button.dataset.settingsPanel)));
+document.querySelector('#toggleReviewedAccountRequests')?.addEventListener('click', () => {
+  state.showReviewedAccountRequests = !state.showReviewedAccountRequests;
+  renderAccountRequestsTable();
+});
 document.querySelectorAll('[data-design-preset]').forEach((button) => button.addEventListener('click', () => applyPersonnelDesign(button.dataset.designPreset)));
 document.querySelectorAll('[data-design-density]').forEach((button) => button.addEventListener('click', () => applyPersonnelDensity(button.dataset.designDensity)));
 document.querySelectorAll('[data-design-viewport]').forEach((button) => button.addEventListener('click', () => setDesignPreviewViewport(button.dataset.designViewport)));
@@ -631,6 +679,7 @@ async function validateSessionQuietly() {
 function bootTasks() {
   const tasks = [
     { label: 'Loading operator profile', run: () => apiCached('myProfile', {}) },
+    { label: 'Checking enabled modules', run: preloadFeatureFlags },
     { label: 'Checking notifications', run: preloadNotifications },
     { label: 'Checking personal actions', run: () => apiCached('myActions', {}) },
   ];
@@ -646,6 +695,15 @@ function bootTasks() {
   if (can('VIEW_COURSES')) tasks.push({ label: 'Loading training courses', run: () => apiCached('listTrainingCourses', {}) });
   tasks.push({ label: 'Opening MDT workspace', run: () => Promise.resolve({ ok: true }) });
   return tasks;
+}
+
+async function preloadFeatureFlags() {
+  const response = await apiCached('featureFlags', {});
+  if (response.ok) {
+    state.featureFlags = response.rows || [];
+    applyFeatureFlags();
+  }
+  return response;
 }
 
 async function preloadNotifications() {
@@ -830,12 +888,40 @@ function showHubSelector() {
   const welcome = document.querySelector('#desktopWelcome');
   const sessionUser = document.querySelector('#desktopSessionUser');
   const systemTaskbarUser = document.querySelector('#systemTaskbarUser');
+  const systemTaskbarCallsign = document.querySelector('#systemTaskbarCallsign');
   if (welcome) welcome.textContent = desktopName;
-  if (sessionUser) sessionUser.textContent = `${desktopName} / ${state.user.Rank || state.user.Role || 'Officer'}`;
+  const rankLabel = state.user.Rank || state.user.Role || 'Officer';
+  const callsignLabel = state.user.Callsign || 'Callsign not set';
+  if (sessionUser) sessionUser.textContent = `${desktopName} / ${rankLabel}`;
   if (systemTaskbarUser) systemTaskbarUser.textContent = desktopName;
+  if (systemTaskbarCallsign) systemTaskbarCallsign.textContent = `${rankLabel} / ${callsignLabel}`;
   updateWorkstationClock();
   updateChatBadge();
   applyPermissions();
+}
+
+function openQuickSettings() {
+  const dialog = document.querySelector('#quickSettingsDialog');
+  const content = document.querySelector('#quickSettingsContent');
+  if (!dialog || !content) return;
+  content.innerHTML = `
+    <section class="quick-settings-profile">
+      <span>${escapeHtml(state.user?.RobloxUsername || 'Officer')}</span>
+      <strong>${escapeHtml(state.user?.Rank || state.user?.Role || 'Officer')}</strong>
+      <small>${escapeHtml(state.user?.Callsign || 'Callsign not set')}</small>
+    </section>
+    <div class="quick-settings-actions">
+      <button type="button" data-view-link="myProfile">Open my profile</button>
+      <button type="button" data-view-link="tasks">Open my tasks</button>
+      <button type="button" data-change-password-shortcut>Reset password</button>
+      <button type="button" class="ghost" data-report-bug>Report a bug</button>
+    </div>
+    <section class="quick-settings-note">
+      <strong>Discord alerts</strong>
+      <p>Task and profile alerts are currently sent for important MDT notifications. Per-category controls can be enabled once the launch configuration is settled.</p>
+    </section>
+  `;
+  dialog.showModal();
 }
 
 async function enterPersonnelHub() {
@@ -882,9 +968,34 @@ function applyPermissions() {
   document.querySelectorAll('[data-permission]').forEach((node) => {
     node.hidden = !can(node.dataset.permission);
   });
+  applyFeatureFlags();
   document.querySelectorAll('.nav-item-row').forEach((row) => { row.hidden = Boolean(row.querySelector('.nav-item')?.hidden); });
-  document.querySelectorAll('.nav-group').forEach((group) => { group.hidden = !group.querySelector('.nav-item-row:not([hidden])'); });
+  document.querySelectorAll('.nav-group').forEach((group) => { group.hidden = !group.querySelector('.nav-item:not([hidden])'); });
   renderNavFavourites();
+}
+
+function featureModuleForView(view) {
+  return FEATURE_MODULES.find(([, , , views]) => views.includes(view));
+}
+
+function isFeatureEnabled(keyOrView) {
+  const module = FEATURE_MODULES.find(([key]) => key === keyOrView) || featureModuleForView(keyOrView);
+  if (!module) return true;
+  const flag = state.featureFlags.find((row) => row.FeatureKey === module[0]);
+  return flag ? flag.Enabled !== false : true;
+}
+
+function applyFeatureFlags() {
+  document.querySelectorAll('[data-view], [data-launch-personnel-app], [data-system-view]').forEach((node) => {
+    const view = node.dataset.view || node.dataset.launchPersonnelApp || node.dataset.systemView;
+    if (!view) return;
+    const allowedByPermission = !node.dataset.permission || can(node.dataset.permission);
+    node.hidden = !allowedByPermission || !isFeatureEnabled(view);
+  });
+  document.querySelector('#enterOperationsHub')?.toggleAttribute('hidden', !isFeatureEnabled('cad'));
+  document.querySelector('#taskbarCadButton')?.toggleAttribute('hidden', !isFeatureEnabled('cad'));
+  document.querySelector('#systemTaskbarCad')?.toggleAttribute('hidden', !isFeatureEnabled('cad'));
+  document.querySelectorAll('.nav-group').forEach((group) => { group.hidden = !group.querySelector('.nav-item:not([hidden])'); });
 }
 
 async function refreshNotificationBadge() {
@@ -913,7 +1024,9 @@ function closeMobileNav() {
 }
 
 function defaultView() {
-  if (can('VIEW_DASHBOARD')) return 'dashboard';
+  if (can('VIEW_DASHBOARD') && isFeatureEnabled('dashboard')) return 'dashboard';
+  const fallback = ['inbox', 'tasks', 'myProfile', 'documents'].find((view) => isFeatureEnabled(view));
+  if (fallback) return fallback;
   return 'myProfile';
 }
 
@@ -930,6 +1043,10 @@ async function handleDesktopCommandSearch(event) {
 }
 
 async function showView(view) {
+  if (!isFeatureEnabled(view)) {
+    view = defaultView();
+    if (!isFeatureEnabled(view)) view = 'myProfile';
+  }
   const titles = {
     dashboard: ['Dashboard', 'Current MO8 overview'],
     inbox: ['Inbox', 'Your actions, notices and assigned work'],
@@ -5155,7 +5272,11 @@ function renderAccountRequestsTable() {
   if (!table) return;
   const pending = state.accountRequests.filter((row) => row.Status === 'Pending');
   document.querySelector('#accountRequestsCount').textContent = `${pending.length} pending`;
-  renderTable('#accountRequestsTable', state.accountRequests, ['RobloxUsername', 'Callsign', 'Rank', 'DiscordID', 'Status', 'ReviewNotes', 'ReviewedBy', 'CreatedAt', 'ReviewedAt'], {
+  const toggle = document.querySelector('#toggleReviewedAccountRequests');
+  if (toggle) toggle.textContent = state.showReviewedAccountRequests ? 'Hide reviewed' : 'Show reviewed';
+  const rows = state.showReviewedAccountRequests ? state.accountRequests : pending;
+  renderTable('#accountRequestsTable', rows, ['RobloxUsername', 'Callsign', 'Rank', 'DiscordID', 'Status', 'ReviewNotes', 'ReviewedBy', 'CreatedAt', 'ReviewedAt'], {
+    emptyMessage: state.showReviewedAccountRequests ? 'No account requests found.' : 'No outstanding account requests.',
     actions: (row) => row.Status === 'Pending' ? `<button class="mini" data-open-account-request="${escapeHtml(row.RequestID)}">Review</button>` : '',
   });
 }
@@ -5182,11 +5303,17 @@ async function loadPermissions() {
 
 async function loadSettings() {
   await showViewOnly('settings');
+  const [accessResponse, featureResponse, bugResponse] = await Promise.all([
+    !state.permissionConfig?.permissions?.length ? apiCached('accessPreviewConfig', {}) : Promise.resolve({ ok: true, cached: true }),
+    apiCached('featureFlags', {}),
+    api('listBugReports', {}),
+  ]);
   if (!state.permissionConfig?.permissions?.length) {
-    const response = await apiCached('accessPreviewConfig', {});
+    const response = accessResponse;
     if (!response.ok) { document.querySelector('#accessPreviewResult').innerHTML = emptyState(response.error || 'Could not load access configuration.'); return; }
     state.permissionConfig = response;
   }
+  if (featureResponse.ok) state.featureFlags = featureResponse.rows || [];
   const rankSelect = document.querySelector('#previewRank');
   if (!rankSelect.options.length) rankSelect.innerHTML = OFFICER_RANKS.map((rank) => `<option>${escapeHtml(rank)}</option>`).join('');
   renderPreviewChoices('#previewRoles', 'PreviewRoles', SYSTEM_ROLES);
@@ -5194,6 +5321,52 @@ async function loadSettings() {
   renderPreviewChoices('#previewTraining', 'PreviewTraining', TRAINING_STANDARDS);
   updateAccessPreviewEstimate();
   renderDesignLabState();
+  renderFeatureFlagPanel();
+  renderBugReportAdminPanel(bugResponse.ok ? bugResponse.rows || [] : []);
+}
+
+function renderFeatureFlagPanel() {
+  const container = document.querySelector('#featureFlagPanel');
+  if (!container) return;
+  const rows = state.featureFlags.length ? state.featureFlags : FEATURE_MODULES.map(([FeatureKey, Label, Category]) => ({ FeatureKey, Label, Category, Enabled: true, Description: '' }));
+  const groups = [...new Set(rows.map((row) => row.Category || 'Other'))];
+  container.innerHTML = groups.map((group) => `
+    <section class="feature-flag-group">
+      <h4>${escapeHtml(group)}</h4>
+      ${rows.filter((row) => (row.Category || 'Other') === group).map((row) => `
+        <label class="feature-flag-row">
+          <span><strong>${escapeHtml(row.Label)}</strong><small>${escapeHtml(row.Description || row.FeatureKey)}</small></span>
+          <input type="checkbox" data-feature-toggle="${escapeHtml(row.FeatureKey)}"${row.Enabled !== false ? ' checked' : ''}>
+        </label>
+      `).join('')}
+    </section>
+  `).join('');
+}
+
+function renderBugReportAdminPanel(rows) {
+  const container = document.querySelector('#bugReportAdminPanel');
+  if (!container) return;
+  container.innerHTML = rows.length ? rows.map((row) => `
+    <article class="bug-report-row severity-${escapeHtml(String(row.Severity || 'Normal').toLowerCase())}">
+      <div>
+        <span>${escapeHtml(row.Severity || 'Normal')} / ${escapeHtml(row.Area || 'General')}</span>
+        <strong>${escapeHtml(row.Title || 'Untitled bug')}</strong>
+        <p>${escapeHtml(row.Description || '')}</p>
+        <small>${escapeHtml(row.Reporter || 'Unknown')} / ${escapeHtml(formatDisplayDateTime(row.CreatedAt))}</small>
+      </div>
+      <div class="row-actions"><button class="mini" data-review-bug-report="${escapeHtml(row.ReportID)}">Update</button></div>
+    </article>
+  `).join('') : emptyState('No bug reports submitted yet.');
+}
+
+function openBugReportEditor() {
+  openEditor('Report a bug', [
+    selectField('Area', 'Area', ['General', 'Dashboard', 'Tasks', 'Officer Profile', 'LOA', 'Users', 'Training', 'Documents', 'CAD', 'Recruitment', 'Other'], state.activeHub === 'operations' ? 'CAD' : state.activeView || 'General'),
+    selectField('Severity', 'Severity', ['Low', 'Normal', 'High', 'Critical'], 'Normal'),
+    field('Title', 'Short title', 'text', false),
+    field('Description', 'What happened?', 'textarea', true),
+    hiddenField('PageUrl', location.href),
+  ], (values) => api('submitBugReport', values), { successMessage: 'Bug report submitted. Thank you, this has gone to the command review queue.' });
 }
 
 const PERSONNEL_DESIGNS = {
@@ -5712,11 +5885,15 @@ function openLoaEditor(officerIdOrRecord) {
   ], async (values) => api(values.RequestID ? 'saveLoa' : 'createLoa', values));
 }
 
-function openOwnLoaEditor() {
+async function openOwnLoaEditor() {
+  const needsCover = rankAtLeast(state.user?.Rank || state.user?.Role || '', 'Sergeant');
+  const usersResponse = needsCover ? await apiCached('listUsers', {}) : { ok: true, rows: [] };
+  const coverUsers = (usersResponse.rows || []).filter((user) => user.Status !== 'Archived' && user.UserID !== state.user?.UserID);
   openEditor('Request LOA', [
     field('StartDate', 'Start date', 'date'),
     field('EndDate', 'End date', 'date'),
     field('Reason', 'Reason', 'textarea', true),
+    ...(needsCover ? [supervisorSelectField('HandoverUserID', 'Officer covering your MDT tasks while on LOA', coverUsers), field('HandoverNotes', 'Task handover notes', 'textarea', true)] : []),
   ], async (values) => api('requestOwnLoa', values), {
     successMessage: 'LOA request submitted for review.',
   });
@@ -6276,6 +6453,30 @@ function resizeDashboardWidget(interaction, clientX) {
 }
 
 async function handleDocumentClick(event) {
+  const reportBug = event.target.closest('[data-report-bug]');
+  if (reportBug) {
+    document.querySelector('#quickSettingsDialog')?.close();
+    openBugReportEditor();
+    return;
+  }
+  const passwordShortcut = event.target.closest('[data-change-password-shortcut]');
+  if (passwordShortcut) {
+    document.querySelector('#quickSettingsDialog')?.close();
+    elements.passwordButton.click();
+    return;
+  }
+  const reviewBug = event.target.closest('[data-review-bug-report]');
+  if (reviewBug) {
+    const reports = (await api('listBugReports', {})).rows || [];
+    const row = reports.find((item) => item.ReportID === reviewBug.dataset.reviewBugReport) || {};
+    openEditor('Update bug report', [
+      hiddenField('ReportID', row.ReportID),
+      { html: `<section class="task-brief wide"><span>${escapeHtml(row.Area || 'General')}</span><h3>${escapeHtml(row.Title || 'Bug report')}</h3><p>${escapeHtml(row.Description || '')}</p></section>` },
+      selectField('Status', 'Status', ['Open', 'In Review', 'Fixed', 'Not a Bug', 'Deferred'], row.Status || 'Open'),
+      field('ReviewNotes', 'Review notes', 'textarea', true, row.ReviewNotes || ''),
+    ], (values) => api('updateBugReport', values), { successMessage: 'Bug report updated.', onSuccess: loadSettings });
+    return;
+  }
   const openEvidence = event.target.closest('[data-open-evidence]');
   if (openEvidence) { await openAndVerifyEvidence(openEvidence.dataset.openEvidence); return; }
   const evidenceHistory = event.target.closest('[data-evidence-history]');
@@ -6913,6 +7114,11 @@ async function handleDocumentClick(event) {
   }
   const accountRequest = event.target.closest('[data-open-account-request]');
   if (accountRequest) {
+    if (accountRequest.dataset.openAccountRequest === 'ACCOUNT_REQUEST_QUEUE') {
+      if (elements.infoDialog.open) elements.infoDialog.close();
+      await showView('users');
+      return;
+    }
     const record = state.tasks.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest)
       || state.accountRequests.find((row) => row.RequestID === accountRequest.dataset.openAccountRequest);
     if (record) openAccountRequestReview(record);
@@ -6938,6 +7144,7 @@ async function handleDocumentClick(event) {
   const viewLink = event.target.closest('[data-view-link]');
   if (viewLink) {
     if (elements.infoDialog.open) elements.infoDialog.close();
+    document.querySelector('#quickSettingsDialog')?.close();
     await showView(viewLink.dataset.viewLink);
     return;
   }
@@ -7309,6 +7516,20 @@ function renderOpsContextTab() {
 }
 
 async function handleDocumentChange(event) {
+  const featureToggle = event.target.closest('[data-feature-toggle]');
+  if (featureToggle) {
+    featureToggle.disabled = true;
+    const response = await api('saveFeatureFlag', { FeatureKey: featureToggle.dataset.featureToggle, Enabled: featureToggle.checked ? 'TRUE' : 'FALSE' });
+    featureToggle.disabled = false;
+    if (!response.ok) {
+      featureToggle.checked = !featureToggle.checked;
+      showInfo('Feature update failed', `<p>${escapeHtml(response.error || 'Could not update this feature.')}</p>`);
+      return;
+    }
+    invalidateCache('featureFlags');
+    await preloadFeatureFlags();
+    return;
+  }
   const controlUnitStatus = event.target.closest('[data-control-unit-status]');
   if (controlUnitStatus) {
     const response = await api('controlUpdateOperationalUnitStatus', { UnitID: controlUnitStatus.dataset.controlUnitStatus, Status: controlUnitStatus.value });
@@ -7601,35 +7822,43 @@ function supervisorProfileLink(officer = {}) {
 }
 
 function profileTable(title, rows, columns, options = {}) {
+  const countLabel = `${rows.length} record${rows.length === 1 ? '' : 's'}`;
+  if (!rows.length) {
+    return `
+      <details class="profile-panel profile-panel-collapsed">
+        <summary><span>${escapeHtml(title)}</span><small>No records</small></summary>
+      </details>
+    `;
+  }
   const actionHeader = options.actions ? '<th>Actions</th>' : '';
-  const body = rows.length
-    ? rows.map((row) => {
+  const body = rows
+    .map((row) => {
       const actionCell = options.actions ? `<td class="actions" data-label="Actions">${options.actions(row)}</td>` : '';
       return `<tr>${columns.map((column) => `<td data-label="${escapeHtml(column)}">${formatCell(row[column], column)}</td>`).join('')}${actionCell}</tr>`;
-    }).join('')
-    : `<tr><td colspan="${columns.length + (options.actions ? 1 : 0)}">No records found.</td></tr>`;
+    }).join('');
   return `
-    <section class="profile-panel">
-      <h3>${escapeHtml(title)}</h3>
+    <details class="profile-panel profile-records-panel"${rows.length <= 8 ? ' open' : ''}>
+      <summary><span>${escapeHtml(title)}</span><small>${escapeHtml(countLabel)}</small></summary>
       <div class="table-wrap compact">
         <table>
           <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}${actionHeader}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>
-    </section>
+    </details>
   `;
 }
 
 function profileTimeline(rows) {
+  const visibleRows = rows.slice(0, 12);
   const body = rows.length
-    ? rows.map((row) => `
+    ? visibleRows.map((row) => `
       <article class="timeline-item">
         <span>${formatCell(row.Date, isDateTimeColumn('CreatedAt') ? 'CreatedAt' : 'Date')}</span>
         <strong>${escapeHtml(row.Type || 'Update')} / ${escapeHtml(row.Title || '')}</strong>
         <p>${escapeHtml(row.Detail || '')}</p>
       </article>
-    `).join('')
+    `).join('') + (rows.length > visibleRows.length ? `<p class="empty">Showing latest ${visibleRows.length} of ${rows.length}. Use the Timeline page for the full searchable history.</p>` : '')
     : `<p class="empty">No timeline events yet.</p>`;
   return `
     <section class="profile-panel">
@@ -8045,12 +8274,25 @@ function openEditor(title, fields, onSubmit, options = {}) {
       elements.editorDialog.close();
       return;
     }
+    if (elements.editorForm.dataset.submitting === 'true') return;
 
     elements.editorStatus.textContent = 'Saving...';
+    elements.editorForm.dataset.submitting = 'true';
+    const submitButton = event.submitter?.value === 'submit' ? event.submitter : elements.editorForm.querySelector('button[value="submit"]');
+    const originalLabel = submitButton?.textContent || 'Save';
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Saving...';
+    }
     const values = formValues(elements.editorForm);
     const response = await onSubmit(values);
     if (!response.ok) {
       elements.editorStatus.textContent = response.error || 'Save failed.';
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalLabel;
+      }
+      delete elements.editorForm.dataset.submitting;
       return;
     }
 
@@ -8061,6 +8303,11 @@ function openEditor(title, fields, onSubmit, options = {}) {
 
     elements.editorDialog.close();
     if (draftEnabled) sessionStorage.removeItem(draftKey);
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
+    }
+    delete elements.editorForm.dataset.submitting;
     invalidateCache();
     if (options.onSuccess) await options.onSuccess(response);
     else await showView(state.activeView);
@@ -8473,6 +8720,11 @@ async function supabaseApi(action, data = {}, includeToken = true) {
       reviewRetrospectiveShift: supabaseReviewRetrospectiveShift,
       saveShift: supabaseSaveShift,
       requestAccount: supabaseRequestAccount,
+      featureFlags: supabaseFeatureFlags,
+      saveFeatureFlag: supabaseSaveFeatureFlag,
+      listBugReports: supabaseListBugReports,
+      submitBugReport: supabaseSubmitBugReport,
+      updateBugReport: supabaseUpdateBugReport,
     };
 
     if (!handlers[action]) {
@@ -8550,7 +8802,7 @@ async function supabaseMyProfile() {
     officer: officer ? decorateSupabaseOfficer(officer, { loa, shifts, profiles, officers }) : null,
     training: [...training.map(supabaseTrainingRecord), ...matrix.flatMap(supabaseTrainingMatrixRecords)],
     discipline: discipline.map(supabaseDiscipline),
-    loa: loa.map(supabaseLoa),
+    loa: loa.map((row) => supabaseLoa(row, officer || {}, profiles)),
     transfers: [],
     supervisorRequests: [],
     appeals: [],
@@ -10222,6 +10474,7 @@ async function supabaseRequestOwnLoa(data) {
     detailLine('End date', formatDisplayDate(data.EndDate)),
     detailLine('Status', 'Pending'),
     detailLine('Reason', data.Reason),
+    detailLine('Task cover', data.HandoverUserID ? 'Cover officer selected' : ''),
   ]);
   await supabaseNotify(officer.member_id, 'LOA request submitted', message, state.user?.UserID);
   if (officer.supervisor_user_id) {
@@ -10239,6 +10492,8 @@ async function supabaseSaveLoa(data) {
     reason: data.Reason || '',
     status: data.Status || 'Pending',
     review_reason: data.ReviewReason || '',
+    handover_user_id: data.HandoverUserID || null,
+    handover_notes: data.HandoverNotes || '',
   };
   const result = data.RequestID
     ? await supabaseClient.from('loa_requests').update(record).eq('request_id', data.RequestID).select().single()
@@ -10385,6 +10640,12 @@ async function supabaseTasks() {
   ]);
   const currentProfile = (profiles || []).find((profile) => profile.user_id === state.user?.UserID) || {};
   const currentOfficer = (officers || []).find((officer) => officer.member_id === currentProfile.member_id) || {};
+  const coveredSupervisorIds = new Set();
+  (loa || []).filter((row) => row.status === 'Approved' && row.handover_user_id === state.user?.UserID && isTodayInRange(row.start_date, row.end_date)).forEach((row) => {
+    const loaOfficer = (officers || []).find((officer) => officer.officer_id === row.officer_id) || {};
+    const loaProfile = (profiles || []).find((profile) => profile.member_id === loaOfficer.member_id) || {};
+    if (loaProfile.user_id) coveredSupervisorIds.add(loaProfile.user_id);
+  });
   const involvedOfficerIds = (incident) => [...new Set([
     ...(operationalOfficerActions || []).filter((row) => row.incident_id === incident.incident_id).map((row) => row.officer_id),
     ...(operationalUnitMembers || []).filter((row) => (incident.assigned_unit_ids || []).includes(row.unit_id)).map((row) => row.officer_id),
@@ -10401,6 +10662,7 @@ async function supabaseTasks() {
       Supervisor: supervisor.roblox_username || 'Not assigned',
       SupervisorUserID: supervisor.user_id || '',
       MySupervisee: supervisor.user_id === state.user?.UserID,
+      CoveredByMe: coveredSupervisorIds.has(supervisor.user_id),
       RequestID: row.request_id,
       AppealID: row.appeal_id,
       Subject: row.subject || '',
@@ -10480,7 +10742,8 @@ async function supabaseTasks() {
     if (['Issued', 'Under Review', 'Extended'].includes(row.status) && row.line_manager_user_id === state.user?.UserID && new Date(row.review_end_date) <= new Date()) tasks.push({ TaskType: 'AIP Review', AipID: row.aip_id, OfficerID: row.officer_id, Officer: officer.roblox_username, Rank: officer.rank, Subject: `${row.reference} / Activity review due`, Reason: row.reason, Status: 'Review Due', EndDate: row.review_end_date, IsMine: true, AssignedToMe: true, Priority: 'Critical' });
     return tasks;
   });
-  const accountRequests = (accountRequestRows || []).filter((row) => row.status === 'Pending').map((row) => ({ TaskType: 'Account Request', RequestID: row.request_id, Officer: row.roblox_username, RobloxUsername: row.roblox_username, Callsign: row.callsign || '', Rank: row.rank, DiscordID: row.discord_id, Subject: 'New MDT account', Reason: 'Identity and team membership require verification.', ReviewNotes: row.review_notes || '', Status: row.status, CreatedAt: row.created_at }));
+  const pendingAccountRequestRows = (accountRequestRows || []).filter((row) => row.status === 'Pending');
+  const accountRequests = pendingAccountRequestRows.length ? [{ TaskType: 'Account Request', RequestID: 'ACCOUNT_REQUEST_QUEUE', Officer: 'Command queue', Subject: `${pendingAccountRequestRows.length} account creation request${pendingAccountRequestRows.length === 1 ? '' : 's'}`, Reason: 'Review outstanding account requests from the Users page.', Status: 'Pending', CreatedAt: pendingAccountRequestRows[0]?.created_at || new Date().toISOString(), Count: pendingAccountRequestRows.length, AssignedToMe: can('REVIEW_ACCOUNT_REQUESTS') }] : [];
   const retrospectiveShifts = (retrospectiveRows || []).filter((row) => row.status === 'Pending').map((row) => {
     const task = decorate(row, 'Retrospective Shift');
     return Object.assign(task, { StartedAt: row.started_at, EndedAt: row.ended_at, Summary: row.summary || '', Reason: row.reason || '' });
@@ -10521,8 +10784,8 @@ async function supabaseTasks() {
   const activeResolutionKeys = new Set((taskResolutions || []).filter((row) => !row.suppress_until || new Date(row.suppress_until) > new Date()).map((row) => row.task_key));
   const queued = [...pendingLoa, ...pendingCourseBookings, ...accountRequests, ...authorisedQueue, ...aipTasks, ...assignedTasks, ...caseworkTasks, ...recruitmentReviews, ...incidentAmendments, ...actionAmendments].map((row) => ({ ...row, TaskKey: generatedTaskKey(row) })).filter((row) => !activeResolutionKeys.has(row.TaskKey));
   const all = prioritizeTasks(queued);
-  const mine = all.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee || row.RelevantSupervisor);
-  const available = can('VIEW_TASKS') ? all : mine;
+  const mine = all.filter((row) => row.IsMine || row.AssignedToMe || row.MySupervisee || row.CoveredByMe || row.RelevantSupervisor);
+  const available = can('VIEW_TASKS') ? all.filter((row) => row.TaskType !== 'Assigned Task' || row.IsMine || row.AssignedToMe) : mine;
   const dueSoon = mine.filter((row) => row.EndDate && new Date(row.EndDate) <= new Date(Date.now() + 7 * 86400000)).length;
   return {
     ok: true,
@@ -10997,6 +11260,83 @@ async function supabaseRequestAccount(data) {
   const discordId = String(data.DiscordID || '').trim();
   if (!username || !callsign || !OFFICER_RANKS.includes(data.Rank || '') || !/^\d{15,22}$/.test(discordId)) return { ok: false, error: 'Enter a valid Roblox username, callsign, rank, and Discord user ID.' };
   return supabaseInvokePublicAdminUsers({ action: 'submitAccountRequest', RobloxUsername: username, Callsign: callsign, Rank: data.Rank, DiscordID: discordId });
+}
+
+async function supabaseFeatureFlags() {
+  const { data, error } = await supabaseClient.from('feature_flags').select('*').order('category').order('label');
+  if (error) {
+    return { ok: true, rows: FEATURE_MODULES.map(([FeatureKey, Label, Category]) => ({ FeatureKey, Label, Category, Enabled: true, Description: '' })), warning: error.message };
+  }
+  const dbRows = data || [];
+  const rows = FEATURE_MODULES.map(([FeatureKey, Label, Category]) => {
+    const row = dbRows.find((item) => item.feature_key === FeatureKey) || {};
+    return { FeatureKey, Label: row.label || Label, Category: row.category || Category, Enabled: row.enabled !== false, Description: row.description || '' };
+  });
+  return { ok: true, rows };
+}
+
+async function supabaseSaveFeatureFlag(data) {
+  if (!can('FULL_ACCESS')) return { ok: false, error: 'Full access is required to change launch modules.' };
+  const module = FEATURE_MODULES.find(([key]) => key === data.FeatureKey);
+  if (!module) return { ok: false, error: 'Unknown feature.' };
+  const { error } = await supabaseClient.from('feature_flags').upsert({
+    feature_key: module[0],
+    label: module[1],
+    category: module[2],
+    enabled: truthy(data.Enabled),
+    description: data.Description || '',
+    updated_by: state.user?.UserID || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'feature_key' });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+async function supabaseListBugReports() {
+  const { data, error } = await supabaseClient.from('bug_reports').select('*').order('created_at', { ascending: false });
+  if (error) return { ok: true, rows: [], warning: error.message };
+  return { ok: true, rows: (data || []).map((row) => ({
+    ReportID: row.report_id,
+    Title: row.title,
+    Area: row.area,
+    Severity: row.severity,
+    Status: row.status,
+    Description: row.description,
+    Reporter: row.reporter_username || '',
+    PageUrl: row.page_url || '',
+    ReviewNotes: row.review_notes || '',
+    CreatedAt: row.created_at,
+    UpdatedAt: row.updated_at,
+  })) };
+}
+
+async function supabaseSubmitBugReport(data) {
+  const me = await supabaseCurrentProfile(); if (!me.ok) return me;
+  if (!String(data.Title || '').trim() || !String(data.Description || '').trim()) return { ok: false, error: 'Add a short title and describe what happened.' };
+  const { error } = await supabaseClient.from('bug_reports').insert({
+    title: String(data.Title).trim(),
+    area: data.Area || state.activeView || state.activeHub || 'General',
+    severity: data.Severity || 'Normal',
+    status: 'Open',
+    description: String(data.Description).trim(),
+    reporter_user_id: me.user.UserID,
+    reporter_member_id: me.user.MemberID || null,
+    reporter_username: me.user.RobloxUsername || '',
+    page_url: data.PageUrl || location.href,
+    user_agent: navigator.userAgent,
+  });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+async function supabaseUpdateBugReport(data) {
+  if (!can('FULL_ACCESS')) return { ok: false, error: 'Full access is required.' };
+  const { error } = await supabaseClient.from('bug_reports').update({
+    status: data.Status || 'Open',
+    review_notes: data.ReviewNotes || '',
+    reviewed_by: state.user?.UserID || null,
+    updated_at: new Date().toISOString(),
+  }).eq('report_id', data.ReportID);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 async function supabaseInvokePublicAdminUsers(payload) {
@@ -13709,6 +14049,8 @@ function supabaseLoa(row, officer = {}, profiles = []) {
     Reason: row.reason || '',
     Status: row.status,
     ReviewReason: row.review_reason || '',
+    HandoverUserID: row.handover_user_id || '',
+    HandoverNotes: row.handover_notes || '',
     ReviewedBy: reviewer.roblox_username || row.reviewed_by || '',
     ReviewedAt: row.reviewed_at || '',
     CreatedAt: row.created_at || '',
