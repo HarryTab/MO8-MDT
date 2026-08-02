@@ -684,3 +684,42 @@ body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 
     font-weight: 850;
   }
 }
+/* Mobile navigation open-state fix: the drawer should own the screen, not sit under header actions. */
+@media (max-width: 760px) {
+  body.personnel-workspace-v2.mobile-nav-open .topbar,
+  body.personnel-workspace-v2.mobile-nav-open .personnel-workspace-tabs,
+  body.personnel-workspace-v2.mobile-nav-open .personnel-page-heading {
+    display: none !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .module-dock,
+  body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .module-dock {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 2200 !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav,
+  body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .module-dock .nav {
+    position: fixed !important;
+    top: 62px !important;
+    right: 8px !important;
+    bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+    left: 8px !important;
+    z-index: 2190 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: none !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open #appView {
+    pointer-events: none;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .system-taskbar {
+    z-index: 2210 !important;
+  }
+}
