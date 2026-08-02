@@ -743,6 +743,87 @@ body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 
     transform: none !important;
   }
 
+  body.personnel-workspace-v2.mobile-nav-open .nav-tools {
+    margin: 0 0 14px !important;
+    padding: 0 0 12px !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-tools input {
+    min-height: 48px !important;
+    padding: 0 14px !important;
+    font-size: 16px !important;
+    border-radius: 14px !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-favourites,
+  body.personnel-workspace-v2.mobile-nav-open .nav-group {
+    display: grid !important;
+    gap: 8px !important;
+    margin: 0 0 14px !important;
+    padding: 10px !important;
+    background: rgba(255, 255, 255, .045) !important;
+    border: 1px solid rgba(142, 177, 199, .18) !important;
+    border-radius: 18px !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-group-items,
+  body.personnel-workspace-v2.mobile-nav-open .nav-group.searching .nav-group-items,
+  body.personnel-workspace-v2.mobile-nav-open .nav-group:not(.collapsed) .nav-group-items {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-item-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 42px !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-item,
+  body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .nav-item {
+    display: grid !important;
+    grid-template-columns: 46px minmax(0, 1fr) auto !important;
+    width: 100% !important;
+    min-height: 58px !important;
+    padding: 9px 12px !important;
+    gap: 12px !important;
+    color: #edf7fb !important;
+    background: rgba(255, 255, 255, .07) !important;
+    border: 1px solid rgba(151, 186, 208, .22) !important;
+    border-radius: 16px !important;
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-item > span:not(.nav-symbol):not(.nav-count-badge):not(.nav-unread) {
+    display: block !important;
+    overflow: hidden !important;
+    min-width: 0 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-symbol {
+    width: 42px !important;
+    height: 40px !important;
+    border-radius: 10px !important;
+    font-size: 11px !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .nav-pin {
+    width: 42px !important;
+    height: 58px !important;
+    border-radius: 14px !important;
+    background: rgba(255, 255, 255, .05) !important;
+    border: 1px solid rgba(151, 186, 208, .14) !important;
+  }
+
   body.personnel-workspace-v2.mobile-nav-open #appView {
     pointer-events: none;
   }
