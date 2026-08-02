@@ -688,28 +688,56 @@ body.personnel-workspace-v2.nav-collapsed .dock-collapse { width: 40px; height: 
 @media (max-width: 760px) {
   body.personnel-workspace-v2.mobile-nav-open .topbar,
   body.personnel-workspace-v2.mobile-nav-open .personnel-workspace-tabs,
-  body.personnel-workspace-v2.mobile-nav-open .personnel-page-heading {
+  body.personnel-workspace-v2.mobile-nav-open .personnel-page-heading,
+  body.personnel-workspace-v2.mobile-nav-open .workspace {
     display: none !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open,
+  body.personnel-workspace-v2.mobile-nav-open .terminal-shell,
+  body.personnel-workspace-v2.mobile-nav-open .terminal-window {
+    overflow: hidden !important;
+    background: #0b2334 !important;
+  }
+
+  body.personnel-workspace-v2.mobile-nav-open .terminal-window,
+  body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .terminal-window {
+    display: block !important;
+    min-height: calc(100dvh - 76px) !important;
   }
 
   body.personnel-workspace-v2.mobile-nav-open .module-dock,
   body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .module-dock {
-    position: sticky !important;
+    position: fixed !important;
     top: 0 !important;
+    right: 0 !important;
+    left: 0 !important;
+    height: auto !important;
     z-index: 2200 !important;
+    padding: 8px !important;
+    background: #102b3d !important;
+    border-bottom: 1px solid rgba(130, 168, 194, .34) !important;
   }
 
   body.personnel-workspace-v2.mobile-nav-open .nav,
   body.personnel-workspace-v2.mobile-nav-open.nav-collapsed .module-dock .nav {
     position: fixed !important;
-    top: 62px !important;
-    right: 8px !important;
+    top: 64px !important;
+    right: 0 !important;
     bottom: calc(78px + env(safe-area-inset-bottom)) !important;
-    left: 8px !important;
+    left: 0 !important;
     z-index: 2190 !important;
     max-height: none !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 12px 14px 24px !important;
     overflow-y: auto !important;
     overscroll-behavior: contain;
+    color: #eef7fb !important;
+    background: linear-gradient(180deg, #0b2334, #102f43) !important;
+    border-top: 1px solid rgba(130, 168, 194, .28) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
     opacity: 1 !important;
     pointer-events: auto !important;
     transform: none !important;
