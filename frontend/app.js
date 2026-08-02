@@ -7538,6 +7538,10 @@ async function handleDocumentClick(event) {
     return;
   }
   if (event.target.closest('[data-widget-drag], [data-widget-resize]')) return;
+  if (event.target.closest('[data-close-notifications]')) {
+    closeNotificationMenu();
+    return;
+  }
   if (!event.target.closest('.notification-shell')) {
     closeNotificationMenu();
   }
@@ -9185,8 +9189,11 @@ function renderNotificationMenu(response) {
   const rows = response.rows || [];
   elements.notificationMenu.innerHTML = `
     <div class="notification-menu-head">
-      <strong>Notifications</strong>
-      <span>${escapeHtml(String(response.unread || 0))} unread</span>
+      <div>
+        <strong>Notifications</strong>
+        <span>${escapeHtml(String(response.unread || 0))} unread</span>
+      </div>
+      <button type="button" data-close-notifications aria-label="Close notifications">Close</button>
     </div>
     ${rows.length
     ? `<div class="notice-list">${rows.map((notice) => `
